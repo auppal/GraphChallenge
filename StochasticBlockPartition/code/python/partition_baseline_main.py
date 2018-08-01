@@ -199,15 +199,10 @@ def propose_node_movement_wrapper(tup):
         print("Rank %d pid %d start %d stop %d step %d" % (rank,mypid,start,stop,step))
 
     for current_node in range(start, stop, step):
-
-        t0 = timeit.default_timer()
-
         res = propose_node_movement(current_node, partition, out_neighbors, in_neighbors,
                                     M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
                                     vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, args)
 
-        t1 = timeit.default_timer()
-        t_elapsed_ms = (t1 - t0) * 1e3
         (ni, current_block, proposal, delta_entropy, p_accept) = res
         accept = (np.random.uniform() <= p_accept)
 
@@ -303,14 +298,10 @@ def propose_node_movement_sparse_wrapper(tup):
         print("Propose node movement at worker %d" % (myrank,))
 
     for current_node in range(start, stop, step):
-        t0 = timeit.default_timer()
-
         res = propose_node_movement(current_node, partition, out_neighbors, in_neighbors,
                                     M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
                                     vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, args)
 
-        t1 = timeit.default_timer()
-        t_elapsed_ms = (t1 - t0) * 1e3
         (ni, current_block, proposal, delta_entropy, p_accept) = res
         accept = (np.random.uniform() <= p_accept)
 
@@ -1586,11 +1577,7 @@ def partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, ar
         results = pool.map(find_optimal_partition_wrapper, pieces)
 
         alg_states,partitions = (list(i) for i in zip(*results))
-
-        #partition_brackets,Ms = (list(i) for i in zip(*results))
-
         pool.close()
-        #partitions = [partition_brackets[i][0] for i in range(decimation)]
     else:
         decimation = 1
         t_prog_start = timeit.default_timer()
