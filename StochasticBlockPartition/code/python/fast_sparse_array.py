@@ -36,6 +36,8 @@ class nonzero_dict(dict):
         return np.fromiter(dict_keys_func(self), dtype=int)
     def values(self):
         return np.fromiter(dict_values_func(self), dtype=int)
+    def sum(self):
+        return np.fromiter(dict_values_func(self), dtype=int).sum()
     def dict_keys(self):
         return dict_keys_func(self)
 

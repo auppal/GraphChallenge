@@ -301,10 +301,10 @@ def propose_node_movement_sparse_wrapper(tup):
                                         self_edge_weight, agg_move = 0,
                                         use_sparse_alg = args.sparse_algorithm)
 
-                block_degrees_out[r] = np.sum(new_M_r_row.values())
-                block_degrees_out[s] = np.sum(new_M_s_row.values())
-                block_degrees_in[r] = np.sum(new_M_r_col.values())
-                block_degrees_in[s] = np.sum(new_M_s_col.values())
+                block_degrees_out[r] = new_M_r_row.sum()
+                block_degrees_out[s] = new_M_s_row.sum()
+                block_degrees_in[r] = new_M_r_col.sum()
+                block_degrees_in[s] = new_M_s_col.sum()
 
                 block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
                 block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
@@ -356,10 +356,10 @@ def propose_node_movement_sparse_wrapper(tup):
                                     self_edge_weight, agg_move = 0,
                                     use_sparse_alg = args.sparse_algorithm)
 
-            block_degrees_out[r] = np.sum(new_M_r_row.values())
-            block_degrees_out[s] = np.sum(new_M_s_row.values())
-            block_degrees_in[r] = np.sum(new_M_r_col.values())
-            block_degrees_in[s] = np.sum(new_M_s_col.values())
+            block_degrees_out[r] = new_M_r_row.sum()
+            block_degrees_out[s] = new_M_s_row.sum()
+            block_degrees_in[r] = new_M_r_col.sum()
+            block_degrees_in[s] = new_M_s_col.sum()
 
             block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
             block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
@@ -612,16 +612,10 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
 
             btime = timeit.default_timer()
 
-            if not is_compressed(M):
-                block_degrees_out[r] = np.sum(new_M_r_row)
-                block_degrees_out[s] = np.sum(new_M_s_row)
-                block_degrees_in[r] = np.sum(new_M_r_col)
-                block_degrees_in[s] = np.sum(new_M_s_col)
-            else:
-                block_degrees_out[r] = np.sum(new_M_r_row.values())
-                block_degrees_out[s] = np.sum(new_M_s_row.values())
-                block_degrees_in[r] = np.sum(new_M_r_col.values())
-                block_degrees_in[s] = np.sum(new_M_s_col.values())
+            block_degrees_out[r] = new_M_r_row.sum()
+            block_degrees_out[s] = new_M_s_row.sum()
+            block_degrees_in[r] = new_M_r_col.sum()
+            block_degrees_in[s] = new_M_s_col.sum()
 
             block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
             block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
@@ -825,16 +819,10 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
                                                 self_edge_weight, agg_move = 0,
                                                 use_sparse_alg = args.sparse_algorithm)
 
-                        if not is_compressed(M):
-                            block_degrees_out[r] = np.sum(new_M_r_row)
-                            block_degrees_out[s] = np.sum(new_M_s_row)
-                            block_degrees_in[r] = np.sum(new_M_r_col)
-                            block_degrees_in[s] = np.sum(new_M_s_col)
-                        else:
-                            block_degrees_out[r] = np.sum(new_M_r_row.values())
-                            block_degrees_out[s] = np.sum(new_M_s_row.values())
-                            block_degrees_in[r] = np.sum(new_M_r_col.values())
-                            block_degrees_in[s] = np.sum(new_M_s_col.values())
+                        block_degrees_out[r] = new_M_r_row.sum()
+                        block_degrees_out[s] = new_M_s_row.sum()
+                        block_degrees_in[r] = new_M_r_col.sum()
+                        block_degrees_in[s] = new_M_s_col.sum()
 
                         block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
                         block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
