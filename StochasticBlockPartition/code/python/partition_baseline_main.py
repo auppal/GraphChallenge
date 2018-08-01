@@ -237,16 +237,7 @@ def propose_node_movement_sparse_wrapper(tup):
             = (shared_memory_to_private(i) for i in (partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared))
 
         mypid_idx = next(i for i,e in enumerate(worker_pids) if e == mypid)
-
-        if 1:
-            M = M_shared
-        else:
-            M = fast_sparse_array(M_shared.shape)
-            for i in range(M.shape[0]):
-                M_row = nonzero_dict(M_shared.take_dict(i, 0))
-                M.set_axis_dict(i, 0, M_row)
-                M_col = nonzero_dict(M_shared.take_dict(i, 1))
-                M.set_axis_dict(i, 1, M_col)
+        M = M_shared
 
         # Ensure every worker has a different random seed.
         numpy.random.seed((mypid + int(timeit.default_timer() * 1e6)) % 4294967295)
@@ -267,30 +258,9 @@ def propose_node_movement_sparse_wrapper(tup):
                 if args.verbose > 2:
                     print("Worker pid %d rank %d move remote %d from block %d to block %d." % (worker_pid,myrank, ni, r, s))
 
-                blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[ni][:, 0]], return_inverse=True)
-                count_out = np.bincount(inverse_idx_out, weights=out_neighbors[ni][:, 1]).astype(int)
-                blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[ni][:, 0]], return_inverse=True)
-                count_in = np.bincount(inverse_idx_in, weights=in_neighbors[ni][:, 1]).astype(int)
-                self_edge_weight = np.sum(out_neighbors[ni][np.where(out_neighbors[ni][:, 0] == ni), 1])
-
-                (new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col) = \
-                                    compute_new_rows_cols_interblock_edge_count_matrix(
-                                        M, r, s,
-                                        blocks_out, count_out, blocks_in, count_in,
-                                        self_edge_weight, agg_move = 0,
-                                        use_sparse_alg = args.sparse_algorithm)
-
-                block_degrees_out[r] = new_M_r_row.sum()
-                block_degrees_out[s] = new_M_s_row.sum()
-                block_degrees_in[r] = new_M_r_col.sum()
-                block_degrees_in[s] = new_M_s_col.sum()
-
-                block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
-                block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
-
-                partition, M = update_partition_single(partition, ni, s, M,
-                                                       new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, args)
-
+                partition,M = move_node(ni,r,s,partition,
+                                        out_neighbors,in_neighbors,M,
+                                        block_degrees_out,block_degrees_in,block_degrees)
             except queue_empty:
                 break
 
@@ -317,29 +287,9 @@ def propose_node_movement_sparse_wrapper(tup):
             if args.verbose > 2:
                 print("Worker %d move self %d from block %d to block %d." % (myrank, ni, r, s))
 
-            blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[ni][:, 0]], return_inverse=True)
-            count_out = np.bincount(inverse_idx_out, weights=out_neighbors[ni][:, 1]).astype(int)
-            blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[ni][:, 0]], return_inverse=True)
-            count_in = np.bincount(inverse_idx_in, weights=in_neighbors[ni][:, 1]).astype(int)
-            self_edge_weight = np.sum(out_neighbors[ni][np.where(out_neighbors[ni][:, 0] == ni), 1])
-
-            (new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col) = \
-                                compute_new_rows_cols_interblock_edge_count_matrix(
-                                    M, r, s,
-                                    blocks_out, count_out, blocks_in, count_in,
-                                    self_edge_weight, agg_move = 0,
-                                    use_sparse_alg = args.sparse_algorithm)
-
-            block_degrees_out[r] = new_M_r_row.sum()
-            block_degrees_out[s] = new_M_s_row.sum()
-            block_degrees_in[r] = new_M_r_col.sum()
-            block_degrees_in[s] = new_M_s_col.sum()
-
-            block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
-            block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
-
-            partition, M = update_partition_single(partition, ni, s, M,
-                                                   new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, args)
+            partition,M = move_node(ni,r,s,partition,
+                                    out_neighbors,in_neighbors,M,
+                                    block_degrees_out,block_degrees_in,block_degrees)
 
             # Also send result to every worker.
             for i,q in enumerate(pid_box):
@@ -445,6 +395,34 @@ def coo_to_flat(x, size):
     f[x_i] = x_v
     return f
 
+
+def move_node(ni,r,s, partition,out_neighbors,in_neighbors,M,block_degrees_out,block_degrees_in,block_degrees):
+    blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[ni][:, 0]], return_inverse=True)
+    count_out = np.bincount(inverse_idx_out, weights=out_neighbors[ni][:, 1]).astype(int)
+    blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[ni][:, 0]], return_inverse=True)
+    count_in = np.bincount(inverse_idx_in, weights=in_neighbors[ni][:, 1]).astype(int)
+    self_edge_weight = np.sum(out_neighbors[ni][np.where(out_neighbors[ni][:, 0] == ni), 1])
+
+    (new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col) = \
+                        compute_new_rows_cols_interblock_edge_count_matrix(
+                            M, r, s,
+                            blocks_out, count_out, blocks_in, count_in,
+                            self_edge_weight, agg_move = 0,
+                            use_sparse_alg = args.sparse_algorithm)
+
+    block_degrees_out[r] = new_M_r_row.sum()
+    block_degrees_out[s] = new_M_s_row.sum()
+    block_degrees_in[r] = new_M_r_col.sum()
+    block_degrees_in[s] = new_M_s_col.sum()
+
+    block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
+    block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
+
+    partition, M = update_partition_single(partition, ni, s, M,
+                                           new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, args)
+    return partition, M
+
+
 def update_partition_single(b, ni, s, M, M_r_row, M_s_row, M_r_col, M_s_col, args):
     r = b[ni]
     b[ni] = s
@@ -517,17 +495,10 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
 
         update_id_cnt = 0
 
-        t_merge_start = timeit.default_timer()
-
         for i in L:
-            t_propose_start = timeit.default_timer()
             movement = propose_node_movement(i, partition, out_neighbors, in_neighbors, M, num_blocks,
                                              block_degrees, block_degrees_out, block_degrees_in,
                                              vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, args)
-
-            t_propose_end = timeit.default_timer()
-            propose_time = (t_propose_end - t_propose_start)
-            propose_time_cum += propose_time
 
             (ni, r, s, delta_entropy, p_accept) = movement
             accept = (np.random.uniform() <= p_accept)
@@ -535,39 +506,16 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
             if not accept:
                 continue
 
-            t_update_partition_beg = timeit.default_timer()
-
             total_num_nodal_moves_itr += 1
             num_nodal_moves += 1
             itr_delta_entropy[itr] += delta_entropy
 
-            r = partition[ni]
-
             if verbose > 2:
                 print("Move %5d from block %5d to block %5d." % (ni, r, s))
 
-            blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[ni][:, 0]], return_inverse=True)
-            count_out = np.bincount(inverse_idx_out, weights=out_neighbors[ni][:, 1]).astype(int)
-            blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[ni][:, 0]], return_inverse=True)
-            count_in = np.bincount(inverse_idx_in, weights=in_neighbors[ni][:, 1]).astype(int)
-            self_edge_weight = np.sum(out_neighbors[ni][np.where(out_neighbors[ni][:, 0] == ni), 1])
-
-            (new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col) = \
-                                compute_new_rows_cols_interblock_edge_count_matrix(M, r, s,
-                                                                                   blocks_out, count_out, blocks_in, count_in,
-                                                                                   self_edge_weight, agg_move = 0,
-                                                                                   use_sparse_alg = args.sparse_algorithm)
-
-            partition, M = update_partition_single(partition, ni, s, M,
-                                                   new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, args)
-
-            block_degrees_out[r] = new_M_r_row.sum()
-            block_degrees_out[s] = new_M_s_row.sum()
-            block_degrees_in[r] = new_M_r_col.sum()
-            block_degrees_in[s] = new_M_s_col.sum()
-
-            block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
-            block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
+            partition,M = move_node(ni,r,s,partition,
+                                    out_neighbors,in_neighbors,M,
+                                    block_degrees_out,block_degrees_in,block_degrees)
 
         if verbose:
             print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}".format(itr, num_nodal_moves,
@@ -698,35 +646,10 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
                     if verbose > 2:
                         print("Parent move %d from block %d to block %d." % (ni, r, s))
 
-                    if 1:
-                        blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[ni][:, 0]], return_inverse=True)
-                        count_out = np.bincount(inverse_idx_out, weights=out_neighbors[ni][:, 1]).astype(int)
-                        blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[ni][:, 0]], return_inverse=True)
-                        count_in = np.bincount(inverse_idx_in, weights=in_neighbors[ni][:, 1]).astype(int)
-                        self_edge_weight = np.sum(out_neighbors[ni][np.where(out_neighbors[ni][:, 0] == ni), 1])
 
-
-                        (new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col) = \
-                                            compute_new_rows_cols_interblock_edge_count_matrix(
-                                                M, r, s,
-                                                blocks_out, count_out, blocks_in, count_in,
-                                                self_edge_weight, agg_move = 0,
-                                                use_sparse_alg = args.sparse_algorithm)
-
-                        block_degrees_out[r] = new_M_r_row.sum()
-                        block_degrees_out[s] = new_M_s_row.sum()
-                        block_degrees_in[r] = new_M_r_col.sum()
-                        block_degrees_in[s] = new_M_s_col.sum()
-
-                        block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
-                        block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
-
-
-                        partition, M = update_partition_single(partition, ni, s, M,
-                                                               new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, args)
-
-                if 0:
-                    print("num_nodal_moves, next_batch_cnt, proposal_cnt, N",num_nodal_moves,next_batch_cnt,proposal_cnt, N)
+                    partition,M = move_node(ni,r,s,partition,
+                                            out_neighbors,in_neighbors,M,
+                                            block_degrees_out,block_degrees_in,block_degrees)
 
                 if num_nodal_moves >= next_batch_cnt or proposal_cnt == N:
                     where_modified = np.where(modified)[0]
