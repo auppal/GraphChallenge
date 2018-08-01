@@ -16,6 +16,10 @@ else:
     dict_items_func = dict.items
 
 class nonzero_dict(dict):
+    def __init__(self):
+        pass
+    def __init__(self, D):
+        pass
     def __setitem__(self, idx, val):
         if val == 0:
             try:
