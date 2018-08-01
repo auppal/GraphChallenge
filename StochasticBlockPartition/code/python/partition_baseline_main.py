@@ -163,7 +163,7 @@ def propose_node_movement_wrapper(tup):
     n_thread = syms['n_thread']
 
     results = syms['results']
-    (results_proposal, results_delta_entropy, results_accept, results_propose_time_worker_ms) = syms['results']
+    (results_proposal, results_delta_entropy, results_accept) = syms['results']
 
     (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors) = syms['static_state']
 
@@ -214,7 +214,6 @@ def propose_node_movement_wrapper(tup):
         results_proposal[ni] = proposal
         results_delta_entropy[ni] = delta_entropy
         results_accept[ni] = accept
-        results_propose_time_worker_ms[ni] = t_elapsed_ms
 
     return rank,mypid,update_id,start,stop,step
 
@@ -226,7 +225,7 @@ def propose_node_movement_sparse_wrapper(tup):
     args = syms['args']
     lock = syms['lock']
     n_thread = syms['n_thread']
-    (results_proposal, results_delta_entropy, results_accept, results_propose_time_worker_ms) = syms['results']
+    (results_proposal, results_delta_entropy, results_accept) = syms['results']
 
     worker_pids = syms['worker_pids']
     pid_box = syms['pid_box']
@@ -318,7 +317,6 @@ def propose_node_movement_sparse_wrapper(tup):
         results_proposal[ni] = proposal
         results_delta_entropy[ni] = delta_entropy
         results_accept[ni] = accept
-        results_propose_time_worker_ms[ni] = t_elapsed_ms
 
         if accept:
             ni = current_node
@@ -395,9 +393,6 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         count_out = np.bincount(inverse_idx_out, weights=out_neighbors[current_node][:, 1]).astype(int)
         blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[current_node][:, 0]], return_inverse=True)
         count_in = np.bincount(inverse_idx_in, weights=in_neighbors[current_node][:, 1]).astype(int)
-
-        if 0:
-            print("current_node %s proposal %s count_out %s" % (current_node, proposal, count_out))
 
         # compute the two new rows and columns of the interblock edge count matrix
         self_edge_weight = np.sum(out_neighbors[current_node][np.where(
@@ -513,19 +508,15 @@ def shared_memory_to_private(z):
     return x
 
 def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, verbose, args):
-    global block_sum_time_cum
-
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
 
     for itr in range(max_num_nodal_itr):
         num_nodal_moves = 0
-        block_sum_time = 0.0
         itr_delta_entropy[itr] = 0
 
         propose_time_cum = 0
         merge_time_cum = 0
-        update_partition_time_ms_cum = 0.0
 
         if args.sort:
             #L = np.argsort(partition)
@@ -533,7 +524,6 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
         else:
             L = range(0, N)
 
-        proposal_cnt = 0
         update_id_cnt = 0
 
         t_merge_start = timeit.default_timer()
@@ -547,8 +537,6 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
             t_propose_end = timeit.default_timer()
             propose_time = (t_propose_end - t_propose_start)
             propose_time_cum += propose_time
-
-            proposal_cnt += 1
 
             (ni, r, s, delta_entropy, p_accept) = movement
             accept = (np.random.uniform() <= p_accept)
@@ -582,12 +570,6 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
             partition, M = update_partition_single(partition, ni, s, M,
                                                    new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, args)
 
-            t_update_partition_end = timeit.default_timer()
-
-            update_partition_time_ms_cum += (t_update_partition_end - t_update_partition_beg) * 1e3
-
-            btime = timeit.default_timer()
-
             block_degrees_out[r] = new_M_r_row.sum()
             block_degrees_out[s] = new_M_s_row.sum()
             block_degrees_in[r] = new_M_r_col.sum()
@@ -596,24 +578,7 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
             block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
             block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
 
-            btime_end = timeit.default_timer()
-            block_sum_time += btime_end - btime
-            block_sum_time_cum += btime_end - btime
-
-        t_merge_end = timeit.default_timer()
-        merge_time = (t_merge_end - t_merge_start)
-        merge_time_cum += merge_time
-
-        if num_nodal_moves != 0:
-            merge_rate_ms = merge_time * 1e-3 / num_nodal_moves
-        else:
-            merge_rate_ms = 0.0
-
         if verbose:
-            print("Processed %d nodal movements in %3.4f ms rate = %f per ms." % (num_nodal_moves, merge_time * 1e-3, merge_rate_ms))
-
-            print("Node propose time is %3.2f ms, merge time is %3.2f ms, block sum time is %3.2f ms, partition update time is %3.2f ms, ratio propose to merge %3.2f"
-              % (propose_time_cum * 1e-3, merge_time_cum * 1e-3, block_sum_time * 1e3, update_partition_time_ms_cum,  (propose_time_cum) / merge_time_cum))
             print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}".format(itr, num_nodal_moves,
                                                                                 itr_delta_entropy[itr] / float(
                                                                                     overall_entropy_cur)))
@@ -630,7 +595,7 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
 
 
 def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, verbose, args):
-    global syms, block_sum_time_cum
+    global syms
 
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
@@ -664,13 +629,13 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
     results_proposal = shared_memory_empty(shape)
     results_delta_entropy = shared_memory_empty(shape, dtype='float')
     results_accept = shared_memory_empty(shape, dtype='bool')
-    results_propose_time_worker_ms = shared_memory_empty(shape, dtype='float')
+
     # Sometimes a worker is mistakenly "active"
     worker_pids = shared_memory_empty(shape=(2 * n_thread,))
     worker_pids[:] = -1
 
     syms = {}
-    syms['results'] = (results_proposal, results_delta_entropy, results_accept, results_propose_time_worker_ms)
+    syms['results'] = (results_proposal, results_delta_entropy, results_accept)
     syms['lock'] = lock
     syms['static_state'] = static_state
     syms['n_thread'] = n_thread
@@ -692,15 +657,7 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
 
     for itr in range(max_num_nodal_itr):
         num_nodal_moves = 0
-        block_sum_time = 0.0
         itr_delta_entropy[itr] = 0
-
-        propose_time_ms_cum = 0
-        propose_time_workers_ms_cum = 0.0
-        merge_time_ms_cum = 0
-        update_partition_time_ms_cum = 0.0
-        t_useless = 0.0
-        update_shared_time = 0.0
 
         if args.sort:
             #L = np.argsort(partition)
@@ -708,8 +665,6 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
         else:
             L = range(0, N)
             
-        t_propose_start = timeit.default_timer()
-
         group_size = args.node_propose_batch_size
         chunks = [((i // group_size) % n_thread, i, min(i+group_size, N), 1) for i in range(0,N,group_size)]
 
@@ -717,12 +672,6 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
             movements = pool.imap_unordered(propose_node_movement_sparse_wrapper, chunks)
         else:
             movements = pool.imap_unordered(propose_node_movement_wrapper, chunks)
-
-        t_propose_end = timeit.default_timer()
-        propose_time_ms = (t_propose_end - t_propose_start) * 1e3
-        propose_time_ms_cum += propose_time_ms
-
-        t_merge_start = timeit.default_timer()
 
         proposal_cnt = 0
         next_batch_cnt = num_nodal_moves + batch_size
@@ -736,24 +685,16 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
             worker_progress[rank] = worker_update_id
 
             for ni in range(start,stop,step):
-                useless_time_beg = timeit.default_timer()
-
                 s = results_proposal[ni]
                 delta_entropy = results_delta_entropy[ni]
                 accept = results_accept[ni]
-                propose_time_worker_ms = results_propose_time_worker_ms[ni]
 
                 if verbose > 3 and accept:
                     print("Parent accepted %d result from worker %d to move index %d from block %d to block %d" % (accept,rank,ni,partition[ni],s))
 
                 proposal_cnt += 1
-                propose_time_workers_ms_cum += propose_time_worker_ms
-
-                useless_time_end = timeit.default_timer()
-                t_useless += useless_time_end - useless_time_beg
 
                 if accept:
-                    t_update_partition_beg = timeit.default_timer()
                     total_num_nodal_moves_itr += 1
 
                     num_nodal_moves += 1
@@ -793,23 +734,13 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
                         partition, M = update_partition_single(partition, ni, s, M,
                                                                new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, args)
 
-                        t_update_partition_end = timeit.default_timer()
-
-                        update_partition_time_ms_cum += (t_update_partition_end - t_update_partition_beg) * 1e3
-
                 if 0:
                     print("num_nodal_moves, next_batch_cnt, proposal_cnt, N",num_nodal_moves,next_batch_cnt,proposal_cnt, N)
 
                 if num_nodal_moves >= next_batch_cnt or proposal_cnt == N:
-                    btime = timeit.default_timer()
                     where_modified = np.where(modified)[0]
                     next_batch_cnt = num_nodal_moves + batch_size
 
-                    btime_end = timeit.default_timer()
-                    block_sum_time += btime_end - btime
-                    block_sum_time_cum += btime_end - btime
-
-                    update_beg = timeit.default_timer()
                     update_id_cnt += 1
 
                     block = (proposal_cnt == N)
@@ -838,23 +769,7 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
 
                         modified[where_modified] = False
 
-                    update_end = timeit.default_timer()
-                    update_shared_time += update_end - update_beg
-
-        t_merge_end = timeit.default_timer()
-        merge_time_ms = (t_merge_end - t_merge_start) * 1e3
-        merge_time_ms_cum += merge_time_ms
-
-        if num_nodal_moves != 0:
-            merge_rate_ms = merge_time_ms / num_nodal_moves
-        else:
-            merge_rate_ms = 0.0
-
         if verbose:
-            print("Processed %d nodal movements in %3.4f ms rate = %f per ms." % (num_nodal_moves, merge_time_ms, merge_rate_ms))
-
-            print("Node propose time is %3.2f ms (master) propose time %3.2f ms (workers) merge time is %3.2f ms block sum time is %3.2f ms partition update time is %3.2f useless time is %3.2f update_shared time is %3.2f ratio propose to merge %3.2f"
-              % (propose_time_ms_cum, propose_time_workers_ms_cum, merge_time_ms_cum, block_sum_time * 1e3, update_partition_time_ms_cum, t_useless * 1e3, update_shared_time * 1e3, (propose_time_ms_cum + propose_time_workers_ms_cum) / merge_time_ms_cum))
             print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}".format(itr, num_nodal_moves,
                                                                                 itr_delta_entropy[itr] / float(
                                                                                     overall_entropy_cur)))
@@ -874,9 +789,8 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
 
 
 def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_threshold, M, block_degrees, block_degrees_out, block_degrees_in, out_neighbors, in_neighbors, N, E, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, partition, args, verbose = False):
-    global syms, block_sum_time_cum
+    global syms
 
-    t_start = timeit.default_timer()
     parallel_phase1 = (args.parallel_phase & 1) != 0
 
     n_thread = args.threads
@@ -1012,11 +926,8 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     overall_entropy = compute_overall_entropy(M, block_degrees_out, block_degrees_in, num_blocks, N, E)
 
     if verbose:
-        t_end = timeit.default_timer()
-        time_taken = t_end - t_start
         print(
             "Total number of nodal moves: {:3d}, overall_entropy: {:0.2f}".format(total_num_nodal_moves_itr, overall_entropy))
-        print("Time taken: {:3.4f}".format(time_taken))
 
     if args.visualize_graph:
         graph_object = plot_graph_with_partition(out_neighbors, partition, graph_object)
@@ -1757,7 +1668,6 @@ def info(type, value, tb):
         # ...then start the debugger in post-mortem mode.
         pdb.post_mortem(tb)
 
-block_sum_time_cum = 0
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -1797,5 +1707,3 @@ if __name__ == '__main__':
         cProfile.run('do_main(args)', filename=args.profile)
     else:
         do_main(args)
-
-    print("Block sum time = %s" % block_sum_time_cum)
