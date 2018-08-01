@@ -1203,8 +1203,10 @@ def evaluate_partition(true_b, alg_b):
     if B_b1 > B_b2:  # transpose back
         contingency_table = contingency_table.transpose()
     print('Contingency Table: \n{}'.format(contingency_table))
-    joint_prob = contingency_table / sum(
-        sum(contingency_table))  # joint probability of the two partitions is just the normalized contingency table
+
+    # joint probability of the two partitions is just the normalized contingency table
+    joint_prob = contingency_table.astype('float') / np.sum(contingency_table)
+
     accuracy = sum(joint_prob.diagonal())
     print('Accuracy (with optimal partition matching): {}'.format(accuracy))
     print('\n')
@@ -1222,8 +1224,8 @@ def evaluate_partition(true_b, alg_b):
     sum_rowsum_squared = sum(rowsum ** 2)
     count_in_each_b1 = np.sum(contingency_table, axis=1)
     count_in_each_b2 = np.sum(contingency_table, axis=0)
-    num_same_in_b1 = sum(count_in_each_b1 * (count_in_each_b1 - 1)) / 2
-    num_same_in_b2 = sum(count_in_each_b2 * (count_in_each_b2 - 1)) / 2
+    num_same_in_b1 = sum(count_in_each_b1 * (count_in_each_b1 - 1)) / 2.
+    num_same_in_b2 = sum(count_in_each_b2 * (count_in_each_b2 - 1)) / 2.
     num_agreement_same = 0.5 * sum(sum(contingency_table * (contingency_table - 1)));
     num_agreement_diff = 0.5 * (N ** 2 + sum_table_squared - sum_colsum_squared - sum_rowsum_squared);
     num_agreement = num_agreement_same + num_agreement_diff
@@ -1250,6 +1252,7 @@ def evaluate_partition(true_b, alg_b):
     # compute the information theoretic metrics
     marginal_prob_b2 = np.sum(joint_prob, 0)
     marginal_prob_b1 = np.sum(joint_prob, 1)
+
     idx1 = np.nonzero(marginal_prob_b1)
     idx2 = np.nonzero(marginal_prob_b2)
     conditional_prob_b2_b1 = np.zeros(joint_prob.shape)
