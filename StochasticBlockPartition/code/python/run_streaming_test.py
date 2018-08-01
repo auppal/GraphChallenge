@@ -22,7 +22,7 @@ base_args = {'debug' : 0, 'decimation' : 0,
              'input_filename' : '../../data/static/simulated_blockmodel_graph_100_nodes',
              'initial_block_reduction_rate' : 0.50,
              'merge_method' : 0, 'mpi' : 0, 'node_move_update_batch_size' : 1, 'node_propose_batch_size' : 4,
-             'parallel_phase' : 3, 'parts' : 0, 'pipe' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0,
+             'parallel_phase' : 3, 'parts' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0,
              'sparse' : 0, 'sparse_algorithm' : 0, 'sparse_data' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0}
 
 class Bunch(object):

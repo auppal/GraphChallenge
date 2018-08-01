@@ -165,9 +165,6 @@ def propose_node_movement_wrapper(tup):
     results = syms['results']
     (results_proposal, results_delta_entropy, results_accept, results_propose_time_worker_ms) = syms['results']
 
-    if args.pipe:
-        pipe = syms['pipe']
-
     (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors) = syms['static_state']
 
     (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared, block_modified_time_shared) = syms['nodal_move_state']
@@ -219,16 +216,7 @@ def propose_node_movement_wrapper(tup):
         results_accept[ni] = accept
         results_propose_time_worker_ms[ni] = t_elapsed_ms
 
-    if args.pipe:
-        os.write(pipe[1],
-                 rank.to_bytes(4, byteorder='little')
-                 + update_id.to_bytes(4, byteorder='little')
-                 + start.to_bytes(4, byteorder='little')
-                 + stop.to_bytes(4, byteorder='little')
-                 + step.to_bytes(4, byteorder='little'))
-        return
-    else:
-        return rank,mypid,update_id,start,stop,step
+    return rank,mypid,update_id,start,stop,step
 
 def propose_node_movement_sparse_wrapper(tup):
     global update_id, partition, M, block_degrees, block_degrees_out, block_degrees_in, mypid, mypid_idx, worker_pids
@@ -242,9 +230,6 @@ def propose_node_movement_sparse_wrapper(tup):
 
     worker_pids = syms['worker_pids']
     pid_box = syms['pid_box']
-
-    if args.pipe:
-        pipe = syms['pipe']
 
     (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors) = syms['static_state']
 
@@ -375,16 +360,7 @@ def propose_node_movement_sparse_wrapper(tup):
                         print("Put update from worker %d to queue %d: %s" % (myrank,mypid,update))
                     q.put(update)
 
-    if args.pipe:
-        os.write(pipe[1],
-                 myrank.to_bytes(4, byteorder='little')
-                 + update_id.to_bytes(4, byteorder='little')
-                 + start.to_bytes(4, byteorder='little')
-                 + stop.to_bytes(4, byteorder='little')
-                 + step.to_bytes(4, byteorder='little'))
-        return
-    else:
-        return myrank,mypid,update_id,start,stop,step
+    return myrank,mypid,update_id,start,stop,step
 
 
 def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, interblock_edge_count, num_blocks,
@@ -705,15 +681,6 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
         syms['pid_box'] = pid_box
         syms['worker_pids'] = worker_pids
 
-    if args.pipe:
-        pipe = os.pipe()
-        try:
-            os.set_inheritable(pipe[0], True)
-            os.set_inheritable(pipe[1], True)
-        except AttributeError:
-            raise Exception("Python2 no longer supports heritable pipes.")
-        syms['pipe'] = pipe
-
     pool = Pool(n_thread)
     update_id_cnt = 0
 
@@ -764,12 +731,7 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
         cnt_non_seq_workers = 0
 
         while proposal_cnt < N:
-
-            if args.pipe:
-                buf = os.read(pipe[0], 4*5)
-                rank,worker_pid,worker_update_id,start,stop,step = struct.unpack('<iiiii', buf)
-            else:
-                rank,worker_pid,worker_update_id,start,stop,step = movements.next()
+            rank,worker_pid,worker_update_id,start,stop,step = movements.next()
     
             worker_progress[rank] = worker_update_id
 
@@ -1818,7 +1780,6 @@ if __name__ == '__main__':
     # Debugging options
     parser.add_argument("--initial-block-reduction-rate", type=float, required=False, default=0.50)
     parser.add_argument("--profile", type=str, required=False, default="")
-    parser.add_argument("--pipe", type=int, required=False, default=0)
     parser.add_argument("--test-decimation", type=int, required=False, default=0)
     parser.add_argument("--predecimation", type=int, required=False, default=0)
     parser.add_argument("--debug", type=int, required=False, default=0)
