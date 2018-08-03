@@ -24,7 +24,7 @@ except:
 
 base_args = {'debug' : 0, 'decimation' : 0,
              'input_filename' : '../../data/static/simulated_blockmodel_graph_100_nodes',
-             'initial_block_reduction_rate' : 0.50,
+             'initial_block_reduction_rate' : 0.75,
              'merge_method' : 0, 'mpi' : 0, 'node_move_update_batch_size' : 1, 'node_propose_batch_size' : 4,
              'parallel_phase' : 3, 'parts' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0,
              'sparse' : 0, 'sparse_algorithm' : 0, 'sparse_data' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0}
@@ -264,12 +264,39 @@ if __name__ == '__main__':
         'reduction-sweep' : 0,
         'reduction-sweep-small' : 0,
         'sparse-sweep' : 0,
-        'big' : 1
+        'big' : 0,
+        'regression' : 1
         }
 
     results = {}
 
     results_f = open('regression.pickle', 'wb')
+
+    if args['regression']:
+        print("Run sanity checks.")
+
+        for i in [100,500,1000]:
+            name = N[i]
+            result = run_test(out_dir, base_args, [name], range(1), threads = (0,))
+            result = run_test(out_dir, base_args, [name], range(1), threads = (2,))
+
+            var_args = (('input_filename', (name,)),
+                        ('sparse',(1,)))
+            result = run_var_test(out_dir, base_args, var_args)
+
+            if i > 100:
+                var_args = (('input_filename', (name,)),('sparse',(1,)),('threads',(2,)))
+                result = run_var_test(out_dir, base_args, var_args)
+
+            var_args = (('input_filename', (name,)),
+                        ('sparse',(0,)),
+                        ('threads',(4,)),
+                        ('decimation',(2,)))
+
+            result = run_var_test(out_dir, base_args, var_args)
+
+        print_results(result)
+        results.update(result)
 
     if args['single-tiny']:
         print("Tiny Single process tests.")
