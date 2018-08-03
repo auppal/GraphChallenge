@@ -30,6 +30,14 @@ def random_permutation(iterable, r=None):
     r = len(pool) if r is None else r
     return tuple(random.sample(pool, r))
 
+def find_self_edge_weights(N, out_neighbors):
+    self_edge_weights = defaultdict(int)
+    for i in range(N):
+        if i in out_neighbors[i][:,0]:
+            self_edge_weights[i] = np.sum(out_neighbors[i][np.where(
+                out_neighbors[i_node][:, 0] == i), 1])
+    return self_edge_weights
+
 def entropy_max_argsort(x):
     a = np.argsort(x)
     y = x[a]
@@ -165,7 +173,7 @@ def propose_node_movement_wrapper(tup):
     results = syms['results']
     (results_proposal, results_delta_entropy, results_accept) = syms['results']
 
-    (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors) = syms['static_state']
+    (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights) = syms['static_state']
 
     (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared, block_modified_time_shared) = syms['nodal_move_state']
 
@@ -201,7 +209,7 @@ def propose_node_movement_wrapper(tup):
     for current_node in range(start, stop, step):
         res = propose_node_movement(current_node, partition, out_neighbors, in_neighbors,
                                     M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
-                                    vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, args)
+                                    vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args)
 
         (ni, current_block, proposal, delta_entropy, p_accept) = res
         accept = (np.random.uniform() <= p_accept)
@@ -225,7 +233,7 @@ def propose_node_movement_sparse_wrapper(tup):
     worker_pids = syms['worker_pids']
     pid_box = syms['pid_box']
 
-    (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors) = syms['static_state']
+    (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights) = syms['static_state']
 
     (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared, block_modified_time_shared) = syms['nodal_move_state']
 
@@ -259,8 +267,8 @@ def propose_node_movement_sparse_wrapper(tup):
                     print("Worker pid %d rank %d move remote %d from block %d to block %d." % (worker_pid,myrank, ni, r, s))
 
                 partition,M = move_node(ni,r,s,partition,
-                                        out_neighbors,in_neighbors,M,
-                                        block_degrees_out,block_degrees_in,block_degrees)
+                                        out_neighbors,in_neighbors,self_edge_weights,M,
+                                        block_degrees_out,block_degrees_in,block_degrees,args)
             except queue_empty:
                 break
 
@@ -270,7 +278,7 @@ def propose_node_movement_sparse_wrapper(tup):
     for current_node in range(start, stop, step):
         res = propose_node_movement(current_node, partition, out_neighbors, in_neighbors,
                                     M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
-                                    vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, args)
+                                    vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args)
 
         (ni, current_block, proposal, delta_entropy, p_accept) = res
         accept = (np.random.uniform() <= p_accept)
@@ -288,8 +296,8 @@ def propose_node_movement_sparse_wrapper(tup):
                 print("Worker %d move self %d from block %d to block %d." % (myrank, ni, r, s))
 
             partition,M = move_node(ni,r,s,partition,
-                                    out_neighbors,in_neighbors,M,
-                                    block_degrees_out,block_degrees_in,block_degrees)
+                                    out_neighbors,in_neighbors,self_edge_weights,M,
+                                    block_degrees_out,block_degrees_in,block_degrees,args)
 
             # Also send result to every worker.
             for i,q in enumerate(pid_box):
@@ -304,7 +312,7 @@ def propose_node_movement_sparse_wrapper(tup):
 
 def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, interblock_edge_count, num_blocks,
                           block_degrees, block_degrees_out, block_degrees_in,
-                          vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, args):
+                          vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args):
 
     current_block = partition[current_node]
 
@@ -336,8 +344,7 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         count_in = np.bincount(inverse_idx_in, weights=in_neighbors[current_node][:, 1]).astype(int)
 
         # compute the two new rows and columns of the interblock edge count matrix
-        self_edge_weight = np.sum(out_neighbors[current_node][np.where(
-            out_neighbors[current_node][:, 0] == current_node), 1])  # check if this node has a self edge
+        self_edge_weight = self_edge_weights[current_node]
 
         new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col = \
             compute_new_rows_cols_interblock_edge_count_matrix(interblock_edge_count, current_block, proposal,
@@ -396,18 +403,17 @@ def coo_to_flat(x, size):
     return f
 
 
-def move_node(ni,r,s, partition,out_neighbors,in_neighbors,M,block_degrees_out,block_degrees_in,block_degrees):
+def move_node(ni,r,s, partition,out_neighbors,in_neighbors,self_edge_weights,M,block_degrees_out,block_degrees_in,block_degrees,args):
     blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[ni][:, 0]], return_inverse=True)
     count_out = np.bincount(inverse_idx_out, weights=out_neighbors[ni][:, 1]).astype(int)
     blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[ni][:, 0]], return_inverse=True)
     count_in = np.bincount(inverse_idx_in, weights=in_neighbors[ni][:, 1]).astype(int)
-    self_edge_weight = np.sum(out_neighbors[ni][np.where(out_neighbors[ni][:, 0] == ni), 1])
 
     (new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col) = \
                         compute_new_rows_cols_interblock_edge_count_matrix(
                             M, r, s,
                             blocks_out, count_out, blocks_in, count_in,
-                            self_edge_weight, agg_move = 0,
+                            self_edge_weights[ni], agg_move = 0,
                             use_sparse_alg = args.sparse_algorithm)
 
     block_degrees_out[r] = new_M_r_row.sum()
@@ -476,16 +482,13 @@ def shared_memory_to_private(z):
     x[:] = z
     return x
 
-def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, verbose, args):
+def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args):
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
 
     for itr in range(max_num_nodal_itr):
         num_nodal_moves = 0
         itr_delta_entropy[itr] = 0
-
-        propose_time_cum = 0
-        merge_time_cum = 0
 
         if args.sort:
             #L = np.argsort(partition)
@@ -498,7 +501,7 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
         for i in L:
             movement = propose_node_movement(i, partition, out_neighbors, in_neighbors, M, num_blocks,
                                              block_degrees, block_degrees_out, block_degrees_in,
-                                             vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, args)
+                                             vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args)
 
             (ni, r, s, delta_entropy, p_accept) = movement
             accept = (np.random.uniform() <= p_accept)
@@ -514,8 +517,8 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
                 print("Move %5d from block %5d to block %5d." % (ni, r, s))
 
             partition,M = move_node(ni,r,s,partition,
-                                    out_neighbors,in_neighbors,M,
-                                    block_degrees_out,block_degrees_in,block_degrees)
+                                    out_neighbors,in_neighbors,self_edge_weights,M,
+                                    block_degrees_out,block_degrees_in,block_degrees,args)
 
         if verbose:
             print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}".format(itr, num_nodal_moves,
@@ -533,7 +536,7 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
     return total_num_nodal_moves_itr,M
 
 
-def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, verbose, args):
+def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args):
     global syms
 
     total_num_nodal_moves_itr = 0
@@ -562,7 +565,7 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
     else:
         M_shared = shared_memory_copy(M)
 
-    static_state = (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors)
+    static_state = (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights)
 
     shape = partition.shape
     results_proposal = shared_memory_empty(shape)
@@ -648,8 +651,8 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
 
 
                     partition,M = move_node(ni,r,s,partition,
-                                            out_neighbors,in_neighbors,M,
-                                            block_degrees_out,block_degrees_in,block_degrees)
+                                            out_neighbors,in_neighbors,self_edge_weights,M,
+                                            block_degrees_out,block_degrees_in,block_degrees,args)
 
                 if num_nodal_moves >= next_batch_cnt or proposal_cnt == N:
                     where_modified = np.where(modified)[0]
@@ -702,7 +705,7 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
     return total_num_nodal_moves_itr
 
 
-def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_threshold, M, block_degrees, block_degrees_out, block_degrees_in, out_neighbors, in_neighbors, N, E, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, partition, args, verbose = False):
+def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_threshold, M, block_degrees, block_degrees_out, block_degrees_in, out_neighbors, in_neighbors, N, E, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, partition, args, verbose = False):
     global syms
 
     parallel_phase1 = (args.parallel_phase & 1) != 0
@@ -832,9 +835,9 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     parallel_phase2 = (args.parallel_phase & 2) != 0
 
     if parallel_phase2 and n_thread > 0:
-        total_num_nodal_moves_itr = nodal_moves_parallel(n_thread, batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, verbose, args)
+        total_num_nodal_moves_itr = nodal_moves_parallel(n_thread, batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
     else:
-        total_num_nodal_moves_itr,M = nodal_moves_sequential(batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, verbose, args)
+        total_num_nodal_moves_itr,M = nodal_moves_sequential(batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
 
     # compute the global entropy for determining the optimal number of blocks
     overall_entropy = compute_overall_entropy(M, block_degrees_out, block_degrees_in, num_blocks, N, E)
@@ -866,7 +869,7 @@ def load_graph_parts(input_filename, args):
     return out_neighbors, in_neighbors, N, E, true_partition
 
 
-def find_optimal_partition(out_neighbors, in_neighbors, N, E, args, stop_at_bracket = False, verbose = 0, alg_state = None, num_block_reduction_rate = 0.50, min_number_blocks = 0):
+def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights, args, stop_at_bracket = False, verbose = 0, alg_state = None, num_block_reduction_rate = 0.50, min_number_blocks = 0):
 
     if verbose > -1:
         print('Number of nodes %d edges %d ' % (N,E))
@@ -961,7 +964,7 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, args, stop_at_brac
                                    delta_entropy_threshold,
                                    interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in,
                                    out_neighbors, in_neighbors, N, E,
-                                   vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors,
+                                   vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights,
                                    partition, args, verbose)
 
         if verbose:
@@ -1012,7 +1015,8 @@ def find_optimal_partition_wrapper(tup):
     args = syms['args']
     args.threads = max(1, args.threads // args.decimation)
     out_neighbors, in_neighbors, N, E, true_partition = tup
-    return find_optimal_partition(out_neighbors, in_neighbors, N, E, args, stop_at_bracket = True, verbose = min(0, args.verbose - 1))
+    self_edge_weights = find_self_edge_weights(N, out_neighbors)
+    return find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights, args, stop_at_bracket = True, verbose = min(0, args.verbose - 1))
 
 
 # See: https://stackoverflow.com/questions/17223301/python-multiprocessing-is-it-possible-to-have-a-pool-inside-of-a-pool
@@ -1293,6 +1297,9 @@ def incremental_streaming(args):
                 print('New Number of blocks: {}'.format(old_num_blocks))
                 print("")
 
+                # Check for self edges
+                self_edge_weights = find_self_edge_weights(N, out_neighbors)
+
                 verbose = 1
                 n_thread = args.threads
                 batch_size = args.node_move_update_batch_size
@@ -1445,6 +1452,8 @@ def partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, ar
                                 decimate_graph(out_neighbors, in_neighbors, true_partition,
                                                decimation = args.predecimation, decimated_piece = 0)
 
+    self_edge_weights = find_self_edge_weights(N, out_neighbors)
+
     if args.mpi:
         from mpi4py import MPI
         comm = MPI.COMM_WORLD
@@ -1463,7 +1472,7 @@ def partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, ar
                              decimation, decimated_piece = comm.rank)
 
         t_prog_start = timeit.default_timer()
-        alg_state, M = find_optimal_partition(out_neighbors_piece, in_neighbors_piece, N_piece, E_piece, args, stop_at_bracket = False, verbose = args.verbose)
+        alg_state, M = find_optimal_partition(out_neighbors_piece, in_neighbors_piece, N_piece, E_piece, self_edge_weights, args, stop_at_bracket = False, verbose = args.verbose)
         t_prog_end = timeit.default_timer()
 
         partition = alg_state[0][0][1]
@@ -1506,6 +1515,7 @@ def partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, ar
         t_prog_start = timeit.default_timer()
 
         alg_state, M_bracket = find_optimal_partition(out_neighbors, in_neighbors, N, E, \
+                                                      self_edge_weights, \
                                     args, stop_at_bracket = stop_at_bracket, verbose = args.verbose, \
                                     alg_state = alg_state, num_block_reduction_rate = 0.50, min_number_blocks=min_number_blocks)
 
@@ -1547,7 +1557,9 @@ def partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, ar
 
         t_final_partition_search_start = timeit.default_timer()
 
-        alg_state,partition = find_optimal_partition(out_neighbors, in_neighbors, N, E, args,
+        alg_state,partition = find_optimal_partition(out_neighbors, in_neighbors, N, E,
+                                                     self_edge_weights,
+                                                     args,
                                                      stop_at_bracket = False,
                                                      verbose = args.verbose,
                                                      alg_state = [partition],
