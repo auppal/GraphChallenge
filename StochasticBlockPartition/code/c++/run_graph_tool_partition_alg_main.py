@@ -16,10 +16,10 @@ if not os.path.isfile(input_filename + '.tsv') and not os.path.isfile(input_file
 	print("File doesn't exist: '{}'!".format(input_filename))
 	sys.exit(1)
 
-if args.parts >= 1:
+if args.parts != None:
 	print('\nLoading partition 1 of {} ({}) ...'.format(args.parts, input_filename + "_1.tsv"))
 	out_neighbors, in_neighbors, N, E, true_partition = load_graph(input_filename, load_true_partition=True, strm_piece_num=1)
-	for part in xrange(2, args.parts + 1):
+	for part in range(2, args.parts + 1):
 		print('Loading partition {} of {} ({}) ...'.format(part, args.parts, input_filename + "_" + str(part) + ".tsv"))
 		out_neighbors, in_neighbors, N, E = load_graph(input_filename, load_true_partition=False, strm_piece_num=part, out_neighbors=out_neighbors, in_neighbors=in_neighbors)
 else:
@@ -36,7 +36,7 @@ if args.threads > 0:
 	gt.openmp_set_num_threads(args.threads)
 
 graph_tool_partition = gt.minimize_blockmodel_dl(input_graph, mcmc_args={'parallel':True},
-                                                 mcmc_equilibrate_args={'verbose':False, 'epsilon':1e-4}, verbose=True)
+                                                 mcmc_equilibrate_args={'verbose':False, 'epsilon':1e-6}, verbose=True)
 t1 = timeit.default_timer()
 print('\nGraph partition took {} seconds'.format(t1-t0))
 evaluate_partition(true_partition, graph_tool_partition.get_blocks().a)
