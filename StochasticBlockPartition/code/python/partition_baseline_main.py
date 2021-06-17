@@ -159,6 +159,13 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
 
     return blocks, best_overall_merge, best_overall_delta_entropy, n_proposals_evaluated
 
+
+def propose_node_movement_profile_wrapper(tup):
+    mypid = current_process().pid
+    rc = []
+    cProfile.runctx("rc.append(propose_node_movement_wrapper(tup))", globals(), locals(), filename="propose_node_movement-%d.prof" % mypid)
+    return rc[0]
+
 update_id = -1
 def propose_node_movement_wrapper(tup):
 
@@ -239,7 +246,7 @@ def propose_node_movement_sparse_wrapper(tup):
 
 
     if update_id == -1:
-        mypid = current_process().pid    
+        mypid = current_process().pid
 
         (partition, block_degrees, block_degrees_out, block_degrees_in) \
             = (shared_memory_to_private(i) for i in (partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared))
@@ -613,7 +620,10 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
         if is_compressed(M):
             movements = pool.imap_unordered(propose_node_movement_sparse_wrapper, chunks)
         else:
-            movements = pool.imap_unordered(propose_node_movement_wrapper, chunks)
+            if args.profile > 1:
+                movements = pool.imap_unordered(propose_node_movement_profile_wrapper, chunks)
+            else:
+                movements = pool.imap_unordered(propose_node_movement_wrapper, chunks)
 
         proposal_cnt = 0
         next_batch_cnt = num_nodal_moves + batch_size
@@ -1619,7 +1629,7 @@ if __name__ == '__main__':
 
     # Debugging options
     parser.add_argument("--initial-block-reduction-rate", type=float, required=False, default=0.50)
-    parser.add_argument("--profile", type=str, required=False, default="")
+    parser.add_argument("--profile", type=int, required=False, help="Profiling level 0=disabled, 1=main, 2=workers.", default=0)
     parser.add_argument("--test-decimation", type=int, required=False, default=0)
     parser.add_argument("--predecimation", type=int, required=False, default=0)
     parser.add_argument("--debug", type=int, required=False, default=0)
@@ -1634,6 +1644,6 @@ if __name__ == '__main__':
 
     if args.profile:
         import cProfile
-        cProfile.run('do_main(args)', filename=args.profile)
+        cProfile.run('do_main(args)', filename="partition_baseline_main.prof")
     else:
         do_main(args)
