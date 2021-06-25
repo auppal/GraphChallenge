@@ -1048,6 +1048,7 @@ class NoDaemonProcess(mp.Process):
 class NonDaemonicPool(multiprocessing.pool.Pool):
     Process = NoDaemonProcess
 
+from concurrent.futures import ProcessPoolExecutor
 
 def merge_partitions(partitions, stop_pieces, out_neighbors, verbose, use_sparse_alg, use_sparse_data):
     """
@@ -1451,7 +1452,6 @@ def do_main(args):
         return t_compute
     return
 
-
 def partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, args, stop_at_bracket=0, alg_state=None, min_number_blocks=0):
     global syms, t_prog_start
 
@@ -1518,12 +1518,11 @@ def partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, ar
 
         syms = {}
         syms['args'] = args
-        pool = NonDaemonicPool(decimation)
 
-        results = pool.map(find_optimal_partition_wrapper, pieces)
+        with ProcessPoolExecutor(decimation) as pool:
+            results = pool.map(find_optimal_partition_wrapper, pieces)
 
         alg_states,partitions = (list(i) for i in zip(*results))
-        pool.close()
     else:
         decimation = 1
         t_prog_start = timeit.default_timer()
