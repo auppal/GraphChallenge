@@ -1221,7 +1221,8 @@ def evaluate_partition(true_b, alg_b):
     # joint probability of the two partitions is just the normalized contingency table
     joint_prob = contingency_table.astype('float') / np.sum(contingency_table)
 
-    accuracy = sum(joint_prob.diagonal())
+    accuracy = np.sum(contingency_table.diagonal()) / np.sum(contingency_table)
+
     print('Accuracy (with optimal partition matching): {}'.format(accuracy))
     print('\n')
 
