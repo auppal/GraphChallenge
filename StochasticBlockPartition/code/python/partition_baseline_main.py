@@ -863,18 +863,20 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
 
 
 def load_graph_parts(input_filename, args):
-    true_partition_available = False
+
     if not os.path.isfile(input_filename + '.tsv') and not os.path.isfile(input_filename + '_1.tsv'):
-            print("File doesn't exist: '{}'!".format(input_filename))
-            sys.exit(1)
+        print("File doesn't exist: '{}'!".format(input_filename))
+        sys.exit(1)
 
     if args.parts >= 1:
-            print('\nLoading partition 1 of {} ({}) ...'.format(args.parts, input_filename + "_1.tsv"))
-            out_neighbors, in_neighbors, N, E, true_partition = load_graph(input_filename, load_true_partition=true_partition_available, strm_piece_num=1)
-            for part in range(2, args.parts + 1):
-                    print('Loading partition {} of {} ({}) ...'.format(part, args.parts, input_filename + "_" + str(part) + ".tsv"))
-                    out_neighbors, in_neighbors, N, E = load_graph(input_filename, load_true_partition=False, strm_piece_num=part, out_neighbors=out_neighbors, in_neighbors=in_neighbors)
+        true_partition_available = False
+        print('\nLoading partition 1 of {} ({}) ...'.format(args.parts, input_filename + "_1.tsv"))
+        out_neighbors, in_neighbors, N, E, true_partition = load_graph(input_filename, load_true_partition=true_partition_available, strm_piece_num=1)
+        for part in range(2, args.parts + 1):
+                print('Loading partition {} of {} ({}) ...'.format(part, args.parts, input_filename + "_" + str(part) + ".tsv"))
+                out_neighbors, in_neighbors, N, E = load_graph(input_filename, load_true_partition=False, strm_piece_num=part, out_neighbors=out_neighbors, in_neighbors=in_neighbors)
     else:
+        true_partition_available = True
         if true_partition_available:
             out_neighbors, in_neighbors, N, E, true_partition = load_graph(input_filename, load_true_partition=true_partition_available)
         else:
@@ -1630,7 +1632,7 @@ if __name__ == '__main__':
     parser.add_argument("--debug", type=int, required=False, default=0)
     parser.add_argument("--test-resume", type=int, required=False, default=0)
     parser.add_argument("--naive-streaming", type=int, required=False, default=0)
-    parser.add_argument("--min-nodal-moves-ratio", type=float, required=False, default=0.0)
+    parser.add_argument("--min-nodal-moves-ratio", type=float, required=False, default=0.0, help="Break nodal move loop early if the number of accepted moves is below this fraction of the number of nodes.")
 
     args = parser.parse_args()
 
