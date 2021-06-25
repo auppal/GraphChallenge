@@ -10,7 +10,6 @@
                Physical Review E 83, no. 1 (2011): 016107."""
 import numpy as np
 import scipy.sparse
-import scipy.misc as misc
 from munkres import Munkres # for correctness evaluation
 import sys
 from multiprocessing import sharedctypes
@@ -20,6 +19,11 @@ from collections import defaultdict
 from fast_sparse_array import fast_sparse_array, nonzero_slice, take_nonzero, nonzero_dict, fast_sparse_array
 from collections import Iterable
 import timeit
+
+try:
+    from scipy.misc import comb
+except:
+    from scipy.special import comb
 
 use_graph_tool_options = False # for visualiziing graph partitions (optional)
 if use_graph_tool_options:
@@ -1223,7 +1227,7 @@ def evaluate_partition(true_b, alg_b):
 
     # Compute pair-counting-based metrics
     def nchoose2(a):
-        return misc.comb(a, 2)
+        return comb(a, 2)
 
     num_pairs = nchoose2(N)
     colsum = np.sum(contingency_table, axis=0)
