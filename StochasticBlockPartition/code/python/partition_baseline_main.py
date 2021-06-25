@@ -1441,11 +1441,7 @@ def do_main(args):
 
             t_elapsed_partition,partition = partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, args, stop_at_bracket = 0, alg_state = alg_state)
 
-        if true_partition is not None:
-            precision,recall = evaluate_partition(true_partition, partition)
-        else:
-            precision,recall = 1.0,1.0
-
+        precision,recall = evaluate_partition(true_partition, partition)
         return t_elapsed_partition,precision,recall
     else:
         if args.naive_streaming:

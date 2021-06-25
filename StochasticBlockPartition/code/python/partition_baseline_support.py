@@ -213,7 +213,12 @@ def decimate_graph(out_neighbors, in_neighbors, true_partition, decimation, deci
     """
     in_neighbors = in_neighbors[decimated_piece::decimation]
     out_neighbors = out_neighbors[decimated_piece::decimation]
-    true_partition = true_partition[decimated_piece::decimation]
+
+    if true_partition is not None:
+        true_partition = true_partition[decimated_piece::decimation]
+    else:
+        true_partition = None
+
     E = sum(len(v) for v in out_neighbors)
     N = np.int64(len(in_neighbors))
 
@@ -1163,6 +1168,11 @@ def evaluate_partition(true_b, alg_b):
         alg_b : ndarray (int)
                 array of output block assignment for each node. The length of this array corresponds to the number of
                 nodes observed and processed so far."""
+
+    if true_b is None:
+        print("Ignoring partition evaluation -- true_partition is None")
+        return -1.0,-1.0
+
 
     blocks_b1 = true_b
     blocks_b1_set = set(true_b)
