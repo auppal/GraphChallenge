@@ -338,14 +338,14 @@ if __name__ == '__main__':
         results.update(result)
 
     if args['sparse-sweep']:
-        med_files = [N[20000]]
+        med_files = [N[50000]]
 
         var_args = (('input_filename', med_files),
-                    ('iteration', range(3)),
+                    ('iteration', range(1)),
                     ('initial_block_reduction_rate',(0.50,0.75)),
-                    ('sparse',(0,1,2)), ('threads',(8,)))
+                    ('sparse',(0,1,2)), ('threads',(12,)))
 
-        result = run_var_test(out_dir, base_args, var_args, max_jobs=2)
+        result = run_var_test(out_dir, base_args, var_args)
         print_results(result)
 
 
