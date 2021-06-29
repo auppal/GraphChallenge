@@ -48,6 +48,7 @@ class NoDaemonProcess(mp.Process):
 class NonDaemonicPool(mp.pool.Pool):
     Process = NoDaemonProcess
 
+from concurrent.futures import ProcessPoolExecutor as Pool
 
 shortname = {'decimation' : 'd',
              'input_filename' : 'F',
@@ -130,8 +131,7 @@ def run_test(out_dir, base_args, input_files, iterations, threads, max_jobs = 1)
         arg_list[i]['threads'] = thread
         arg_list[i] = tuple(sorted((j for j in arg_list[i].items()))) + (('iteration', iteration),)
 
-    pool = NonDaemonicPool(max_jobs)
-
+    pool = Pool(max_jobs)
     result_list = pool.map(profile_wrapper, [(out_dir, i) for i in arg_list])
 
     for args,(outname,rc,t_elp,rusage_self,rusage_children,func_result) in zip(arg_list, result_list):
@@ -162,7 +162,7 @@ def run_sweep_test(out_dir, base_args, input_files, iterations, threads, reducti
         arg_list[i]['initial_block_reduction_rate'] = reduction_rate
         arg_list[i] = tuple(sorted((j for j in arg_list[i].items()))) + (('iteration', iteration),)
 
-    pool = NonDaemonicPool(max_jobs)
+    pool = Pool(max_jobs)
 
     result_list = pool.map(profile_wrapper, [(out_dir, i) for i in arg_list])
 
@@ -203,8 +203,7 @@ def run_var_test(out_dir, base_args, var_args, max_jobs = 1):
     # Convert to tuples (for later indexing).
     arg_list = [tuple(sorted((j for j in i.items()))) for i in arg_list]
 
-    pool = NonDaemonicPool(max_jobs)
-
+    pool = Pool(max_jobs)
     result_list = pool.map(profile_wrapper, [(out_dir, i) for i in arg_list])
 
     for args,(outname,rc,t_elp,rusage_self,rusage_children,func_result) in zip(arg_list, result_list):
@@ -227,7 +226,6 @@ def print_results(results):
         print("%s %s" % (v[0],v[1:]))
 
 if __name__ == '__main__':
-    
     out_dir = time.strftime("out-%Y-%m-%d")
     try: os.mkdir(out_dir)
     except: pass
@@ -265,8 +263,12 @@ if __name__ == '__main__':
         'reduction-sweep-small' : 0,
         'sparse-sweep' : 0,
         'big' : 0,
-        'regression' : 1
+        'regression' : 0,
+        'thread-sweep' : 0,
         }
+
+    for i in sys.argv[1:]:
+        args[i] = 1
 
     results = {}
 
@@ -295,6 +297,16 @@ if __name__ == '__main__':
 
             result = run_var_test(out_dir, base_args, var_args)
 
+        print_results(result)
+        results.update(result)
+
+    # On a new system, it is best to first do a thread swep to find the optimal number of threads on a reasonably-sized graph.
+    if args['thread-sweep']:
+        base_args['verbose'] = 0
+        base_args['initial_block_reduction_rate'] = 0.50
+        base_args['input_filename'] = N[5000]
+        var_args = (('threads', (0,2,4,6,8,10,11,12,14,16,18,20,22,24)),)
+        result = run_var_test(out_dir, base_args, var_args)
         print_results(result)
         results.update(result)
 
