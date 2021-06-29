@@ -160,10 +160,12 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
     return blocks, best_overall_merge, best_overall_delta_entropy, n_proposals_evaluated
 
 
+propose_node_movement_profile_stats = []
 def propose_node_movement_profile_wrapper(tup):
     mypid = current_process().pid
     rc = []
-    cProfile.runctx("rc.append(propose_node_movement_wrapper(tup))", globals(), locals(), filename="propose_node_movement-%d.prof" % mypid)
+    cnt = len(propose_node_movement_profile_stats)
+    propose_node_movement_profile_stats.append(cProfile.runctx("rc.append(propose_node_movement_wrapper(tup))", globals(), locals(), filename="propose_node_movement-%d-%d.prof" % (mypid,cnt)))
     return rc[0]
 
 update_id = -1
