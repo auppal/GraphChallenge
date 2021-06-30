@@ -149,8 +149,7 @@ class nonzero_key_value_sorted_array(object):
         d.v = self.v.copy()
         return d
 
-nonzero_data = dict    
-#nonzero_data = nonzero_dict
+nonzero_data = nonzero_dict
 #nonzero_data = nonzero_key_value_sorted_array
 #nonzero_data = nonzero_key_value_list
 
