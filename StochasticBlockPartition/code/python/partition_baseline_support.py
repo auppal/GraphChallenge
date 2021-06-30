@@ -964,6 +964,12 @@ def compute_overall_entropy(M, d_out, d_in, B, N, E):
         data_S = 0.0
         for i in range(B):
             M_row_i, M_row_v = take_nonzero(M, i, 0, sort=False)
+
+            if 1:
+                mask = (M_row_v != 0)
+                M_row_i = M_row_i[mask]
+                M_row_v = M_row_v[mask]
+
             entries = M_row_v * np.log(M_row_v / (d_out[i] * d_in[M_row_i]).astype(float))
             data_S += -np.sum(entries)
 

@@ -575,9 +575,19 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
         = (shared_memory_copy(i) for i in (partition, block_degrees, block_degrees_out, block_degrees_in, ))
 
     if is_compressed(M):
+        # XXX Just uncompress the compressed array for nodal movements.
+        M_uncompressed = np.zeros((len(M.rows),len(M.cols)), dtype=int)
+        for i,e in enumerate(M.rows):
+             idx = e.keys()
+             val = e.values()
+             M_uncompressed[i, idx] = val
+
+        M_shared = M_uncompressed
+
+        # XXX Old:
         # Do not do a shared memory copy because nodal updates will arrive via message-passing instead of a shared array.
-        M_shared = M
-        # Mailboxes for messages from parent to each worker.
+        # M_shared = M
+
         pid_box = [Queue() for i in range(2 * n_thread)]
     else:
         M_shared = shared_memory_copy(M)
