@@ -229,6 +229,14 @@ def propose_node_movement_wrapper(tup):
 
     return rank,mypid,update_id,start,stop,step
 
+
+def propose_node_movement_profile_sparse_wrapper(tup):
+    mypid = current_process().pid
+    rc = []
+    cnt = len(propose_node_movement_profile_stats)
+    propose_node_movement_profile_stats.append(cProfile.runctx("rc.append(propose_node_movement_sparse_wrapper(tup))", globals(), locals(), filename="propose_node_movement-%d-%d.prof" % (mypid,cnt)))
+    return rc[0]
+
 def propose_node_movement_sparse_wrapper(tup):
     global update_id, partition, M, block_degrees, block_degrees_out, block_degrees_in, mypid, mypid_idx, worker_pids
 
@@ -620,7 +628,10 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
         chunks = [((i // group_size) % n_thread, i, min(i+group_size, N), 1) for i in range(0,N,group_size)]
 
         if is_compressed(M):
-            movements = pool.imap_unordered(propose_node_movement_sparse_wrapper, chunks)
+            if args.profile > 1:
+                movements = pool.imap_unordered(propose_node_movement_profile_sparse_wrapper, chunks)
+            else:
+                movements = pool.imap_unordered(propose_node_movement_sparse_wrapper, chunks)
         else:
             if args.profile > 1:
                 movements = pool.imap_unordered(propose_node_movement_profile_wrapper, chunks)
@@ -672,7 +683,10 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
 
                     update_id_cnt += 1
 
-                    block = (proposal_cnt == N)
+                    if proposal_cnt == N:
+                        block = True
+                    else:
+                        block = False
 
                     if lock.acquire(block=block):
                         if not is_compressed(M):
@@ -730,6 +744,9 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     # begin agglomerative partition updates (i.e. block merging)
     if verbose:
         print("\nMerging down blocks from {} to {} at time {:4.4f}".format(num_blocks, num_target_blocks, timeit.default_timer() - t_prog_start))
+
+#    if verbose > 1:
+#        print("Density at block size {} is {:1.8f}".format(num_blocks, np.count_nonzero(M) / (num_blocks ** 2)))
 
     best_merge_for_each_block = np.ones(num_blocks, dtype=int) * -1  # initialize to no merge
     delta_entropy_for_each_block = np.ones(num_blocks) * np.Inf  # initialize criterion
@@ -1396,6 +1413,8 @@ def incremental_streaming(args):
 def do_main(args):
     global syms, t_prog_start
 
+    min_number_blocks = args.min_number_blocks
+
     if args.sparse:
         args.sparse_algorithm = 1
         args.sparse_data = 1
@@ -1433,12 +1452,12 @@ def do_main(args):
 
 
         if not args.test_resume:
-            t_elapsed_partition,partition = partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, args)
+            t_elapsed_partition,partition = partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, args, min_number_blocks=min_number_blocks)
         else:
             print("")
             print("Test stop functionality.")
             print("")
-            t_elapsed_partition,partition,alg_state = partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, args, stop_at_bracket = 1, min_number_blocks = 0)
+            t_elapsed_partition,partition,alg_state = partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, args, stop_at_bracket = 1, min_number_blocks = min_number_blocks)
 
             print("")
             print("Resume bracket search.")
@@ -1627,6 +1646,7 @@ if __name__ == '__main__':
     parser.add_argument("input_filename", nargs="?", type=str, default="../../data/static/simulated_blockmodel_graph_500_nodes")
 
     # Debugging options
+    parser.add_argument("--min-number-blocks", type=int, required=False, default=0, help="Force stop at this many blocks instead of searching for optimality.")
     parser.add_argument("--initial-block-reduction-rate", type=float, required=False, default=0.50)
     parser.add_argument("--profile", type=int, required=False, help="Profiling level 0=disabled, 1=main, 2=workers.", default=0)
     parser.add_argument("--test-decimation", type=int, required=False, default=0)
