@@ -51,7 +51,12 @@ def entropy_row_nz(x, y, c):
     #     print("Invalid y value encountered")
     #     print("y", y)
 
-    S = np.sum(x * (np.log(x) - np.log(y * c)))
+    if 1:
+        mask = (x > 0) & (y > 0)
+        S = np.sum(x[mask] * (np.log(x[mask]) - np.log(y[mask] * c)))
+    else:
+        S = np.sum(x * (np.log(x) - np.log(y * c)))
+
     return S
 
 def entropy_row_nz_ignore(x, y, c, x_nz, r, s):
@@ -65,10 +70,13 @@ def entropy_row_nz_ignore(x, y, c, x_nz, r, s):
     #     print("Invalid y value encountered")
     #     print("y", y)
 
-    mask = (x_nz != r) & (x_nz != s)
+    if 1:
+        mask = (x_nz != r) & (x_nz != s) & (x > 0) & (y > 0)
+    else:
+        mask = (x_nz != r) & (x_nz != s)
+
     xm = x[mask]
     ym = y[mask]
-
     return np.sum(xm * (np.log(xm) - np.log(ym * c)))
 
 def compute_delta_entropy_sparse(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new):

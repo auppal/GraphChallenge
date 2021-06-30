@@ -16,14 +16,15 @@ else:
     dict_items_func = dict.items
 
 class nonzero_dict(dict):
-    def __setitem__(self, idx, val):
-        if val == 0:
-            try:
-                del self[idx]
-            except KeyError:
-                pass
-        else:
-            dict.__setitem__(self, idx, val)
+    # This is works fine and is more elegant, but slower.
+    # def __setitem__(self, idx, val):
+    #     if val == 0:
+    #         try:
+    #             del self[idx]
+    #         except KeyError:
+    #             pass
+    #     else:
+    #         dict.__setitem__(self, idx, val)
     def __getitem__(self, idx):
         try:
             return dict.__getitem__(self, idx)
@@ -33,9 +34,11 @@ class nonzero_dict(dict):
         d = nonzero_dict(self)
         return d
     def keys(self):
-        return np.fromiter(dict_keys_func(self), dtype=int)
+        return np.array(list(dict_keys_func(self)), dtype=int)
+#        #return np.fromiter(dict_keys_func(self), dtype=int)
     def values(self):
-        return np.fromiter(dict_values_func(self), dtype=int)
+        return np.array(list(dict_values_func(self)), dtype=int)
+#        #return np.fromiter(dict_values_func(self), dtype=int)
     def sum(self):
         return np.fromiter(dict_values_func(self), dtype=int).sum()
     def dict_keys(self):
@@ -146,7 +149,8 @@ class nonzero_key_value_sorted_array(object):
         d.v = self.v.copy()
         return d
 
-nonzero_data = nonzero_dict
+nonzero_data = dict    
+#nonzero_data = nonzero_dict
 #nonzero_data = nonzero_key_value_sorted_array
 #nonzero_data = nonzero_key_value_list
 
@@ -214,6 +218,7 @@ class fast_sparse_array(object):
                     self.cols[k][idx] = v
             else:
                 # Slightly faster method to minimize deletions.
+                # Delete everything that is in the current row, but not the new row. Then update all changed values.
                 for k in dict_keys_func(self.rows[idx]) - dict_keys_func(d_new):
                     del self.cols[k][idx]
 
@@ -272,9 +277,11 @@ class fast_sparse_array(object):
 
     def take(self, idx, axis):
         if axis == 0:
-            return (self.rows[idx].keys(),self.rows[idx].values())
+            return (np.array(list(dict_keys_func(self.rows[idx]))), np.array(list(dict_values_func(self.rows[idx]))))
+#            return (self.rows[idx].keys(),self.rows[idx].values())
         elif axis == 1:
-            return (self.cols[idx].keys(),self.cols[idx].values())
+            return (np.array(list(dict_keys_func(self.cols[idx]))), np.array(list(dict_values_func(self.cols[idx]))))
+#            return (self.cols[idx].keys(),self.cols[idx].values())
         else:
             raise Exception("Invalid axis %s" % (axis))
     def take_dict(self, idx, axis):
