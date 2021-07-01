@@ -479,9 +479,10 @@ def update_partition_single(b, ni, s, M, M_r_row, M_s_row, M_r_col, M_s_col, arg
 
     return b, M
 
+dtype_to_ctype = {"float64" : ctypes.c_double, "float" : ctypes.c_double, "int64" : ctypes.c_int64, "int" : ctypes.c_int, "bool" : ctypes.c_bool, "int32" : ctypes.c_int32, "float32" : ctypes.c_int32}
 def shared_memory_copy(z):
     prod = reduce((lambda x,y : x*y), (i for i in z.shape))
-    ctype = {"float64" : ctypes.c_double, "int64" : ctypes.c_int64, "bool" : ctypes.c_bool}[str(z.dtype)]
+    ctype = dtype_to_ctype[str(z.dtype)]
     raw = sharedctypes.RawArray(ctype, prod)
     a = np.frombuffer(raw, dtype=z.dtype).reshape(z.shape)
     a[:] = z
@@ -489,7 +490,7 @@ def shared_memory_copy(z):
 
 def shared_memory_empty(shape, dtype='int64'):
     prod = reduce((lambda x,y : x*y), (i for i in shape))
-    ctype = {"float64" : ctypes.c_double, "float" : ctypes.c_double, "int64" : ctypes.c_int64, "int" : ctypes.c_int, "bool" : ctypes.c_bool}[str(dtype)]
+    ctype = dtype_to_ctype[str(dtype)]
     raw = sharedctypes.RawArray(ctype, prod)
     a = np.frombuffer(raw, dtype=dtype).reshape(shape)
     return a
