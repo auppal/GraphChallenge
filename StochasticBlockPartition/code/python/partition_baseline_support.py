@@ -20,6 +20,8 @@ from fast_sparse_array import fast_sparse_array, nonzero_slice, take_nonzero, no
 from collections import Iterable
 import timeit
 
+mydtype=np.int64
+
 try:
     from scipy.misc import comb
 except:
@@ -307,7 +309,7 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         t0 = time.time()
 
     if not sparse:
-        M = np.zeros((B,B), dtype=int)
+        M = np.zeros((B,B), dtype=mydtype)
         # compute the initial interblock edge count
         for v in range(len(out_neighbors)):
             k1 = b[v]
@@ -323,9 +325,9 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         if verbose > 0:
             print("density(M) = %s" % (len(M.nonzero()[0]) / (B ** 2.)))
     else:
-        M = fast_sparse_array((B,B), base_type=list)
-        d_out = np.zeros(B, dtype=int)
-        d_in = np.zeros(B, dtype=int)
+        M = fast_sparse_array((B,B), base_type=list, dtype=mydtype)
+        d_out = np.zeros(B, dtype=mydtype)
+        d_in = np.zeros(B, dtype=mydtype)
         M_d = defaultdict(int)
         for v in range(len(out_neighbors)):
             k1 = b[v]
@@ -436,8 +438,8 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
             new_M_r_row = nonzero_dict()
             new_M_r_col = nonzero_dict()
         else:
-            M_r_row = np.zeros(B, dtype=int)
-            M_r_col = np.zeros(B, dtype=int)
+            M_r_row = np.zeros(B, dtype=M.dtype)
+            M_r_col = np.zeros(B, dtype=M.dtype)
             new_M_r_row = M_r_row
             new_M_r_col = M_r_col
     else:
@@ -763,8 +765,8 @@ def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, M, M_r_r
         # t = np.sort(t)
         M_s_row_d = M.take_dict(s, 0)
         M_s_col_d = M.take_dict(s, 1)
-        M_t_s = np.fromiter((M_s_row_d[i] for i in t), dtype=int)
-        M_s_t = np.fromiter((M_s_col_d[i] for i in t), dtype=int)
+        M_t_s = np.fromiter((M_s_row_d[i] for i in t), dtype=M.dtype)
+        M_s_t = np.fromiter((M_s_col_d[i] for i in t), dtype=M.dtype)
     else:
         # t = np.sort(t)
         M_s_row_i, M_s_row_v = take_nonzero(M, s, 0, sort = True)
