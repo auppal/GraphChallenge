@@ -21,6 +21,16 @@ except:
 
 compressed_threshold = 5000
 
+log_timestamp_prev = 0
+def log_timestamp(msg):
+    global log_timestamp_prev
+    t_now = timeit.default_timer() - t_prog_start
+    if log_timestamp_prev == 0:
+        log_timestamp_prev = t_now
+    t_elp = t_now - log_timestamp_prev
+    print("%3.4f +%3.4f %s" % (t_now, t_elp, msg))
+    log_timestamp_prev = t_now
+
 def is_compressed(M):
     return not isinstance(M, np.ndarray)
 
@@ -575,21 +585,22 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
     (partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared) \
         = (shared_memory_copy(i) for i in (partition, block_degrees, block_degrees_out, block_degrees_in, ))
 
+    nodal_movement_use_compressed = False
+
     if is_compressed(M):
         # XXX Just uncompress the compressed array for nodal movements.
-        M_uncompressed = np.zeros((len(M.rows),len(M.cols)), dtype=int)
+        M_uncompressed = np.zeros((len(M.rows),len(M.cols)), dtype=M.dtype)
         for i,e in enumerate(M.rows):
              idx = e.keys()
              val = e.values()
              M_uncompressed[i, idx] = val
-
         M_shared = M_uncompressed
-
+        pid_box = [Queue() for i in range(2 * n_thread)]
+    elif 0:
         # XXX Old:
         # Do not do a shared memory copy because nodal updates will arrive via message-passing instead of a shared array.
-        # M_shared = M
-
-        pid_box = [Queue() for i in range(2 * n_thread)]
+        M_shared = M
+        nodal_movement_use_compressed = True
     else:
         M_shared = shared_memory_copy(M)
 
@@ -612,14 +623,14 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
     syms['nodal_move_state'] = (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared, block_modified_time_shared)
     syms['args'] = args
 
-    if is_compressed(M):
+    if nodal_movement_use_compressed:
         syms['pid_box'] = pid_box
         syms['worker_pids'] = worker_pids
 
     pool = Pool(n_thread)
     update_id_cnt = 0
 
-    if is_compressed(M):
+    if nodal_movement_use_compressed:
         worker_pids[:] = -1
         active_children = multiprocessing.active_children()
         for i,e in enumerate(active_children):
@@ -638,7 +649,7 @@ def nodal_moves_parallel(n_thread, batch_size, max_num_nodal_itr, delta_entropy_
         group_size = args.node_propose_batch_size
         chunks = [((i // group_size) % n_thread, i, min(i+group_size, N), 1) for i in range(0,N,group_size)]
 
-        if is_compressed(M):
+        if nodal_movement_use_compressed:
             if args.profile > 1:
                 movements = pool.imap_unordered(propose_node_movement_profile_sparse_wrapper, chunks)
             else:
@@ -754,7 +765,8 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
 
     # begin agglomerative partition updates (i.e. block merging)
     if verbose:
-        print("\nMerging down blocks from {} to {} at time {:4.4f}".format(num_blocks, num_target_blocks, timeit.default_timer() - t_prog_start))
+        move_start_time = timeit.default_timer()
+        print("\nMerging down blocks from {} to {} at time {:4.4f}".format(num_blocks, num_target_blocks, move_start_time - t_prog_start))
 
 #    if verbose > 1:
 #        print("Density at block size {} is {:1.8f}".format(num_blocks, np.count_nonzero(M) / (num_blocks ** 2)))
@@ -868,7 +880,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     if verbose:
         print("Best num_blocks = %s" % num_blocks)
         print("blocks %s entropy %s" % (num_target_blocks, overall_entropy_per_num_blocks))
-        print("Beginning nodal updates")
+        print("Beginning nodal updates at ", timeit.default_timer() - t_prog_start)
 
     batch_size = args.node_move_update_batch_size
 
@@ -883,8 +895,10 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     overall_entropy = compute_overall_entropy(M, block_degrees_out, block_degrees_in, num_blocks, N, E)
 
     if verbose:
-        print(
-            "Total number of nodal moves: {:3d}, overall_entropy: {:0.2f}".format(total_num_nodal_moves_itr, overall_entropy))
+        move_end_time = timeit.default_timer()
+        move_time = move_end_time - move_start_time
+        move_rate = total_num_nodal_moves_itr / move_time
+        print("Total number of nodal moves: {:3d}, overall_entropy: {:0.2f}, move_time: {:0.3f} secs, moves_per_sec: {:4.3f}".format(total_num_nodal_moves_itr, overall_entropy, move_time, move_rate))
 
     if args.visualize_graph:
         graph_object = plot_graph_with_partition(out_neighbors, partition, graph_object)
