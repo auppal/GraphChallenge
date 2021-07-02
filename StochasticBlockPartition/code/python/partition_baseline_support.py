@@ -20,7 +20,7 @@ from fast_sparse_array import fast_sparse_array, nonzero_slice, take_nonzero, no
 from collections import Iterable
 import timeit
 
-mydtype=np.int64
+mydtype=np.dtype('int64')
 
 try:
     from scipy.misc import comb

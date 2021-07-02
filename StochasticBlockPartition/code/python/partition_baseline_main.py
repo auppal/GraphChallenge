@@ -106,7 +106,7 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
 
         block_neighbors = np.concatenate((in_idx, out_idx))
         block_neighbor_weights = np.concatenate((in_weight, out_weight))
-
+        
         num_out_block_edges = sum(out_weight)
         num_in_block_edges = sum(in_weight)
         num_block_edges = num_out_block_edges + num_in_block_edges
@@ -583,22 +583,25 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     (partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared) \
         = (shared_memory_copy(i) for i in (partition, block_degrees, block_degrees_out, block_degrees_in, ))
 
-    nodal_movement_use_compressed = False
+    nodal_movement_use_compressed = 0
 
     if is_compressed(M):
-        # XXX Just uncompress the compressed array for nodal movements.
-        M_uncompressed = np.zeros((len(M.rows),len(M.cols)), dtype=M.dtype)
-        for i,e in enumerate(M.rows):
-             idx = e.keys()
-             val = e.values()
-             M_uncompressed[i, idx] = val
-        M_shared = M_uncompressed
         pid_box = [Queue() for i in range(2 * n_thread_move)]
-    elif 0:
-        # XXX Old:
-        # Do not do a shared memory copy because nodal updates will arrive via message-passing instead of a shared array.
-        M_shared = M
-        nodal_movement_use_compressed = True
+        if 1:
+            # XXX Just uncompress the compressed array for nodal movements.
+            M_uncompressed = shared_memory_empty((len(M.rows),len(M.cols)), dtype=M.dtype)
+            for i,e in enumerate(M.rows):
+                idx = e.keys()
+                val = e.values()
+                M_uncompressed[i, idx] = val
+
+            M = M_uncompressed
+            M_shared = M_uncompressed
+        else:
+            # Old method:
+            # Do not do a shared memory copy because nodal updates will arrive via message-passing instead of a shared array.
+            nodal_movement_use_compressed = 1
+            M_shared = M
     else:
         M_shared = shared_memory_copy(M)
 
@@ -747,7 +750,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
 
     pool.close()
 
-    return total_num_nodal_moves_itr
+    return total_num_nodal_moves_itr,M
 
 
 def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_threshold, M, block_degrees, block_degrees_out, block_degrees_in, out_neighbors, in_neighbors, N, E, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, partition, args, verbose = False):
@@ -881,7 +884,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     batch_size = args.node_move_update_batch_size
 
     if n_thread_move > 0:
-        total_num_nodal_moves_itr = nodal_moves_parallel(n_thread_move, batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
+        total_num_nodal_moves_itr,M = nodal_moves_parallel(n_thread_move, batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
     else:
         total_num_nodal_moves_itr,M = nodal_moves_sequential(batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
 
@@ -998,6 +1001,7 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
 
         interblock_edge_count, block_degrees_out, block_degrees_in, block_degrees \
             = initialize_edge_counts(out_neighbors, num_blocks, partition, args.sparse_data)
+
         overall_entropy = compute_overall_entropy(interblock_edge_count, block_degrees_out, block_degrees_in, num_blocks, N, E)
         partition, interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in, num_blocks, num_blocks_to_merge, hist, optimal_num_blocks_found = \
                prepare_for_partition_on_next_num_blocks(overall_entropy, partition, interblock_edge_count, block_degrees,
@@ -1392,7 +1396,7 @@ def incremental_streaming(args):
                     num_blocks = old_num_blocks[j]
                     overall_entropy = old_overall_entropy[j]
 
-                    total_num_nodal_moves_itr = nodal_moves_parallel(n_thread_move, batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, verbose, args)
+                    total_num_nodal_moves_itr,M = nodal_moves_parallel(n_thread_move, batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, verbose, args)
 
                 t1 = timeit.default_timer()
                 print("Intermediate nodal move time for part %d is %f" % (part,(t1-t0)))
