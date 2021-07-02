@@ -753,8 +753,6 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
 def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_threshold, M, block_degrees, block_degrees_out, block_degrees_in, out_neighbors, in_neighbors, N, E, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, partition, args, verbose = False):
     global syms
 
-    parallel_phase1 = (args.parallel_phase & 1) != 0
-
     n_thread_merge = args.t_merge
     n_thread_move = args.t_move
 
@@ -774,7 +772,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     block_partition = np.arange(num_blocks)
     n_merges += 1
 
-    if parallel_phase1 and n_thread_merge > 0:
+    if n_thread_merge > 0:
         syms = {}
         syms['interblock_edge_count'] = M
         syms['block_partition'] = block_partition
@@ -882,9 +880,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
 
     batch_size = args.node_move_update_batch_size
 
-    parallel_phase2 = (args.parallel_phase & 2) != 0
-
-    if parallel_phase2 and n_thread_move > 0:
+    if n_thread_move > 0:
         total_num_nodal_moves_itr = nodal_moves_parallel(n_thread_move, batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
     else:
         total_num_nodal_moves_itr,M = nodal_moves_sequential(batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
@@ -1662,14 +1658,13 @@ def info(type, value, tb):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("-P", "--parallel-phase", type=int, required=False, default=3)
     parser.add_argument("-t", "--threads", type=int, required=False, default=0, help="Configure number of threads for both agglomerative merge and nodal movements.")
     parser.add_argument("--t-merge", type=int, required=False, default=0, help="Configure number of threads for both agglomerative merge phase (overrides --threads).")
     parser.add_argument("--t-move", type=int, required=False, default=0, help="Configure number of threads for nodal movement phase (overrides --threads)")
 
     parser.add_argument("-p", "--parts", type=int, required=False, default=0)
     parser.add_argument("-d", "--decimation", type=int, required=False, default=0)
-    parser.add_argument("-v", "--verbose", type=int, required=False, default=0)
+    parser.add_argument("-v", "--verbose", type=int, required=False, default=0, help="Verbosity level.")
     parser.add_argument("-b", "--node-move-update-batch-size", type=int, required=False, default=1)
     parser.add_argument("-g", "--node-propose-batch-size", type=int, required=False, default=4)
     parser.add_argument("--sparse", type=int, required=False, default=0)
