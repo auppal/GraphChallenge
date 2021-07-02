@@ -1442,6 +1442,12 @@ def incremental_streaming(args):
 def do_main(args):
     global syms, t_prog_start
 
+    if args.threads > 0:
+        if args.t_merge == 0:
+            args.t_merge = args.threads
+        if args.t_move == 0:
+            args.t_move = args.threads
+
     min_number_blocks = args.min_number_blocks
 
     if args.sparse:
@@ -1693,12 +1699,6 @@ if __name__ == '__main__':
     parser.add_argument("--skip-eval", type=int, required=False, default=0, help="Skip partition evaluation.")
 
     args = parser.parse_args()
-
-    if args.threads > 0:
-        if args.t_merge == 0:
-            args.t_merge = args.threads
-        if args.t_move == 0:
-            args.t_move = args.threads
 
     if args.debug:
         sys.excepthook = info
