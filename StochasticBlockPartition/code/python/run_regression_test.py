@@ -3,6 +3,7 @@ from multiprocessing import Process
 import timeit, resource
 import sys, itertools, os, time, traceback
 from partition_baseline_main import do_main
+import time
 try:
     import cPickle as pickle
 except:
@@ -65,8 +66,8 @@ shortname = {'decimation' : 'd',
              'verbose' : 'v'}
 
 def outputname(args):
-    # XXX Temporary until too long filename is fixed
-    return 'output'
+    # XXX Temporary until too long filename is fixed.
+    return time.strftime("output-%Y-%m-%d-%H%M%SZ", time.gmtime())
     out = 'out'
     for k,v in args:
         if k == 'input_filename':
