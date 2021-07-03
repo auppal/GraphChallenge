@@ -62,7 +62,8 @@ def entropy_row_nz(x, y, c):
         # S = np.sum(x[mask] * (np.log(x[mask]) - np.log(y[mask] * c)))
         # S = np.sum(xm * (np.log(xm) - np.log(y[mask]) - logc))
         # return np.dot(xm, (np.log(xm) - np.log(y[mask]) - np.log(c)))
-        return np.sum(x * (np.log(x, where=mask) - np.log(y, where=mask) - np.log(c)), where=mask)
+        # return np.sum(x * (np.log(x, where=mask) - np.log(y, where=mask) - np.log(c)), where=mask)
+        return np.sum(xm * (np.log(xm) - np.log(y[mask]) - np.log(c)))
     else:
         return np.dot(x, (np.log(x) - np.log(y) - np.log(c)))
         # S = np.sum(x * (np.log(x) - np.log(y * c)))
@@ -98,7 +99,8 @@ def entropy_row_nz_ignore(x, y, c, x_nz, r, s):
 
     # S = np.sum(xm * (np.log(xm) - np.log(ym) - logc))
     # return np.dot(xm, (np.log(xm) - np.log(ym) - np.log(c)))
-    return np.sum(x * (np.log(x, where=mask) - np.log(y, where=mask) - np.log(c)), where=mask)
+    # return np.sum(x * (np.log(x, where=mask) - np.log(y, where=mask) - np.log(c)), where=mask)
+    return np.sum(xm * (np.log(xm) - np.log(ym) - np.log(c)))
 
 
 def compute_delta_entropy_sparse(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new):
