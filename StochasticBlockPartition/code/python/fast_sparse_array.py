@@ -218,61 +218,20 @@ class fast_sparse_array(object):
             self.M_ver.__setitem__(idx, val)
             self.verify()
             self.verify_conistency()
-    def set_axis_dict(self, idx, axis, d_new, update=0):
+    def set_axis_dict(self, idx, axis, d_new):
+        # I am surprised this works.
+        # There should be entries in the old row that are not in the new one.
+        # But apparently:             assert(len(dict_keys_func(self.rows[idx]) - dict_keys_func(d_new)) == 0)
+        # and:                        assert(len(dict_keys_func(self.cols[idx]) - dict_keys_func(d_new)) == 0)
+        # This seems to be a consequence of moving nodes from one community to another and how this affects the edge counts.
         if axis == 0:
-            if 0:
-                for k in self.rows[idx].keys():
-                    del self.cols[k][idx]
-                for k,v in d_new.items():
-                    self.cols[k][idx] = v
-            else:
-                # Slightly faster method to minimize deletions.
-                # We could also just set zero these entries, but this turns out to (maybe) be slower.
-                # Delete everything that is in the current row, but not the new row. Then update all changed values.
-                #for k in dict_keys_func(self.rows[idx]) - dict_keys_func(d_new):
-                #     del self.cols[k][idx]
-
-                for k in dict_keys_func(self.rows[idx]) - dict_keys_func(d_new):
-                    self.cols[k][idx] = 0
-                    #del self.cols[k][idx]
-
-                    # [self.cols[k].update({idx:v}) for (k,v) in d_new.items()]
-
-                for k,v in dict_items_func(d_new):
-                    self.cols[k][idx] = v
-
-            if not update:
-                self.rows[idx] = d_new
-            else:
-                self.rows[idx].clear()
-                self.rows[idx].update(d_new)
-
+            for k,v in d_new.items():
+                self.cols[k][idx] = v
+            self.rows[idx] = d_new
         elif axis == 1:
-            if 0:
-                for k in self.cols[idx].keys():
-                    del self.rows[k][idx]
-                for k,v in d_new.items():
-                    self.rows[k][idx] = v
-            else:
-                # Slightly faster method to minimize deletions.
-                # We could also set these entries to zero, but this turns out to be slower.
-                #for k in dict_keys_func(self.cols[idx]) - dict_keys_func(d_new):
-                #     del self.rows[k][idx]
-
-                for k in dict_keys_func(self.cols[idx]) - dict_keys_func(d_new):
-                    self.rows[k][idx] = 0
-                    #del self.rows[k][idx]
-
-                for k,v in dict_items_func(d_new):
-                    self.rows[k][idx] = v
-
-            if not update:
-                self.cols[idx] = d_new
-            else:
-                # Why would clear and update be faster?!
-                self.cols[idx].clear()
-                self.cols[idx].update(d_new)
-
+            for k,v in d_new.items():
+                self.rows[k][idx] = v
+            self.cols[idx] = d_new
     def __str__(self):
         s = ""
         for i in range(self.shape[0]):
