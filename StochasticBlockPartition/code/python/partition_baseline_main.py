@@ -587,6 +587,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
 
     if is_compressed(M):
         pid_box = [Queue() for i in range(2 * n_thread_move)]
+        # XXX Need to determine a threshold and crossover point between compressed and uncompressed.
         if 1:
             # XXX Just uncompress the compressed array for nodal movements.
             M_uncompressed = shared_memory_empty((len(M.rows),len(M.cols)), dtype=M.dtype)
@@ -940,7 +941,7 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
     # num_block_reduction_rate is fraction of blocks to reduce until the golden ratio bracket is established
 
     # nodal partition updates parameters
-    args.max_num_nodal_itr = 100  # maximum number of iterations
+
     delta_entropy_threshold1 = 5e-4  # stop iterating when the change in entropy falls below this fraction of the overall entropy
                                      # lowering this threshold results in more nodal update iterations and likely better performance, but longer runtime
     delta_entropy_threshold2 = 1e-4  # threshold after the golden ratio bracket is established (typically lower to fine-tune to partition)
@@ -1697,6 +1698,7 @@ if __name__ == '__main__':
     parser.add_argument("--naive-streaming", type=int, required=False, default=0)
     parser.add_argument("--min-nodal-moves-ratio", type=float, required=False, default=0.0, help="Break nodal move loop early if the number of accepted moves is below this fraction of the number of nodes.")
     parser.add_argument("--skip-eval", type=int, required=False, default=0, help="Skip partition evaluation.")
+    parser.add_argument("--max-num-nodal-itr", type=int, required=False, default=100, help="Maximum number of iterations during nodal moves.")
 
     args = parser.parse_args()
 
