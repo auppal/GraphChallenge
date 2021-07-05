@@ -588,7 +588,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     if is_compressed(M):
         pid_box = [Queue() for i in range(2 * n_thread_move)]
         # XXX Need to determine a threshold and crossover point between compressed and uncompressed.
-        if 1:
+        if not args.compressed_nodal_moves:
             # XXX Just uncompress the compressed array for nodal movements.
             M_uncompressed = shared_memory_empty((len(M.rows),len(M.cols)), dtype=M.dtype)
             for i,e in enumerate(M.rows):
@@ -1047,12 +1047,10 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
 
 
         if verbose:
-            print('Overall entropy: {}'.format(old_overall_entropy))
-            print('Number of blocks: {}'.format(old_num_blocks))
+            print('Overall entropy: {} Number of blocks: {} Proposals evaluated: {} Overall nodal moves: {}'.format(old_overall_entropy, old_num_blocks, n_proposals_evaluated, total_num_nodal_moves))
+
             if optimal_num_blocks_found:
                 print('\nOptimal partition found with {} blocks'.format(num_blocks))
-            print('Proposals evaluated: {}'.format(n_proposals_evaluated))
-            print('Overall nodal moves: {}'.format(total_num_nodal_moves))
 
         if np.all(np.isfinite(old_overall_entropy)):
             delta_entropy_threshold = delta_entropy_threshold2
@@ -1699,6 +1697,7 @@ if __name__ == '__main__':
     parser.add_argument("--min-nodal-moves-ratio", type=float, required=False, default=0.0, help="Break nodal move loop early if the number of accepted moves is below this fraction of the number of nodes.")
     parser.add_argument("--skip-eval", type=int, required=False, default=0, help="Skip partition evaluation.")
     parser.add_argument("--max-num-nodal-itr", type=int, required=False, default=100, help="Maximum number of iterations during nodal moves.")
+    parser.add_argument("--compressed-nodal-moves", type=int, required=False, default=False, help="Whether to use compressed representation during nodal movements -- usually uncompressed is faster.")
 
     args = parser.parse_args()
 
