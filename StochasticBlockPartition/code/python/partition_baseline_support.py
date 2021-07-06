@@ -10,7 +10,6 @@
                Physical Review E 83, no. 1 (2011): 016107."""
 import numpy as np
 import scipy.sparse
-import scipy.misc as misc
 from munkres import Munkres # for correctness evaluation
 import sys
 from multiprocessing import sharedctypes
@@ -20,6 +19,11 @@ from collections import defaultdict
 from fast_sparse_array import fast_sparse_array, nonzero_slice, take_nonzero, nonzero_dict, fast_sparse_array
 from collections import Iterable
 import timeit
+
+try:
+    from scipy.misc import comb
+except:
+    from scipy.special import comb
 
 use_graph_tool_options = False # for visualiziing graph partitions (optional)
 if use_graph_tool_options:
@@ -213,7 +217,12 @@ def decimate_graph(out_neighbors, in_neighbors, true_partition, decimation, deci
     """
     in_neighbors = in_neighbors[decimated_piece::decimation]
     out_neighbors = out_neighbors[decimated_piece::decimation]
-    true_partition = true_partition[decimated_piece::decimation]
+
+    if true_partition is not None:
+        true_partition = true_partition[decimated_piece::decimation]
+    else:
+        true_partition = None
+
     E = sum(len(v) for v in out_neighbors)
     N = np.int64(len(in_neighbors))
 
@@ -955,6 +964,12 @@ def compute_overall_entropy(M, d_out, d_in, B, N, E):
         data_S = 0.0
         for i in range(B):
             M_row_i, M_row_v = take_nonzero(M, i, 0, sort=False)
+
+            if 1:
+                mask = (M_row_v != 0)
+                M_row_i = M_row_i[mask]
+                M_row_v = M_row_v[mask]
+
             entries = M_row_v * np.log(M_row_v / (d_out[i] * d_in[M_row_i]).astype(float))
             data_S += -np.sum(entries)
 
@@ -1164,6 +1179,11 @@ def evaluate_partition(true_b, alg_b):
                 array of output block assignment for each node. The length of this array corresponds to the number of
                 nodes observed and processed so far."""
 
+    if true_b is None:
+        print("Ignoring partition evaluation -- true_partition is None")
+        return -1.0,-1.0
+
+
     blocks_b1 = true_b
     blocks_b1_set = set(true_b)
     blocks_b1_set.discard(-1)  # -1 is the label for 'unknown'
@@ -1203,15 +1223,18 @@ def evaluate_partition(true_b, alg_b):
     if B_b1 > B_b2:  # transpose back
         contingency_table = contingency_table.transpose()
     print('Contingency Table: \n{}'.format(contingency_table))
-    joint_prob = contingency_table / sum(
-        sum(contingency_table))  # joint probability of the two partitions is just the normalized contingency table
-    accuracy = sum(joint_prob.diagonal())
+
+    # joint probability of the two partitions is just the normalized contingency table
+    joint_prob = contingency_table.astype('float') / np.sum(contingency_table)
+
+    accuracy = np.sum(contingency_table.diagonal()) / np.sum(contingency_table)
+
     print('Accuracy (with optimal partition matching): {}'.format(accuracy))
     print('\n')
 
     # Compute pair-counting-based metrics
     def nchoose2(a):
-        return misc.comb(a, 2)
+        return comb(a, 2)
 
     num_pairs = nchoose2(N)
     colsum = np.sum(contingency_table, axis=0)
@@ -1222,8 +1245,8 @@ def evaluate_partition(true_b, alg_b):
     sum_rowsum_squared = sum(rowsum ** 2)
     count_in_each_b1 = np.sum(contingency_table, axis=1)
     count_in_each_b2 = np.sum(contingency_table, axis=0)
-    num_same_in_b1 = sum(count_in_each_b1 * (count_in_each_b1 - 1)) / 2
-    num_same_in_b2 = sum(count_in_each_b2 * (count_in_each_b2 - 1)) / 2
+    num_same_in_b1 = sum(count_in_each_b1 * (count_in_each_b1 - 1)) / 2.
+    num_same_in_b2 = sum(count_in_each_b2 * (count_in_each_b2 - 1)) / 2.
     num_agreement_same = 0.5 * sum(sum(contingency_table * (contingency_table - 1)));
     num_agreement_diff = 0.5 * (N ** 2 + sum_table_squared - sum_colsum_squared - sum_rowsum_squared);
     num_agreement = num_agreement_same + num_agreement_diff
@@ -1250,6 +1273,7 @@ def evaluate_partition(true_b, alg_b):
     # compute the information theoretic metrics
     marginal_prob_b2 = np.sum(joint_prob, 0)
     marginal_prob_b1 = np.sum(joint_prob, 1)
+
     idx1 = np.nonzero(marginal_prob_b1)
     idx2 = np.nonzero(marginal_prob_b2)
     conditional_prob_b2_b1 = np.zeros(joint_prob.shape)

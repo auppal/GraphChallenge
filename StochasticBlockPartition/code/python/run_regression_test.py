@@ -24,10 +24,10 @@ except:
 
 base_args = {'debug' : 0, 'decimation' : 0,
              'input_filename' : '../../data/static/simulated_blockmodel_graph_100_nodes',
-             'initial_block_reduction_rate' : 0.50,
+             'initial_block_reduction_rate' : 0.75,
              'merge_method' : 0, 'mpi' : 0, 'node_move_update_batch_size' : 1, 'node_propose_batch_size' : 4,
-             'parallel_phase' : 3, 'parts' : 0, 'pipe' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0,
-             'sparse' : 0, 'sparse_algorithm' : 0, 'sparse_data' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0}
+             'parallel_phase' : 3, 'parts' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0,
+             'sparse' : 0, 'sparse_algorithm' : 0, 'sparse_data' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0}
 
 class Bunch(object):
     def __init__(self, adict):
@@ -48,6 +48,7 @@ class NoDaemonProcess(mp.Process):
 class NonDaemonicPool(mp.pool.Pool):
     Process = NoDaemonProcess
 
+from concurrent.futures import ProcessPoolExecutor as Pool
 
 shortname = {'decimation' : 'd',
              'input_filename' : 'F',
@@ -130,8 +131,7 @@ def run_test(out_dir, base_args, input_files, iterations, threads, max_jobs = 1)
         arg_list[i]['threads'] = thread
         arg_list[i] = tuple(sorted((j for j in arg_list[i].items()))) + (('iteration', iteration),)
 
-    pool = NonDaemonicPool(max_jobs)
-
+    pool = Pool(max_jobs)
     result_list = pool.map(profile_wrapper, [(out_dir, i) for i in arg_list])
 
     for args,(outname,rc,t_elp,rusage_self,rusage_children,func_result) in zip(arg_list, result_list):
@@ -162,7 +162,7 @@ def run_sweep_test(out_dir, base_args, input_files, iterations, threads, reducti
         arg_list[i]['initial_block_reduction_rate'] = reduction_rate
         arg_list[i] = tuple(sorted((j for j in arg_list[i].items()))) + (('iteration', iteration),)
 
-    pool = NonDaemonicPool(max_jobs)
+    pool = Pool(max_jobs)
 
     result_list = pool.map(profile_wrapper, [(out_dir, i) for i in arg_list])
 
@@ -203,8 +203,7 @@ def run_var_test(out_dir, base_args, var_args, max_jobs = 1):
     # Convert to tuples (for later indexing).
     arg_list = [tuple(sorted((j for j in i.items()))) for i in arg_list]
 
-    pool = NonDaemonicPool(max_jobs)
-
+    pool = Pool(max_jobs)
     result_list = pool.map(profile_wrapper, [(out_dir, i) for i in arg_list])
 
     for args,(outname,rc,t_elp,rusage_self,rusage_children,func_result) in zip(arg_list, result_list):
@@ -227,7 +226,6 @@ def print_results(results):
         print("%s %s" % (v[0],v[1:]))
 
 if __name__ == '__main__':
-    
     out_dir = time.strftime("out-%Y-%m-%d")
     try: os.mkdir(out_dir)
     except: pass
@@ -264,12 +262,53 @@ if __name__ == '__main__':
         'reduction-sweep' : 0,
         'reduction-sweep-small' : 0,
         'sparse-sweep' : 0,
-        'big' : 1
+        'big' : 0,
+        'regression' : 0,
+        'thread-sweep' : 0,
         }
+
+    for i in sys.argv[1:]:
+        args[i] = 1
 
     results = {}
 
     results_f = open('regression.pickle', 'wb')
+
+    if args['regression']:
+        print("Run sanity checks.")
+
+        for i in [100,500,1000]:
+            name = N[i]
+            result = run_test(out_dir, base_args, [name], range(1), threads = (0,))
+            result = run_test(out_dir, base_args, [name], range(1), threads = (2,))
+
+            var_args = (('input_filename', (name,)),
+                        ('sparse',(1,)))
+            result = run_var_test(out_dir, base_args, var_args)
+
+            if i > 100:
+                var_args = (('input_filename', (name,)),('sparse',(1,)),('threads',(2,)))
+                result = run_var_test(out_dir, base_args, var_args)
+
+            var_args = (('input_filename', (name,)),
+                        ('sparse',(0,)),
+                        ('threads',(4,)),
+                        ('decimation',(2,)))
+
+            result = run_var_test(out_dir, base_args, var_args)
+
+        print_results(result)
+        results.update(result)
+
+    # On a new system, it is best to first do a thread swep to find the optimal number of threads on a reasonably-sized graph.
+    if args['thread-sweep']:
+        base_args['verbose'] = 0
+        base_args['initial_block_reduction_rate'] = 0.50
+        base_args['input_filename'] = N[5000]
+        var_args = (('threads', (0,2,4,6,8,10,11,12,14,16,18,20,22,24)),)
+        result = run_var_test(out_dir, base_args, var_args)
+        print_results(result)
+        results.update(result)
 
     if args['single-tiny']:
         print("Tiny Single process tests.")
@@ -299,14 +338,14 @@ if __name__ == '__main__':
         results.update(result)
 
     if args['sparse-sweep']:
-        med_files = [N[20000]]
+        med_files = [N[50000]]
 
         var_args = (('input_filename', med_files),
-                    ('iteration', range(3)),
+                    ('iteration', range(1)),
                     ('initial_block_reduction_rate',(0.50,0.75)),
-                    ('sparse',(0,1,2)), ('threads',(8,)))
+                    ('sparse',(0,1,2)), ('threads',(12,)))
 
-        result = run_var_test(out_dir, base_args, var_args, max_jobs=2)
+        result = run_var_test(out_dir, base_args, var_args)
         print_results(result)
 
 
