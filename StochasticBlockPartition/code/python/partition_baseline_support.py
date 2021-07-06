@@ -305,7 +305,7 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
 
     if verbose > 0:
         import time
-        print("Initialize edge counts for size %d" % (B))
+        print("Initialize edge counts for size %d with compression %d" % (B,sparse))
         t0 = time.time()
 
     if not sparse:

@@ -667,6 +667,10 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
         cnt_seq_workers = 0
         cnt_non_seq_workers = 0
 
+        if args.verbose > 1:
+            prev_report_cnt = 0
+            t0 = timeit.default_timer()
+
         while proposal_cnt < N:
             rank,worker_pid,worker_update_id,start,stop,step = movements.next()
     
@@ -717,6 +721,15 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
                             M_shared[:, where_modified] = M[:, where_modified]
                         else:
                             pass
+
+                        if verbose > 1:
+                            t1 = timeit.default_timer()
+                            d_n = num_nodal_moves - prev_report_cnt
+                            t_elp = t1 - t0
+                            if t_elp > 1.0:
+                                print("Moved %d nodes in %3.4f secs, rate is %lf" % (d_n, t_elp, d_n / t_elp))
+                                prev_report_cnt = num_nodal_moves
+                                t0 = t1
 
                         if args.verbose > 2:
                             print("Modified fraction of id %d is %s" % (update_id_cnt, len(where_modified) / float(M.shape[0])))
@@ -833,11 +846,13 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         else:
             use_compressed = args.sparse_data
 
+        # XXX This type of full re-initialization seems wasteful memory for large graphs.
+
         M_t, block_degrees_out_t, block_degrees_in_t, block_degrees_t = \
                 initialize_edge_counts(out_neighbors,
                                        num_blocks_t,
                                        partition_t,
-                                       use_compressed)
+                                       use_compressed, args.verbose)
 
         # compute the global entropy for MCMC convergence criterion
         overall_entropy = compute_overall_entropy(M_t, block_degrees_out_t, block_degrees_in_t, num_blocks_t, N,
@@ -846,31 +861,36 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         overall_entropy_per_num_blocks[i] = overall_entropy
         state_per_num_blocks[i] = (overall_entropy, partition_t, num_blocks_t, M_t, block_degrees_out_t, block_degrees_in_t, block_degrees_t)
 
-    S = overall_entropy_per_num_blocks[::-1]
-    dS_dn = 0.5 * (S[2] - S[1]) + 0.5 * (S[1] - S[0])
+    derivative_based_stop = False
 
-    optimal_stop_found = False
-    if len(num_target_blocks) == 3 \
-       and overall_entropy_per_num_blocks[1] < overall_entropy_per_num_blocks[0] \
-       and overall_entropy_per_num_blocks[1] < overall_entropy_per_num_blocks[2]:
-        if verbose:
-            print("Optimal stopping criterion found at %d blocks derivative %s at time %4.4f." % (num_target_blocks[1], dS_dn, timeit.default_timer() - t_prog_start))
+    if len(num_target_blocks) > 1:
+        S = overall_entropy_per_num_blocks[::-1]
+        dS_dn = 0.5 * (S[2] - S[1]) + 0.5 * (S[1] - S[0])
 
-        optimal_stop_found = True
-        best_idx = 1
-    else:
-        # Can be zero when there are some nodes with no edges and so reducing the block count
-        # does not change the entropy.
-        if (S[2] - S[1] - (S[1] - S[0])) != 0:
-            extrapolated_newton = num_target_blocks[1] - 0.5 * (S[2] - S[0]) / (S[2] - S[1] - (S[1] - S[0]))
+        if len(num_target_blocks) == 3 \
+           and overall_entropy_per_num_blocks[1] < overall_entropy_per_num_blocks[0] \
+           and overall_entropy_per_num_blocks[1] < overall_entropy_per_num_blocks[2]:
+            if verbose:
+                print("Optimal stopping criterion found at %d blocks derivative %s at time %4.4f." % (num_target_blocks[1], dS_dn, timeit.default_timer() - t_prog_start))
+
+            derivative_based_stop = True
+            best_idx = 1
         else:
-            extrapolated_newton = 0.0
+            # Can be zero when there are some nodes with no edges and so reducing the block count
+            # does not change the entropy.
+            if (S[2] - S[1] - (S[1] - S[0])) != 0:
+                extrapolated_newton = num_target_blocks[1] - 0.5 * (S[2] - S[0]) / (S[2] - S[1] - (S[1] - S[0]))
+            else:
+                extrapolated_newton = 0.0
 
-        if verbose:
-            print("Stopping criterion not found at %s blocks extrapolate to %s blocks derivative %s at time %4.4f." % (num_target_blocks[1], extrapolated_newton, dS_dn, timeit.default_timer() - t_prog_start))
+            if verbose:
+                print("Stopping criterion not found at %s blocks extrapolate to %s blocks derivative %s at time %4.4f." % (num_target_blocks[1], extrapolated_newton, dS_dn, timeit.default_timer() - t_prog_start))
 
-        best_idx = np.argsort(overall_entropy)
-        best_idx = 1 # xxx
+            best_idx = np.argsort(overall_entropy)
+            best_idx = 1 # xxx
+    else:
+        dS_dn = 0
+        best_idx = 0
 
     (overall_entropy, partition, num_blocks_t, M, block_degrees_out, block_degrees_in, block_degrees) = state_per_num_blocks[best_idx]
 
@@ -901,7 +921,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     if args.visualize_graph:
         graph_object = plot_graph_with_partition(out_neighbors, partition, graph_object)
 
-    return overall_entropy, n_proposals_evaluated, n_merges, total_num_nodal_moves_itr, M, block_degrees, block_degrees_out, block_degrees_in, num_blocks_merged, partition, optimal_stop_found, dS_dn
+    return overall_entropy, n_proposals_evaluated, n_merges, total_num_nodal_moves_itr, M, block_degrees, block_degrees_out, block_degrees_in, num_blocks_merged, partition, derivative_based_stop, dS_dn
 
 
 def load_graph_parts(input_filename, args):
@@ -979,7 +999,7 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
             = initialize_edge_counts(out_neighbors,
                                      num_blocks,
                                      partition,
-                                     use_compressed)
+                                     use_compressed, args.verbose)
         # initialize items before iterations to find the partition with the optimal number of blocks
         hist, graph_object = initialize_partition_variables()
 
@@ -1001,7 +1021,7 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
         total_num_nodal_moves = 0
 
         interblock_edge_count, block_degrees_out, block_degrees_in, block_degrees \
-            = initialize_edge_counts(out_neighbors, num_blocks, partition, args.sparse_data)
+            = initialize_edge_counts(out_neighbors, num_blocks, partition, args.sparse_data, args.verbose)
 
         overall_entropy = compute_overall_entropy(interblock_edge_count, block_degrees_out, block_degrees_in, num_blocks, N, E)
         partition, interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in, num_blocks, num_blocks_to_merge, hist, optimal_num_blocks_found = \
@@ -1015,11 +1035,13 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
     args.n_proposal = 1
 
     while not optimal_num_blocks_found:
+        # Using multiple target_blocks can be useful if you want to estimate the derivative of entropy to try to more quickly find a convergence.
         # Must be in decreasing order because reducing by carrying out merges modifies state.
-        target_blocks = [num_blocks - num_blocks_to_merge + 1, num_blocks - num_blocks_to_merge, num_blocks - num_blocks_to_merge - 1]
+        # target_blocks = [num_blocks - num_blocks_to_merge + 1, num_blocks - num_blocks_to_merge, num_blocks - num_blocks_to_merge - 1]
+        target_blocks = [num_blocks - num_blocks_to_merge]
 
         (overall_entropy,n_proposals_itr,n_merges_itr,total_num_nodal_moves_itr, \
-         interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in, num_blocks_merged, partition, optimal_num_blocks_found, dS_dn) \
+         interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in, num_blocks_merged, partition, derivative_based_stop, dS_dn) \
          = entropy_for_block_count(num_blocks, target_blocks,
                                    delta_entropy_threshold,
                                    interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in,
@@ -1036,14 +1058,12 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
 
         # check whether the partition with optimal number of block has been found; if not, determine and prepare for the next number of blocks to try
 
-        # if not optimal_num_blocks_found:
-        if 1:
-            partition, interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in, num_blocks, num_blocks_to_merge, hist, optimal_num_blocks_found = \
-                prepare_for_partition_on_next_num_blocks(overall_entropy, partition, interblock_edge_count, block_degrees,
-                                                         block_degrees_out, block_degrees_in, num_blocks, hist,
-                                                         num_block_reduction_rate)
+        partition, interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in, num_blocks, num_blocks_to_merge, hist, optimal_num_blocks_found = \
+            prepare_for_partition_on_next_num_blocks(overall_entropy, partition, interblock_edge_count, block_degrees,
+                                                     block_degrees_out, block_degrees_in, num_blocks, hist,
+                                                     num_block_reduction_rate)
 
-            (old_partition, old_interblock_edge_count, old_block_degrees, old_block_degrees_out, old_block_degrees_in, old_overall_entropy, old_num_blocks) = hist
+        (old_partition, old_interblock_edge_count, old_block_degrees, old_block_degrees_out, old_block_degrees_in, old_overall_entropy, old_num_blocks) = hist
 
 
         if verbose:
