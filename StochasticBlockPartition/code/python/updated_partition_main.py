@@ -817,19 +817,21 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
                             block_degrees_in, out_neighbors, in_neighbors, N, E, vertex_num_out_neighbor_edges,
                             vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors,
                             self_edge_weights, partition, args, verbose=False):
-    global syms, nodal_move_time, merge_time, node_move_update_batch_size, block_size, nodal_move_times, merging_times, entropy_index
+    global syms, nodal_move_time, merge_time, node_move_update_batch_size, block_size, nodal_move_times,\
+        merging_times, entropy_index, entropy_dict
 
     n_thread_merge = args.t_merge
     n_thread_move = args.t_move
 
-    # if num_blocks > 20000:
-    #     n_thread_move = 2
-    # elif 5000 < num_blocks <= 20000:
-    #     n_thread_move = 3
-    # elif 2500 < num_blocks <= 5000:
-    #     n_thread_move = 7
-    # else:
-    #     n_thread_move = 12
+    # Thread control
+    if num_blocks > 20000:
+        n_thread_move = 2
+    elif 5000 < num_blocks <= 20000:
+        n_thread_move = 3
+    elif 2500 < num_blocks <= 5000:
+        n_thread_move = 7
+    else:
+        n_thread_move = 12
 
     n_merges = 0
     n_proposals_evaluated = 0
@@ -841,6 +843,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         move_start_time = timeit.default_timer()
         print("\nMerging down blocks from {} to {} at time {:4.4f}".format(num_blocks, num_target_blocks,
                                                                            move_start_time - t_prog_start))
+        # starting time of the merging operation
         t_begin_merging = move_start_time - t_prog_start
 
     #    if verbose > 1:
@@ -848,6 +851,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
 
     # tracking block sizes
     block_size[entropy_index] = num_blocks
+    block_size[entropy_index+1] = num_target_blocks
 
     best_merge_for_each_block = np.ones(num_blocks, dtype=int) * -1  # initialize to no merge
     delta_entropy_for_each_block = np.ones(num_blocks) * np.Inf  # initialize criterion
@@ -980,7 +984,6 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         merging_times[entropy_index] = timeit.default_timer() - t_prog_start - t_begin_merging
 
 
-
     batch_size = node_move_update_batch_size
 
     if n_thread_move > 0:
@@ -1011,10 +1014,16 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         nodal_move_time += move_time
         entropy_index += 1
         nodal_move_times[entropy_index-1] = move_time - merging_times[entropy_index-1]
+
         move_rate = total_num_nodal_moves_itr / move_time
         print(
             "Total number of nodal moves: {:3d}, overall_entropy: {:0.2f}, move_time: {:0.3f} secs, moves_per_sec: {:4.3f}".format(
                 total_num_nodal_moves_itr, overall_entropy, move_time, move_rate))
+        # dictionary containing source block sizes, destination block sizes, merging time, moves time
+        entropy_dict['current_blocks'] = block_size[:entropy_index - 1]
+        entropy_dict['target_blocks'] = block_size[1:entropy_index]
+        entropy_dict["move_time"] = nodal_move_times[:entropy_index]
+        entropy_dict["merge_time"] = merging_times[:entropy_index]
 
     if args.visualize_graph:
         graph_object = plot_graph_with_partition(out_neighbors, partition, graph_object)
@@ -1841,6 +1850,7 @@ def info(type, value, tb):
         # ...then start the debugger in post-mortem mode.
         pdb.post_mortem(tb)
 
+entropy_dict = dict()
 merge_time = 0
 nodal_move_time = 0
 partition_time = 0
@@ -1913,9 +1923,9 @@ if __name__ == '__main__':
     print(sum(nodal_move_times[:entropy_index]))
     print(sum(merging_times[:entropy_index]))
 
-    print("entropy index = %s" % entropy_index)
+    # print("entropy index = %s" % entropy_index)
+
+    print(entropy_dict)
+    print("block sizes = " + str(block_size[:entropy_index]))
     print("merging list = " + str(merging_times[:entropy_index]))
     print("nodal update list = " + str(nodal_move_times[:entropy_index]))
-    print("block sizes = " + str(block_size[:entropy_index]))
-    print("Precision score = " + str(precision_score))
-    print("Recall score = " + str(recall_score))
