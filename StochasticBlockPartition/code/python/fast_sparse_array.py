@@ -274,12 +274,15 @@ class fast_sparse_array(object):
             for k in self.cols[i].dict_keys():
                 assert(i in self.rows[k])
 
+    # There is a complicated issue. If the graph is streamed in parts there may be a node without edges. In that case we should return an empty array.
+    # But we need a default dtype for a length zero array.
+    # In any case there is a possible performance advantage to setting the dtype apriori.
     def take(self, idx, axis):
         if axis == 0:
-            return (np.array(list(dict_keys_func(self.rows[idx]))), np.array(list(dict_values_func(self.rows[idx]))))
+            return (np.array(list(dict_keys_func(self.rows[idx])), dtype=int), np.array(list(dict_values_func(self.rows[idx])), dtype=int))
 #            return (self.rows[idx].keys(),self.rows[idx].values())
         elif axis == 1:
-            return (np.array(list(dict_keys_func(self.cols[idx]))), np.array(list(dict_values_func(self.cols[idx]))))
+            return (np.array(list(dict_keys_func(self.cols[idx])), dtype=int), np.array(list(dict_values_func(self.cols[idx])), dtype=int))
 #            return (self.cols[idx].keys(),self.cols[idx].values())
         else:
             raise Exception("Invalid axis %s" % (axis))
