@@ -51,11 +51,22 @@ def entropy_row_nz(x, y, c):
     #     print("Invalid y value encountered")
     #     print("y", y)
 
+    if c == 0:
+        return 0.0
+
     if 1:
-        mask = (x > 0) & (y > 0)
-        S = np.sum(x[mask] * (np.log(x[mask]) - np.log(y[mask] * c)))
+        # The check for zero is needed when using compressed data that has occasional zeros in it.
+        mask = (y > 0) & (x > 0)
+        xm = x[mask]
+
+        # S = np.sum(x[mask] * (np.log(x[mask]) - np.log(y[mask] * c)))
+        # S = np.sum(xm * (np.log(xm) - np.log(y[mask]) - logc))
+        # return np.dot(xm, (np.log(xm) - np.log(y[mask]) - np.log(c)))
+        # return np.sum(x * (np.log(x, where=mask) - np.log(y, where=mask) - np.log(c)), where=mask)
+        return np.sum(xm * (np.log(xm) - np.log(y[mask]) - np.log(c)))
     else:
-        S = np.sum(x * (np.log(x) - np.log(y * c)))
+        return np.dot(x, (np.log(x) - np.log(y) - np.log(c)))
+        # S = np.sum(x * (np.log(x) - np.log(y * c)))
 
     return S
 
@@ -70,6 +81,9 @@ def entropy_row_nz_ignore(x, y, c, x_nz, r, s):
     #     print("Invalid y value encountered")
     #     print("y", y)
 
+    if c == 0:
+        return 0.0
+
     if 1:
         mask = (x_nz != r) & (x_nz != s) & (x > 0) & (y > 0)
     else:
@@ -77,7 +91,17 @@ def entropy_row_nz_ignore(x, y, c, x_nz, r, s):
 
     xm = x[mask]
     ym = y[mask]
-    return np.sum(xm * (np.log(xm) - np.log(ym * c)))
+
+    # S = np.sum(xm * (np.log(xm) - np.log(ym * c)))
+
+    # Using where for log does not work because in the places it is false, the original value is used.
+    # S = np.sum(x * (np.log(x, where=mask) - np.log(y, where=mask) - logc))
+
+    # S = np.sum(xm * (np.log(xm) - np.log(ym) - logc))
+    # return np.dot(xm, (np.log(xm) - np.log(ym) - np.log(c)))
+    # return np.sum(x * (np.log(x, where=mask) - np.log(y, where=mask) - np.log(c)), where=mask)
+    return np.sum(xm * (np.log(xm) - np.log(ym) - np.log(c)))
+
 
 def compute_delta_entropy_sparse(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new):
     """Compute change in entropy under the proposal with a faster method."""

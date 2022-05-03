@@ -34,10 +34,12 @@ class nonzero_dict(dict):
         d = nonzero_dict(self)
         return d
     def keys(self):
-        return np.array(list(dict_keys_func(self)), dtype=int)
+        return np.fromiter(dict_keys_func(self), dtype=int, count=len(self))
+#        return np.array(list(dict_keys_func(self)), dtype=int)
 #        #return np.fromiter(dict_keys_func(self), dtype=int)
     def values(self):
-        return np.array(list(dict_values_func(self)), dtype=int)
+        return np.fromiter(dict_values_func(self), dtype=int, count=len(self))
+#        return np.array(list(dict_values_func(self)), dtype=int)
 #        #return np.fromiter(dict_values_func(self), dtype=int)
     def sum(self):
         return np.fromiter(dict_values_func(self), dtype=int).sum()
@@ -148,6 +150,8 @@ class nonzero_key_value_sorted_array(object):
         d.k = self.k.copy()
         d.v = self.v.copy()
         return d
+    def sum(self):
+        return self.v.sum()
 
 nonzero_data = nonzero_dict
 #nonzero_data = nonzero_key_value_sorted_array
@@ -155,10 +159,16 @@ nonzero_data = nonzero_dict
 
 star = slice(None, None, None)
 class fast_sparse_array(object):
-    def __init__(self, tup, base_type=list):
+    def __init__(self, tup, base_type=list, dtype=None):
+        # The dtype is not really used except as a hint for conversion into a dense array.
+        self.dtype=dtype
+        self.base_type = base_type
         if base_type is list:
             self.rows = [nonzero_data() for i in range(tup[0])]
             self.cols = [nonzero_data() for i in range(tup[1])]
+        elif base_type is np.ndarray:
+            self.rows = np.array([nonzero_data() for i in range(tup[0])])
+            self.cols = np.array([nonzero_data() for i in range(tup[1])])
         elif base_type is dict:
             self.rows = base_type({i : nonzero_data() for i in range(tup[0])})
             self.cols = base_type({i : nonzero_data() for i in range(tup[1])})
@@ -208,48 +218,20 @@ class fast_sparse_array(object):
             self.M_ver.__setitem__(idx, val)
             self.verify()
             self.verify_conistency()
-    def set_axis_dict(self, idx, axis, d_new, update=0):
+    def set_axis_dict(self, idx, axis, d_new):
+        # I am surprised this works.
+        # There should be entries in the old row that are not in the new one.
+        # But apparently:             assert(len(dict_keys_func(self.rows[idx]) - dict_keys_func(d_new)) == 0)
+        # and:                        assert(len(dict_keys_func(self.cols[idx]) - dict_keys_func(d_new)) == 0)
+        # This seems to be a consequence of moving nodes from one community to another and how this affects the edge counts.
         if axis == 0:
-            if 0:
-                for k in self.rows[idx].keys():
-                    del self.cols[k][idx]
-                for k,v in dict_items_func(d_new):
-                    self.cols[k][idx] = v
-            else:
-                # Slightly faster method to minimize deletions.
-                # Delete everything that is in the current row, but not the new row. Then update all changed values.
-                for k in dict_keys_func(self.rows[idx]) - dict_keys_func(d_new):
-                    del self.cols[k][idx]
-
-                for k,v in dict_items_func(d_new):
-                    self.cols[k][idx] = v
-
-            if not update:
-                self.rows[idx] = d_new
-            else:
-                self.rows[idx].clear()
-                self.rows[idx].update(d_new)
-
+            for k,v in d_new.items():
+                self.cols[k][idx] = v
+            self.rows[idx] = d_new
         elif axis == 1:
-            if 0:
-                for k in self.cols[idx].keys():
-                    del self.rows[k][idx]
-                for k,v in dict_items_func(d_new):
-                    self.rows[k][idx] = v
-            else:
-                # Slightly faster method to minimize deletions.
-                for k in dict_keys_func(self.cols[idx]) - dict_keys_func(d_new):
-                    del self.rows[k][idx]
-
-                for k,v in dict_items_func(d_new):
-                    self.rows[k][idx] = v
-
-            if not update:
-                self.cols[idx] = d_new
-            else:
-                self.cols[idx].clear()
-                self.cols[idx].update(d_new)
-
+            for k,v in d_new.items():
+                self.rows[k][idx] = v
+            self.cols[idx] = d_new
     def __str__(self):
         s = ""
         for i in range(self.shape[0]):
@@ -294,13 +276,18 @@ class fast_sparse_array(object):
         else:
             raise Exception("Invalid axis %s" % (axis))
     def copy(self):
-        c = fast_sparse_array(self.shape)
-        if self.debug:
-            c.M_ver = self.M_ver.copy()
-        for i in range(c.shape[0]):
-            c.rows[i] = self.rows[i].copy()
-        for i in range(c.shape[1]):
-            c.cols[i] = self.cols[i].copy()
+        c = fast_sparse_array((0,0))
+        c.dtype = self.dtype
+        c.shape = self.shape
+        c.base_type = self.base_type
+        if self.base_type is list:
+            c.rows = [i.copy() for i in self.rows]
+            c.cols = [i.copy() for i in self.cols]
+        elif base_type is np.ndarray:
+            c.rows = np.array([i.copy() for i in self.rows])
+            c.cols = np.array([i.copy() for i in self.cols])
+        else:
+            raise Exception("Unknown base type")
         return c
 
 def is_sorted(x):

@@ -20,6 +20,8 @@ from fast_sparse_array import fast_sparse_array, nonzero_slice, take_nonzero, no
 from collections import Iterable
 import timeit
 
+mydtype=np.dtype('int64')
+
 try:
     from scipy.misc import comb
 except:
@@ -303,11 +305,11 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
 
     if verbose > 0:
         import time
-        print("Initialize edge counts for size %d" % (B))
+        print("Initialize edge counts for size %d with compression %d" % (B,sparse))
         t0 = time.time()
 
     if not sparse:
-        M = np.zeros((B,B), dtype=int)
+        M = np.zeros((B,B), dtype=mydtype)
         # compute the initial interblock edge count
         for v in range(len(out_neighbors)):
             k1 = b[v]
@@ -323,9 +325,9 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         if verbose > 0:
             print("density(M) = %s" % (len(M.nonzero()[0]) / (B ** 2.)))
     else:
-        M = fast_sparse_array((B,B), base_type=list)
-        d_out = np.zeros(B, dtype=int)
-        d_in = np.zeros(B, dtype=int)
+        M = fast_sparse_array((B,B), base_type=list, dtype=mydtype)
+        d_out = np.zeros(B, dtype=mydtype)
+        d_in = np.zeros(B, dtype=mydtype)
         M_d = defaultdict(int)
         for v in range(len(out_neighbors)):
             k1 = b[v]
@@ -427,200 +429,89 @@ def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, 
 def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out, b_in, count_in, count_self,
                                                        agg_move, use_sparse_alg):
 
-    use_sparse_alg = not isinstance(M, np.ndarray)
-    use_sparse_data = not isinstance(M, np.ndarray)
+    compressed = not isinstance(M, np.ndarray)
 
     B = M.shape[0]
     if agg_move:  # the r row and column are simply empty after this merge move
-        if use_sparse_data:
+        if compressed:
             new_M_r_row = nonzero_dict()
             new_M_r_col = nonzero_dict()
         else:
-            M_r_row = np.zeros(B, dtype=int)
-            M_r_col = np.zeros(B, dtype=int)
+            M_r_row = np.zeros(B, dtype=M.dtype)
+            M_r_col = np.zeros(B, dtype=M.dtype)
             new_M_r_row = M_r_row
             new_M_r_col = M_r_col
     else:
         where_b_in_r = np.where(b_in == r)
         where_b_out_r = np.where(b_out == r)
 
-        offset = np.sum(count_in[where_b_in_r])
+        r_row_offset = np.sum(count_in[where_b_in_r])
 
-        if not use_sparse_alg:
+        if not compressed:
             M_r_row = M[r, :].copy()
             M_r_row[b_out] -= count_out
-            M_r_row[r] -= offset
-            M_r_row[s] += offset
+            M_r_row[r] -= r_row_offset
+            M_r_row[s] += r_row_offset
             new_M_r_row = M_r_row
+        else:
+            M_r_row_d = M.take_dict(r, 0).copy()
+            for k,v in zip(b_out,count_out):
+                M_r_row_d[k] -= v
+            M_r_row_d[r] -= r_row_offset
+            M_r_row_d[s] += r_row_offset
+            new_M_r_row = M_r_row_d
 
-        if use_sparse_alg:
-            if use_sparse_data:
-                M_r_row_d = M.take_dict(r, 0).copy()
-                for k,v in zip(b_out,count_out):
-                    M_r_row_d[k] -= v
-                M_r_row_d[r] -= offset
-                M_r_row_d[s] += offset
-                new_M_r_row = M_r_row_d
-            else:
-                M_r_row_i, M_r_row_v = take_nonzero(M, r, 0, sort = True)
+        r_col_offset = np.sum(count_out[where_b_out_r])
 
-                M_r_row_in_b_out = search_array(M_r_row_i, b_out)
-                M_r_row_v[M_r_row_in_b_out] -= count_out
-
-                x = search_array(M_r_row_i, np.array([r]))
-                M_r_row_v[x] -= offset
-
-                x = search_array(M_r_row_i, np.array([s]))
-
-                if x.any():
-                    M_r_row_v[x] += offset
-                else:
-                    M_r_row_v = np.append(M_r_row_v, offset)
-                    M_r_row_i = np.append(M_r_row_i, s)
-                    # Note indices are longer sorted after append.
-
-                # After modifying the entries, elements of the rows and columns may have become zero.
-                nz = (M_r_row_v != 0)
-                M_r_row_i = M_r_row_i[nz]
-                M_r_row_v = M_r_row_v[nz]
-                new_M_r_row = (M_r_row_i, M_r_row_v)
-
-        if not use_sparse_alg:
+        if not compressed:
             M_r_col = M[:, r].copy()
             M_r_col[b_in] -= count_in
-            M_r_col[r] -= np.sum(count_out[where_b_out_r])
-            M_r_col[s] += np.sum(count_out[where_b_out_r])
+            M_r_col[r] -= r_col_offset
+            M_r_col[s] += r_col_offset
             new_M_r_col = M_r_col
-
-        if use_sparse_alg:
-            if use_sparse_data:
-                M_r_col_d = M.take_dict(r, 1).copy()
-                for k,v in zip(b_in,count_in):
-                    M_r_col_d[k] -= v
-                M_r_col_d[r] -= np.sum(count_out[where_b_out_r])
-                M_r_col_d[s] += np.sum(count_out[where_b_out_r])
-                new_M_r_col = M_r_col_d
-            else:
-                M_r_col_i, M_r_col_v = take_nonzero(M, r, 1, sort = True)
-
-                M_r_col_in_b_in = search_array(M_r_col_i, b_in)
-                b_in_in_M_r_col = search_array(b_in, M_r_col_i)
-
-                M_r_col_v[M_r_col_in_b_in] -= count_in[b_in_in_M_r_col]
-
-                x = search_array(M_r_col_i, np.array([r]))
-                M_r_col_v[x] -= np.sum(count_out[where_b_out_r])
-
-                x = search_array(M_r_col_i, np.array([s]))
-                if x.any():
-                    M_r_col_v[x] += np.sum(count_out[where_b_out_r])
-                else:
-                    M_r_col_v = np.append(M_r_col_v, np.sum(count_out[where_b_out_r]))
-                    M_r_col_i = np.append(M_r_col_i, s)
-                    # Note indices are longer sorted after append.
-
-                # After modifying the entries, elements of the rows and columns may have become zero.
-                nz = (M_r_col_v != 0)
-                M_r_col_i = M_r_col_i[nz]
-                M_r_col_v = M_r_col_v[nz]
-                new_M_r_col = (M_r_col_i, M_r_col_v)
+        else:
+            M_r_col_d = M.take_dict(r, 1).copy()
+            for k,v in zip(b_in,count_in):
+                M_r_col_d[k] -= v
+            M_r_col_d[r] -= r_col_offset
+            M_r_col_d[s] += r_col_offset
+            new_M_r_col = M_r_col_d
 
     where_b_in_s = np.where(b_in == s)
     where_b_out_s = np.where(b_out == s)
 
     # Compute M_s_row
-    offset = np.sum(count_in[where_b_in_s]) + count_self
-    if not use_sparse_alg:
+    s_row_offset = np.sum(count_in[where_b_in_s]) + count_self
+    if not compressed:
         M_s_row = M[s, :].copy()
         M_s_row[b_out] += count_out
-        M_s_row[r] -= offset
-        M_s_row[s] += offset
+        M_s_row[r] -= s_row_offset
+        M_s_row[s] += s_row_offset
         new_M_s_row = M_s_row
-
-    if use_sparse_alg:
-        if use_sparse_data:
-            M_s_row_d = M.take_dict(s, 0).copy()
-            for k,v in zip(b_out,count_out):
-                M_s_row_d[k] += v
-            M_s_row_d[r] -= offset
-            M_s_row_d[s] += offset
-            new_M_s_row = M_s_row_d
-        else:
-            M_s_row_i, M_s_row_v = take_nonzero(M, s, 0, sort = True)
-            M_s_row_in_b_out = search_array(M_s_row_i, b_out)
-            b_out_in_M_s_row = search_array(b_out, M_s_row_i)
-
-            # xxx insert all the missing entries
-            if M_s_row_in_b_out.any():
-                M_s_row_v[M_s_row_in_b_out] += count_out[b_out_in_M_s_row]
-
-            M_s_row_i = np.append(M_s_row_i, b_out[~b_out_in_M_s_row])
-            M_s_row_v = np.append(M_s_row_v, count_out[~b_out_in_M_s_row])
-            # Note indices are longer sorted after append.
-
-            x = search_array(M_s_row_i, np.array([r]))
-            M_s_row_v[x] -= offset
-
-            x = search_array(M_s_row_i, np.array([s]))
-
-            if x.any():
-                M_s_row_v[x] += offset
-            else:
-                M_s_row_i = np.append(M_s_row_i, s)
-                M_s_row_v = np.append(M_s_row_v, offset)
-
-            # After modifying the entries, elements of the rows and columns may have become zero.
-            nz = (M_s_row_v != 0)
-            M_s_row_i = M_s_row_i[nz]
-            M_s_row_v = M_s_row_v[nz]
-            new_M_s_row = (M_s_row_i, M_s_row_v)
+    else:
+        M_s_row_d = M.take_dict(s, 0).copy()
+        for k,v in zip(b_out,count_out):
+            M_s_row_d[k] += v
+        M_s_row_d[r] -= s_row_offset
+        M_s_row_d[s] += s_row_offset
+        new_M_s_row = M_s_row_d
 
     # Compute M_s_col
-    offset = np.sum(count_out[where_b_out_s]) + count_self
+    s_col_offset = np.sum(count_out[where_b_out_s]) + count_self
 
-    if not use_sparse_alg:
+    if not compressed:
         M_s_col = M[:, s].copy()
         M_s_col[b_in] += count_in
-        M_s_col[r] -= offset
-        M_s_col[s] += offset
+        M_s_col[r] -= s_col_offset
+        M_s_col[s] += s_col_offset
         new_M_s_col = M_s_col
-
-    if use_sparse_alg:
-        if use_sparse_data:
-            M_s_col_d = M.take_dict(s, 1).copy()
-            for k,v in zip(b_in,count_in):
-                M_s_col_d[k] += v
-            M_s_col_d[r] -= offset
-            M_s_col_d[s] += offset
-            new_M_s_col = M_s_col_d
-        else:
-            M_s_col_i, M_s_col_v = take_nonzero(M, s, 1, sort = True)
-            M_s_col_in_b_in = search_array(M_s_col_i, b_in)
-            b_in_in_M_s_col = search_array(b_in, M_s_col_i)
-
-            # xxx insert all the missing entries
-            if M_s_col_in_b_in.any():
-                M_s_col_v[M_s_col_in_b_in] += count_in[b_in_in_M_s_col]
-
-            M_s_col_i = np.append(M_s_col_i, b_in[~b_in_in_M_s_col])
-            M_s_col_v = np.append(M_s_col_v, count_in[~b_in_in_M_s_col])
-            # Note indices are longer sorted after append.
-
-            x = search_array(M_s_col_i, np.array([r]))
-            M_s_col_v[x] -= offset
-
-            x = search_array(M_s_col_i, np.array([s]))
-            if x.any():
-                M_s_col_v[x] += offset
-            else:
-                M_s_col_i = np.append(M_s_col_i, s)
-                M_s_col_v = np.append(M_s_col_v, offset)
-
-            # After modifying the entries, elements of the rows and columns may have become zero.
-            nz = (M_s_col_v != 0)
-            M_s_col_i = M_s_col_i[nz]
-            M_s_col_v = M_s_col_v[nz]
-            new_M_s_col = (M_s_col_i, M_s_col_v)
+    else:
+        M_s_col_d = M.take_dict(s, 1).copy()
+        for k,v in zip(b_in,count_in):
+            M_s_col_d[k] += v
+        M_s_col_d[r] -= s_col_offset
+        M_s_col_d[s] += s_col_offset
+        new_M_s_col = M_s_col_d
 
     return new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col
 
@@ -763,8 +654,8 @@ def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, M, M_r_r
         # t = np.sort(t)
         M_s_row_d = M.take_dict(s, 0)
         M_s_col_d = M.take_dict(s, 1)
-        M_t_s = np.fromiter((M_s_row_d[i] for i in t), dtype=int)
-        M_s_t = np.fromiter((M_s_col_d[i] for i in t), dtype=int)
+        M_t_s = np.fromiter((M_s_row_d[i] for i in t), dtype=M.dtype)
+        M_s_t = np.fromiter((M_s_col_d[i] for i in t), dtype=M.dtype)
     else:
         # t = np.sort(t)
         M_s_row_i, M_s_row_v = take_nonzero(M, s, 0, sort = True)

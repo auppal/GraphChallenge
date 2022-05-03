@@ -3,6 +3,7 @@ from multiprocessing import Process
 import timeit, resource
 import sys, itertools, os, time, traceback
 from partition_baseline_main import do_main
+import time
 try:
     import cPickle as pickle
 except:
@@ -26,8 +27,8 @@ base_args = {'debug' : 0, 'decimation' : 0,
              'input_filename' : '../../data/static/simulated_blockmodel_graph_100_nodes',
              'initial_block_reduction_rate' : 0.75,
              'merge_method' : 0, 'mpi' : 0, 'node_move_update_batch_size' : 1, 'node_propose_batch_size' : 4,
-             'parallel_phase' : 3, 'parts' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0,
-             'sparse' : 0, 'sparse_algorithm' : 0, 'sparse_data' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0}
+             'parts' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0,
+             'sparse' : 0, 'sparse_algorithm' : 0, 'sparse_data' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0, 't_merge' : 0, 't_move' : 0, 'skip_eval' : 0, 'max_num_nodal_itr' : 100, 'compressed_nodal_moves' : 0}
 
 class Bunch(object):
     def __init__(self, adict):
@@ -65,6 +66,8 @@ shortname = {'decimation' : 'd',
              'verbose' : 'v'}
 
 def outputname(args):
+    # XXX Temporary until too long filename is fixed.
+    return time.strftime("output-%Y-%m-%d-%H%M%SZ", time.gmtime())
     out = 'out'
     for k,v in args:
         if k == 'input_filename':
