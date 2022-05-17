@@ -571,6 +571,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     lock = mp.Lock()
 
     modified = np.zeros(M.shape[0], dtype=bool)
+    # Every block gets a timestamp to track modifications from each worker to every other worker..
     block_modified_time_shared = shared_memory_empty(modified.shape)
     block_modified_time_shared[:] = 0
 
@@ -602,6 +603,9 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
             # Old method:
             # Do not do a shared memory copy because nodal updates will arrive via message-passing instead of a shared array.
             nodal_movement_use_compressed = 1
+            # If the dict implementation used shared memory we could do this:
+            # M_shared = M.copy()
+            # But instead:
             M_shared = M
     else:
         M_shared = shared_memory_copy(M)
@@ -720,6 +724,11 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
                             M_shared[where_modified, :] = M[where_modified, :]
                             M_shared[:, where_modified] = M[:, where_modified]
                         else:
+                            # If the dict implementation used shared memory we could do this:
+                            # for idx in where_modified:
+                            #     M_shared.set_axis_dict(r, 0, M.take_dict(idx, 0))
+                            #     M_shared.set_axis_dict(s, 0, M.take_dict(idx, 1))
+                            # But instead:
                             pass
 
                         if verbose > 1:
