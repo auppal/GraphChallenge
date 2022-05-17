@@ -1,6 +1,9 @@
 import numpy as np
 from fast_sparse_array import nonzero_slice, take_nonzero
 from collections import defaultdict
+import entropy_module
+
+import os
 
 def entropy_row_calc(x, y, c):
     mask = x.nonzero()[0]
@@ -40,66 +43,22 @@ def compute_delta_entropy_alt(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out
     d7 = entropy_row_calc_ignore(M_t2_s,  d_out, d_in[s], r, s)
     return -d0 - d1 - d2 - d3 + d4 + d5 + d6 + d7
 
-def entropy_row_nz(x, y, c):
-    # if c == 0:
-    #     #print("Zero encountered but returning 0")
-    #     return 0.0
-    # if not (x>0).all():
-    #     print("Invalid x value encountered")
-    #     print("x", x)
-    # if not (y>0).all():
-    #     print("Invalid y value encountered")
-    #     print("y", y)
-
+def entropy_row_nz_numpy(x, y, c):
     if c == 0:
         return 0.0
 
-    if 1:
-        # The check for zero is needed when using compressed data that has occasional zeros in it.
-        mask = (y > 0) & (x > 0)
-        xm = x[mask]
+    # The check for zero is needed when using compressed data that has occasional zeros in it.
+    mask = (y > 0) & (x > 0)
+    xm = x[mask]
+    return np.sum(xm * (np.log(xm) - np.log(y[mask]) - np.log(c)))
 
-        # S = np.sum(x[mask] * (np.log(x[mask]) - np.log(y[mask] * c)))
-        # S = np.sum(xm * (np.log(xm) - np.log(y[mask]) - logc))
-        # return np.dot(xm, (np.log(xm) - np.log(y[mask]) - np.log(c)))
-        # return np.sum(x * (np.log(x, where=mask) - np.log(y, where=mask) - np.log(c)), where=mask)
-        return np.sum(xm * (np.log(xm) - np.log(y[mask]) - np.log(c)))
-    else:
-        return np.dot(x, (np.log(x) - np.log(y) - np.log(c)))
-        # S = np.sum(x * (np.log(x) - np.log(y * c)))
-
-    return S
-
-def entropy_row_nz_ignore(x, y, c, x_nz, r, s):
-    # if c == 0:
-    #     return 0.0
-
-    # if not (x>0).all():
-    #     print("Invalid x value encountered")
-    #     print("x", x)
-    # if not (y>0).all():
-    #     print("Invalid y value encountered")
-    #     print("y", y)
-
+def entropy_row_nz_ignore_numpy(x, y, c, x_nz, r, s):
     if c == 0:
         return 0.0
 
-    if 1:
-        mask = (x_nz != r) & (x_nz != s) & (x > 0) & (y > 0)
-    else:
-        mask = (x_nz != r) & (x_nz != s)
-
+    mask = (x_nz != r) & (x_nz != s) & (x > 0) & (y > 0)
     xm = x[mask]
     ym = y[mask]
-
-    # S = np.sum(xm * (np.log(xm) - np.log(ym * c)))
-
-    # Using where for log does not work because in the places it is false, the original value is used.
-    # S = np.sum(x * (np.log(x, where=mask) - np.log(y, where=mask) - logc))
-
-    # S = np.sum(xm * (np.log(xm) - np.log(ym) - logc))
-    # return np.dot(xm, (np.log(xm) - np.log(ym) - np.log(c)))
-    # return np.sum(x * (np.log(x, where=mask) - np.log(y, where=mask) - np.log(c)), where=mask)
     return np.sum(xm * (np.log(xm) - np.log(ym) - np.log(c)))
 
 
@@ -267,6 +226,13 @@ def compute_delta_entropy_verify(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_
     return delta_entropy1
 
 compute_delta_entropy = compute_delta_entropy_sparse
+
+if os.getenv("native") == "1":
+    entropy_row_nz = entropy_module.entropy_row_nz
+    entropy_row_nz_ignore = entropy_module.entropy_row_nz_ignore
+else:
+    entropy_row_nz = entropy_row_nz_numpy
+    entropy_row_nz_ignore = entropy_row_nz_ignore_numpy
 
 if __name__ == '__main__':
     import sys, pickle, timeit
