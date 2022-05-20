@@ -11,7 +11,8 @@ def entropy_row_nz_numpy(x, y, c):
     # The check for zero is needed when using compressed data that has occasional zeros in it.
     mask = (y > 0) & (x > 0)
     xm = x[mask]
-    return np.sum(xm * (np.log(xm) - np.log(y[mask]) - np.log(c)))
+    log_c = np.log(c)
+    return np.sum(xm * (np.log(xm) - np.log(y[mask]) - log_c))
 
 def entropy_row_nz_ignore_numpy(x, y, c, x_nz, r, s):
     if c == 0:
@@ -20,7 +21,8 @@ def entropy_row_nz_ignore_numpy(x, y, c, x_nz, r, s):
     mask = (x_nz != r) & (x_nz != s) & (x > 0) & (y > 0)
     xm = x[mask]
     ym = y[mask]
-    return np.sum(xm * (np.log(xm) - np.log(ym) - np.log(c)))
+    log_c = np.log(c)
+    return np.sum(xm * (np.log(xm) - np.log(ym) - log_c))
 
 def entropy_dense_row_ignore_numpy(x, y, c, r, s):
     if c == 0:
@@ -30,7 +32,8 @@ def entropy_dense_row_ignore_numpy(x, y, c, r, s):
     mask[s] = 0
     xm = x[mask]
     ym = y[mask]
-    return np.sum(xm * (np.log(xm) - np.log(ym) - np.log(c)))
+    log_c = np.log(c)    
+    return np.sum(xm * (np.log(xm) - np.log(ym) - log_c))
 
 
 def compute_delta_entropy_dense(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new):
