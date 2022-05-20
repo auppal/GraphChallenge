@@ -35,25 +35,6 @@ def assert_close(x, y, tol=1e-9):
     if np.abs(x - y) > tol:
         raise Exception("Equality assertion failed: %s %s" % (x,y))
 
-def is_sorted(x):
-    return len(x) == 1 or (x[1:] >= x[0:-1]).all()
-
-def is_in_sorted(needle, haystack):
-    if len(haystack) == 0:
-        return np.zeros(needle.shape, dtype=bool)
-    elif len(needle) == 0:
-        return np.array([], dtype=bool)
-    loc = np.searchsorted(haystack, needle)
-    loc[(loc == len(haystack))] = len(haystack) - 1
-    res = (haystack[loc] == needle)
-    res = res.reshape(needle.shape)
-    return res
-
-
-search_array = is_in_sorted
-#search_array = np.in1d
-
-
 import random
 def random_permutation(iterable, r=None):
     "Random selection from itertools.permutations(iterable, r)"
@@ -799,12 +780,9 @@ def compute_overall_entropy(M, d_out, d_in, B, N, E):
         data_S = 0.0
         for i in range(B):
             M_row_i, M_row_v = take_nonzero(M, i, 0, sort=False)
-
-            if 1:
-                mask = (M_row_v != 0)
-                M_row_i = M_row_i[mask]
-                M_row_v = M_row_v[mask]
-
+            mask = (M_row_v != 0)
+            M_row_i = M_row_i[mask]
+            M_row_v = M_row_v[mask]
             entries = M_row_v * np.log(M_row_v / (d_out[i] * d_in[M_row_i]).astype(float))
             data_S += -np.sum(entries)
 

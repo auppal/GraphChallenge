@@ -303,9 +303,6 @@ class fast_sparse_array(object):
             raise Exception("Unknown base type")
         return c
 
-def is_sorted(x):
-    return len(x) == 1 or (x[1:] >= x[0:-1]).all()
-
 def take_nonzero(A, idx, axis, sort):
     if type(A) is np.ndarray:
         a = np.take(A, idx, axis)
