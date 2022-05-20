@@ -752,8 +752,8 @@ def update_partition(b, ni, r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out_n
     b[ni] = s
     M[r, :] = M_r_row
     M[s, :] = M_s_row
-    M[:, r] = M_r_col.reshape(M[:, r].shape)
-    M[:, s] = M_s_col.reshape(M[:, s].shape)
+    M[:, r] = M_r_col
+    M[:, s] = M_s_col
 
     return b, M, d_out_new, d_in_new, d_new
 
