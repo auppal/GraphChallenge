@@ -421,7 +421,7 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
 
 def coo_to_flat(x, size):
     x_i, x_v = x
-    f = np.zeros(size)
+    f = np.zeros(size, dtype=int)
     f[x_i] = x_v
     return f
 

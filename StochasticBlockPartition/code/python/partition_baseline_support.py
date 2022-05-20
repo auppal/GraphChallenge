@@ -35,12 +35,6 @@ def assert_close(x, y, tol=1e-9):
     if np.abs(x - y) > tol:
         raise Exception("Equality assertion failed: %s %s" % (x,y))
 
-def coo_to_flat(x, size):
-    x_i, x_v = x
-    f = np.zeros(size)
-    f[x_i] = x_v
-    return f
-
 def is_sorted(x):
     return len(x) == 1 or (x[1:] >= x[0:-1]).all()
 
