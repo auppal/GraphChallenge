@@ -396,9 +396,7 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
                                                           new_M_r_row,
                                                           new_M_r_col,
                                                           num_blocks, block_degrees,
-                                                          block_degrees_new,
-                                                          use_sparse_alg,
-                                                          use_sparse_data)
+                                                          block_degrees_new)
 
         # compute change in entropy / posterior
         delta_entropy = compute_delta_entropy(current_block, proposal,

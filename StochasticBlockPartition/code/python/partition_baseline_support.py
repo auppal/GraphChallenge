@@ -582,7 +582,7 @@ def compute_new_block_degrees(r, s, d_out, d_in, d, k_out, k_in, k):
         return (d_outs, d_ins, ds)
 
 
-def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, M, M_r_row, M_r_col, B, d, d_new, use_sparse_alg, use_sparse_data):
+def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, M, M_r_row, M_r_col, B, d, d_new):
     """Compute the Hastings correction for the proposed block from the current block
 
         Parameters
@@ -646,64 +646,14 @@ def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, M, M_r_r
     count = np.bincount(idx, weights=np.append(count_out, count_in)).astype(int)  # count edges to neighboring blocks
     B = float(B)
 
-    # M_t_s = M[t, s]
-    # M_s_t = M[s, t]
-
-    if use_sparse_data:
-        # t appears to already be sorted, verified with assert(is_sorted(t))
-        # t = np.sort(t)
-        M_s_row_d = M.take_dict(s, 0)
-        M_s_col_d = M.take_dict(s, 1)
-        M_t_s = np.fromiter((M_s_row_d[i] for i in t), dtype=M.dtype)
-        M_s_t = np.fromiter((M_s_col_d[i] for i in t), dtype=M.dtype)
-    else:
-        # t = np.sort(t)
-        M_s_row_i, M_s_row_v = take_nonzero(M, s, 0, sort = True)
-        M_s_col_i, M_s_col_v = take_nonzero(M, s, 1, sort = True)
-        M_t_s = coo_to_flat((M_s_col_i, M_s_col_v), M.shape[0])[t]
-        M_s_t = coo_to_flat((M_s_row_i, M_s_row_v), M.shape[0])[t]
+    M_t_s = M[t, s]
+    M_s_t = M[s, t]
 
     p_forward = np.sum(count * (M_t_s + M_s_t + 1) / (d[t] + B))
-
     p_backward = 0.0
-
-    if use_sparse_data:
-        M_r_row_i = M_r_row.keys()
-        M_r_row_v = M_r_row.values()
-    elif use_sparse_alg:
-        M_r_row_i, M_r_row_v = M_r_row
-    else:
-        M_r_row_i, M_r_row_v = nonzero_slice(M_r_row)
-
-    if use_sparse_data:
-        M_r_col_i = M_r_col.keys()
-        M_r_col_v = M_r_col.values()
-    elif use_sparse_alg:
-        M_r_col_i, M_r_col_v = M_r_col
-    else:
-        M_r_col_i, M_r_col_v = nonzero_slice(M_r_col)
-
-    if use_sparse_data:
-        in_t = search_array(M_r_row_i, t)
-        in_M_r_row = np.fromiter((i in M_r_row for i in t), dtype=bool)
-        p_backward += np.sum(count[in_M_r_row] * M_r_row_v[in_t] / (d_new[t[in_M_r_row]] + B))
-    elif use_sparse_alg:
-        in_t = search_array(M_r_row_i, t)
-        in_M_r_row = np.in1d(t, M_r_row_i)
-        p_backward += np.sum(count[in_M_r_row] * M_r_row_v[in_t] / (d_new[t[in_M_r_row]] + B))
-    else:
-        p_backward += np.sum(count * M_r_row[t] / (d_new[t] + B))
-
-    if use_sparse_data:
-        in_t = search_array(M_r_col_i, t)
-        in_M_r_col = np.fromiter((i in M_r_col for i in t), dtype=bool)
-        p_backward += np.sum(count[in_M_r_col] * (M_r_col_v[in_t] + 1) / (d_new[t[in_M_r_col]] + B)) 
-    elif use_sparse_alg:
-        in_t = search_array(M_r_col_i, t)
-        in_M_r_col = np.in1d(t, M_r_col_i)
-        p_backward += np.sum(count[in_M_r_col] * (M_r_col_v[in_t] + 1) / (d_new[t[in_M_r_col]] + B))
-    else:
-        p_backward += np.sum(count * (M_r_col[t] + 1) / (d_new[t] + B))
+        
+    p_backward += np.sum(count * M_r_row[t] / (d_new[t] + B))
+    p_backward += np.sum(count * (M_r_col[t] + 1) / (d_new[t] + B))
 
     return p_backward / p_forward
 
