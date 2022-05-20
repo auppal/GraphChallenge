@@ -195,14 +195,14 @@ def compute_delta_entropy_verify(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_
 
 compute_delta_entropy = compute_delta_entropy_sparse
 
-if os.getenv("native") == "1":
-    entropy_row_nz = entropy_module.entropy_row_nz
-    entropy_row_nz_ignore = entropy_module.entropy_row_nz_ignore
-    entropy_dense_row_ignore = entropy_module.entropy_dense_row_ignore
-else:
+if os.getenv("native") == "0":
     entropy_row_nz = entropy_row_nz_numpy
     entropy_row_nz_ignore = entropy_row_nz_ignore_numpy
     entropy_dense_row_ignore = entropy_dense_row_ignore_numpy
+else:
+    entropy_row_nz = entropy_module.entropy_row_nz
+    entropy_row_nz_ignore = entropy_module.entropy_row_nz_ignore
+    entropy_dense_row_ignore = entropy_module.entropy_dense_row_ignore
 
 if __name__ == '__main__':
     import sys, pickle, timeit
