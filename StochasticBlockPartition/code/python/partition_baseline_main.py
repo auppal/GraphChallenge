@@ -419,13 +419,6 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
 
     return current_node, current_block, proposal, delta_entropy, p_accept
 
-def coo_to_flat(x, size):
-    x_i, x_v = x
-    f = np.zeros(size, dtype=int)
-    f[x_i] = x_v
-    return f
-
-
 def move_node(ni,r,s, partition,out_neighbors,in_neighbors,self_edge_weights,M,block_degrees_out,block_degrees_in,block_degrees,args):
     blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[ni][:, 0]], return_inverse=True)
     count_out = np.bincount(inverse_idx_out, weights=out_neighbors[ni][:, 1]).astype(int)
@@ -461,26 +454,10 @@ def update_partition_single(b, ni, s, M, M_r_row, M_s_row, M_r_col, M_s_col, arg
         M.set_axis_dict(s, 0, M_s_row)
         M.set_axis_dict(r, 1, M_r_col)
         M.set_axis_dict(s, 1, M_s_col)
-        return b, M
-
-    if type(M_r_row) is tuple:
-        M[r, :] = coo_to_flat(M_r_row, M.shape[0])
     else:
         M[r, :] = M_r_row
-
-    if type(M_r_col) is tuple:
-        M[:, r] = coo_to_flat(M_r_col, M.shape[0])
-    else:
         M[:, r] = M_r_col
-
-    if type(M_s_row) is tuple:
-        M[s, :] = coo_to_flat(M_s_row, M.shape[0])
-    else:
         M[s, :] = M_s_row
-
-    if type(M_s_col) is tuple:
-        M[:, s] = coo_to_flat(M_s_col, M.shape[0])
-    else:
         M[:, s] = M_s_col
 
     return b, M
