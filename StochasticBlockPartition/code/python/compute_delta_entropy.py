@@ -1,47 +1,8 @@
 import numpy as np
-from fast_sparse_array import nonzero_slice, take_nonzero
+from fast_sparse_array import nonzero_slice, take_nonzero, is_compressed
 from collections import defaultdict
 import entropy_module
-
 import os
-
-def entropy_row_calc(x, y, c):
-    mask = x.nonzero()[0]
-    xm = x[mask]
-    ym = y[mask]
-    return np.sum(xm * (np.log(xm) - np.log(ym * c)))
-
-def entropy_row_calc_ignore(x, y, c, r, s):
-    if 0:
-        mask = (x != 0)
-        mask[r] = 0
-        mask[s] = 0
-    else:
-        mask = [i for i in x.nonzero()[0] if i != r and i != s]
-
-    xm = x[mask]
-    ym = y[mask]
-    return np.sum(xm * (np.log(xm) - np.log(ym * c)))
-
-def compute_delta_entropy_alt(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new):
-    """Compute change in entropy under the proposal with a faster method."""
-    M_r_t1 = M[r, :]
-    M_s_t1 = M[s, :]
-    M_t2_r = M[:, r]
-    M_t2_s = M[:, s]
-
-    # remove r and s from the cols to avoid double counting
-    # only keep non-zero entries to avoid unnecessary computation
-
-    d0 = entropy_row_calc(M_r_row, d_in_new, d_out_new[r])
-    d1 = entropy_row_calc(M_s_row, d_in_new, d_out_new[s])
-    d2 = entropy_row_calc_ignore(M_r_col, d_out_new, d_in_new[r], r, s)
-    d3 = entropy_row_calc_ignore(M_s_col, d_out_new, d_in_new[s], r, s)
-    d4 = entropy_row_calc(M_r_t1,  d_in, d_out[r])
-    d5 = entropy_row_calc(M_s_t1,  d_in, d_out[s])
-    d6 = entropy_row_calc_ignore(M_t2_r,  d_out, d_in[r], r, s)
-    d7 = entropy_row_calc_ignore(M_t2_s,  d_out, d_in[s], r, s)
-    return -d0 - d1 - d2 - d3 + d4 + d5 + d6 + d7
 
 def entropy_row_nz_numpy(x, y, c):
     if c == 0:
@@ -61,46 +22,53 @@ def entropy_row_nz_ignore_numpy(x, y, c, x_nz, r, s):
     ym = y[mask]
     return np.sum(xm * (np.log(xm) - np.log(ym) - np.log(c)))
 
+def entropy_dense_row_ignore_numpy(x, y, c, r, s):
+    if c == 0:
+        return 0.0
+    mask = (x > 0) & (y > 0)
+    mask[r] = 0
+    mask[s] = 0
+    xm = x[mask]
+    ym = y[mask]
+    return np.sum(xm * (np.log(xm) - np.log(ym) - np.log(c)))
+
+
+def compute_delta_entropy_dense(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new):
+    """Compute change in entropy under the proposal with a faster method."""
+    M_r_t1 = M[r, :]
+    M_s_t1 = M[s, :]
+    M_t2_r = M[:, r]
+    M_t2_s = M[:, s]
+
+    d0 = entropy_row_nz(M_r_row, d_in_new, d_out_new[r])
+    d1 = entropy_row_nz(M_s_row, d_in_new, d_out_new[s])
+
+    d2 = entropy_dense_row_ignore(M_r_col, d_out_new, d_in_new[r], r, s)
+    d3 = entropy_dense_row_ignore(M_s_col, d_out_new, d_in_new[s], r, s)
+
+    d4 = entropy_row_nz(M_r_t1,  d_in, d_out[r])
+    d5 = entropy_row_nz(M_s_t1,  d_in, d_out[s])
+
+    d6 = entropy_dense_row_ignore(M_t2_r,  d_out, d_in[r], r, s)
+    d7 = entropy_dense_row_ignore(M_t2_s,  d_out, d_in[s], r, s)
+
+    return -d0 - d1 - d2 - d3 + d4 + d5 + d6 + d7
 
 def compute_delta_entropy_sparse(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new):
     """Compute change in entropy under the proposal with a faster method."""
+
+    if not is_compressed(M):
+        return compute_delta_entropy_dense(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new)
 
     M_r_t1_i, M_r_t1 = take_nonzero(M, r, 0, sort=False)
     M_s_t1_i, M_s_t1 = take_nonzero(M, s, 0, sort=False)
     M_t2_r_i, M_t2_r = take_nonzero(M, r, 1, sort=False)
     M_t2_s_i, M_t2_s = take_nonzero(M, s, 1, sort=False)
 
-    if getattr(M_r_row, "keys", None) is not None:
-        M_r_row_i, M_r_row = M_r_row.keys(), M_r_row.values()
-    else:
-        if isinstance(M_r_row, tuple):
-            M_r_row_i, M_r_row = M_r_row
-        else:
-            M_r_row_i, M_r_row = nonzero_slice(M_r_row, sort=False)
-
-    if getattr(M_r_col, "keys", None) is not None:
-        M_r_col_i, M_r_col = M_r_col.keys(), M_r_col.values()
-    else:
-        if isinstance(M_r_col, tuple):
-            M_r_col_i, M_r_col = M_r_col
-        else:
-            M_r_col_i, M_r_col = nonzero_slice(M_r_col, sort=False)
-
-    if getattr(M_s_row, "keys", None) is not None:
-        M_s_row_i, M_s_row = M_s_row.keys(), M_s_row.values()
-    else:
-        if isinstance(M_s_row, tuple):
-            M_s_row_i, M_s_row = M_s_row
-        else:
-            M_s_row_i, M_s_row = nonzero_slice(M_s_row, sort=False)
-
-    if getattr(M_s_col, "keys", None) is not None:
-        M_s_col_i, M_s_col = M_s_col.keys(), M_s_col.values()
-    else:
-        if isinstance(M_s_col, tuple):
-            M_s_col_i, M_s_col = M_s_col
-        else:
-            M_s_col_i, M_s_col = nonzero_slice(M_s_col, sort=False)
+    M_r_row_i, M_r_row = nonzero_slice(M_r_row, sort=False)
+    M_r_col_i, M_r_col = nonzero_slice(M_r_col, sort=False)
+    M_s_row_i, M_s_row = nonzero_slice(M_s_row, sort=False)
+    M_s_col_i, M_s_col = nonzero_slice(M_s_col, sort=False)
 
     # remove r and s from the cols to avoid double counting
     # only keep non-zero entries to avoid unnecessary computation
@@ -230,9 +198,11 @@ compute_delta_entropy = compute_delta_entropy_sparse
 if os.getenv("native") == "1":
     entropy_row_nz = entropy_module.entropy_row_nz
     entropy_row_nz_ignore = entropy_module.entropy_row_nz_ignore
+    entropy_dense_row_ignore = entropy_module.entropy_dense_row_ignore
 else:
     entropy_row_nz = entropy_row_nz_numpy
     entropy_row_nz_ignore = entropy_row_nz_ignore_numpy
+    entropy_dense_row_ignore = entropy_dense_row_ignore_numpy
 
 if __name__ == '__main__':
     import sys, pickle, timeit

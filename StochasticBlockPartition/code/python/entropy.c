@@ -41,6 +41,25 @@ double entropy_row_nz_ignore(const int64_t* restrict x, const int64_t* restrict 
   return sum;  
 }
 
+double entropy_dense_row_ignore(const int64_t* restrict x, const int64_t* restrict y, long n, int64_t c, long r, long s)
+{
+  double sum = 0, log_c;
+  long i;
+
+  if (c == 0) {
+    return 0.0;
+  }
+
+  log_c = log(c);
+
+  for (i=0; i<n; i++) {
+    if (i != r && i != s && x[i] > 0 && y[i] > 0) {
+      sum += x[i] * (log(x[i]) - log(y[i]) - log_c);
+    }
+  }
+  return sum;  
+}
+
 static PyObject* module_entropy_row_nz_ignore(PyObject *self, PyObject *args)
 {
   PyObject *x_obj, *y_obj, *x_idx_obj;
@@ -57,6 +76,7 @@ static PyObject* module_entropy_row_nz_ignore(PyObject *self, PyObject *args)
   if (x_array == NULL || y_array == NULL || x_idx_array == NULL) {
     Py_XDECREF(x_array);
     Py_XDECREF(y_array);
+    Py_XDECREF(x_idx_array);
     return NULL;
   }
 
@@ -70,6 +90,37 @@ static PyObject* module_entropy_row_nz_ignore(PyObject *self, PyObject *args)
   Py_DECREF(x_array);
   Py_DECREF(y_array);
   Py_DECREF(x_idx_array);
+
+  PyObject *ret = Py_BuildValue("d", val);
+  return ret;
+}
+
+static PyObject* module_entropy_dense_row_ignore(PyObject *self, PyObject *args)
+{
+  PyObject *x_obj, *y_obj;
+  double c;
+  long r, s;
+
+  if (!PyArg_ParseTuple(args, "OOdll", &x_obj, &y_obj, &c, &r, &s))
+    return NULL;
+
+  PyObject *x_array = PyArray_FROM_OTF(x_obj, NPY_LONG, NPY_IN_ARRAY);
+  PyObject *y_array = PyArray_FROM_OTF(y_obj, NPY_LONG, NPY_IN_ARRAY);
+
+  if (x_array == NULL || y_array == NULL) {
+    Py_XDECREF(x_array);
+    Py_XDECREF(y_array);
+    return NULL;
+  }
+
+  int N = (int) PyArray_DIM(x_array, 0);
+  const int64_t *x = (const int64_t *) PyArray_DATA(x_array);
+  const int64_t *y = (const int64_t *) PyArray_DATA(y_array);
+
+  double val = entropy_dense_row_ignore(x, y, N, c, r, s);
+
+  Py_DECREF(x_array);
+  Py_DECREF(y_array);
 
   PyObject *ret = Py_BuildValue("d", val);
   return ret;
@@ -114,12 +165,18 @@ static PyMethodDef entropy_module_methods[] =
     METH_VARARGS,
     "Return an entropy row computation."
    },
-      {
+   {
     "entropy_row_nz_ignore",
     module_entropy_row_nz_ignore,
     METH_VARARGS,
     "Return an entropy row computation, ignoring two indices."
    },
+   {
+    "entropy_dense_row_ignore",
+    module_entropy_dense_row_ignore,
+    METH_VARARGS,
+    "Return an entropy row computation, ignoring two indices."
+   },   
    {NULL, NULL, 0, NULL}
   };
 

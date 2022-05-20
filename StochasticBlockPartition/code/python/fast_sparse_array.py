@@ -1,4 +1,8 @@
 import numpy as np
+from collections.abc import Iterable
+
+def is_compressed(M):
+    return not isinstance(M, np.ndarray)
 
 if hasattr(dict, "viewkeys"):
     dict_keys_func = dict.viewkeys
@@ -30,6 +34,10 @@ class nonzero_dict(dict):
             return dict.__getitem__(self, idx)
         except KeyError:
             return 0
+        except TypeError:
+            # idx is likely iterable, the trick is to default to 0 for each element that is not in the dict
+            L = [(k in self and dict.__getitem__(self,k)) or 0 for k in idx]
+            return np.array(L)
     def copy(self):
         d = nonzero_dict(self)
         return d
@@ -183,10 +191,15 @@ class fast_sparse_array(object):
             return self.M_ver.__getitem__(idx)
 
         i,j = idx
+
         if type(i) is slice and i == star:
             L = [(k,v) for (k,v) in dict_items_func(self.cols[j])]
         elif type(j) is slice and j == star:
             L = [(k,v) for (k,v) in dict_items_func(self.rows[i])]
+        elif isinstance(i, Iterable):
+            return np.array([self.cols[j][k] for k in i], dtype=int)
+        elif isinstance(j, Iterable):
+            return np.array([self.rows[i][k] for k in j], dtype=int)
         else:
             if j in self.rows[i]:
                 L = self.rows[i][j]

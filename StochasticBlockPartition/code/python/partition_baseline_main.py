@@ -10,6 +10,7 @@ import time, struct
 import traceback
 import numpy.random
 from compute_delta_entropy import compute_delta_entropy
+from fast_sparse_array import is_compressed
 import random
 import shutil
 
@@ -30,9 +31,6 @@ def log_timestamp(msg):
     t_elp = t_now - log_timestamp_prev
     print("%3.4f +%3.4f %s" % (t_now, t_elp, msg))
     log_timestamp_prev = t_now
-
-def is_compressed(M):
-    return not isinstance(M, np.ndarray)
 
 def random_permutation(iterable, r=None):
     "Random selection from itertools.permutations(iterable, r)"
