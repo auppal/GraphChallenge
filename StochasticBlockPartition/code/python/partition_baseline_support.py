@@ -16,7 +16,7 @@ from multiprocessing import sharedctypes
 import ctypes
 from compute_delta_entropy import compute_delta_entropy
 from collections import defaultdict
-from fast_sparse_array import fast_sparse_array, nonzero_slice, take_nonzero, nonzero_dict, fast_sparse_array
+from fast_sparse_array import fast_sparse_array, take_nonzero, nonzero_dict, fast_sparse_array
 from collections import Iterable
 import timeit
 

@@ -321,19 +321,3 @@ def take_nonzero(A, idx, axis, sort):
         return idx,val
     else:
         raise Exception("Unknown array type for A (type %s) = %s" % (type(A), str(A)))
-
-
-def nonzero_slice(A, sort=True):
-    if type(A) is np.ndarray:
-        idx = A.nonzero()[0]
-        val = A[idx]
-    elif type(A) is list:
-        idx = np.array([k for (k,v) in A], dtype=int)
-        val = np.array([v for (k,v) in A], dtype=int)
-        if sort:
-            s = np.argsort(idx)
-            idx = idx[s]
-            val = val[s]
-    else:
-        raise Exception("Unknown array type for A (type %s) = %s" % (type(A), str(A)))
-    return idx,val

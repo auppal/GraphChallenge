@@ -1,5 +1,5 @@
 import numpy as np
-from fast_sparse_array import nonzero_slice, take_nonzero, is_compressed
+from fast_sparse_array import take_nonzero, is_compressed
 import entropy_module
 import os
 
