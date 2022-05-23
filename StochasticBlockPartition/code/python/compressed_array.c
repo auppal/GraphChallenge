@@ -81,6 +81,25 @@ void *shared_memory_get(const char *shm_path, size_t buf_size)
   return rc;
 }
 
+struct compressed_array *compressed_copy(const struct compressed_array *y)
+{
+  struct compressed_array *x = malloc(sizeof(struct compressed_array));
+
+  /* XXX Actually using shm_path would give a shared memory region and would not be valid for a new copy */
+  memcpy(x, y, sizeof(struct compressed_array));
+  x->shm_path = NULL;
+
+  x->buf = shared_memory_get(x->shm_path, x->buf_size);
+
+  if (!x->buf) {
+    free(x);
+    return NULL;
+  }
+
+  memcpy(x->buf, y->buf, x->buf_size);
+  return x;
+}
+
 struct compressed_array *compressed_array_create(size_t n_nodes, size_t max_degree)
 {
   struct compressed_array *x = malloc(sizeof(struct compressed_array));
@@ -125,11 +144,8 @@ struct compressed_array *compressed_array_create(size_t n_nodes, size_t max_degr
   x->cols.w = table_width;
   x->cols.n = n_nodes;
 
-#if 0
-  memset(x->buf, 0x00, buf_size);
-#else
   memset(x->buf, 0xff, buf_size);
-#endif
+
   return x;
 }
 
@@ -185,7 +201,7 @@ int compressed_set_single(struct compressed_array *x, uint64_t i, uint64_t j, ui
     long idx = (k + offset) % L;
     loc = base + idx;
 
-    if (*loc & EMPTY_FLAG) {
+    if (*loc == j || *loc & EMPTY_FLAG) {
       *loc = j;
       *loc &= ~EMPTY_FLAG;
       *(x->rows.vals + i * L + idx) = val;
@@ -207,7 +223,7 @@ int compressed_set_single(struct compressed_array *x, uint64_t i, uint64_t j, ui
     long idx = (k + offset) % L;    
     loc = base + idx;
 
-    if (*loc & EMPTY_FLAG) {
+    if (*loc == i || *loc & EMPTY_FLAG) {
       *loc = i;
       *loc &= ~EMPTY_FLAG;
       *(x->cols.vals + j * L + idx) = val;
@@ -272,15 +288,14 @@ void compressed_array_destroy(struct compressed_array *p)
 }
 
 /* Python interface functions */
-
-static void compressed_destroy(PyObject *obj)
+static void destroy(PyObject *obj)
 {
   void *x = PyCapsule_GetPointer(obj, "compressed_array");
   compressed_array_destroy(x);
 }
 
 
-static PyObject* compressed_create(PyObject *self, PyObject *args)
+static PyObject* create(PyObject *self, PyObject *args)
 {
   PyObject *ret;
   long n_nodes, max_degree;
@@ -291,12 +306,28 @@ static PyObject* compressed_create(PyObject *self, PyObject *args)
 
   struct compressed_array *x = compressed_array_create(n_nodes, max_degree);
 
-  uint64_t flag = EMPTY_FLAG;
   fprintf(stderr, "Created tables for n_nodes %ld with degree %ld = %p\n", n_nodes, max_degree, x);
 
-  ret = PyCapsule_New(x, "compressed_array", compressed_destroy);
+  ret = PyCapsule_New(x, "compressed_array", destroy);
   return ret;
   
+}
+
+static PyObject* copy(PyObject *self, PyObject *args)
+{
+  PyObject *obj;  
+  PyObject *ret;
+
+  if (!PyArg_ParseTuple(args, "O", &obj)) {
+    return NULL;
+  }
+  struct compressed_array *y = PyCapsule_GetPointer(obj, "compressed_array");
+  struct compressed_array *x = compressed_copy(y);
+
+  fprintf(stderr, "copy returning %p\n", x);
+
+  ret = PyCapsule_New(x, "compressed_array", destroy);
+  return ret;
 }
 
 static PyObject* setitem(PyObject *self, PyObject *args)
@@ -416,11 +447,17 @@ static PyObject* set_magic(PyObject *self, PyObject *args)
 static PyMethodDef compressed_array_methods[] =
   {
    {
-    "compressed_create",
-    compressed_create,
+    "create",
+    create,
     METH_VARARGS,
     "Create a new object."
    },
+   {
+    "copy",
+    copy,
+    METH_VARARGS,
+    "Copy an existing object."
+   },   
    {
     "get_magic",
     get_magic,
