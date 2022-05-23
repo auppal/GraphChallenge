@@ -9,8 +9,14 @@ module1 = Extension('entropy_module',
                     sources=['entropy.c'],
                     extra_compile_args=['-O3', '-march=native'])
 
+module2 = Extension('compressed_array',
+                    include_dirs=[np.get_include()],
+                    sources=['compressed_array.c'],
+                    extra_compile_args=['-O3', '-march=native'],
+                    libraries = ['rt'])
+
 setup(name = 'PackageName',
       version = '1.0',
-      description = 'This is the entropy functions helper package',
-      ext_modules = [module1])
+      description = 'These are the helper modules.',
+      ext_modules = [module1, module2])
  

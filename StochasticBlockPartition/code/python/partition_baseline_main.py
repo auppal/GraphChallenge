@@ -934,6 +934,11 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
 
     if verbose > -1:
         print('Number of nodes %d edges %d ' % (N,E))
+        if verbose > 0:
+            density = E / float(N*N)
+            max_in_deg = max((len(i) for i in in_neighbors))
+            max_out_deg = max((len(i) for i in out_neighbors))
+            print("Graph density %f max_in_degree %d max_out_degree %d" % (density,max_in_deg,max_out_deg))
 
     # partition update parameters
     args.beta = 3.0  # exploitation versus exploration (higher value favors exploitation)
