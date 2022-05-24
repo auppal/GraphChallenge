@@ -364,12 +364,10 @@ static PyObject* getitem(PyObject *self, PyObject *args)
   long axis = 0;
 
   i = PyLong_AsLongLong(obj_i);
-  j = PyLong_AsLongLong(obj_i);
+  j = PyLong_AsLongLong(obj_j);
 
   if (i != -1 && j != -1) {
     /* Return a single item. */
-    struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
-
     unsigned long val;
     if (compressed_get_single(x, i, j, &val) < 0) {
       val = 0;
@@ -379,22 +377,22 @@ static PyObject* getitem(PyObject *self, PyObject *args)
     return ret;
   }
 
-  PyErr_Restore(NULL, NULL, NULL); /* clear the exception */  
+  /* Handle one dimension with multiple elements. */
 
-  if (i == -1) {
-    j = PyLong_AsLongLong(obj_j);
-
-    if (j == -1) {
-      return NULL;
-    }
+  if (i == -1 && j != -1) {
     py_arr = PyArray_FROM_OTF(obj_i, NPY_LONG, NPY_IN_ARRAY);
     axis = 0;
   }
-  else {
+  else if (j == -1 && i != -1) {
     py_arr = PyArray_FROM_OTF(obj_j, NPY_LONG, NPY_IN_ARRAY);
     axis = 1;
   }
-  
+  else {
+    return NULL;
+  }
+
+  PyErr_Restore(NULL, NULL, NULL); /* clear the exception */  
+
   const long *arr = (const long *) PyArray_DATA(py_arr);
   long k, N = (long) PyArray_DIM(py_arr, 0);
   uint64_t *vals = malloc(N * sizeof(uint64_t));
