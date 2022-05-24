@@ -459,7 +459,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
             M_r_row[s] += r_row_offset
             new_M_r_row = M_r_row
         else:
-            M_r_row_d = M.take_dict(r, 0).copy()
+            M_r_row_d = M.take_dict(r, 0)
             for k,v in zip(b_out,count_out):
                 M_r_row_d[k] -= v
             M_r_row_d[r] -= r_row_offset
@@ -475,7 +475,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
             M_r_col[s] += r_col_offset
             new_M_r_col = M_r_col
         else:
-            M_r_col_d = M.take_dict(r, 1).copy()
+            M_r_col_d = M.take_dict(r, 1)
             for k,v in zip(b_in,count_in):
                 M_r_col_d[k] -= v
             M_r_col_d[r] -= r_col_offset
@@ -494,7 +494,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         M_s_row[s] += s_row_offset
         new_M_s_row = M_s_row
     else:
-        M_s_row_d = M.take_dict(s, 0).copy()
+        M_s_row_d = M.take_dict(s, 0)
         for k,v in zip(b_out,count_out):
             M_s_row_d[k] += v
         M_s_row_d[r] -= s_row_offset
@@ -511,7 +511,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         M_s_col[s] += s_col_offset
         new_M_s_col = M_s_col
     else:
-        M_s_col_d = M.take_dict(s, 1).copy()
+        M_s_col_d = M.take_dict(s, 1)
         for k,v in zip(b_in,count_in):
             M_s_col_d[k] += v
         M_s_col_d[r] -= s_col_offset
@@ -656,7 +656,7 @@ def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, M, M_r_r
 
     p_forward = np.sum(count * (M_t_s + M_s_t + 1) / (d[t] + B))
     p_backward = 0.0
-        
+
     p_backward += np.sum(count * M_r_row[t] / (d_new[t] + B))
     p_backward += np.sum(count * (M_r_col[t] + 1) / (d_new[t] + B))
 

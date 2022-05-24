@@ -283,9 +283,9 @@ class fast_sparse_array(object):
             raise Exception("Invalid axis %s" % (axis))
     def take_dict(self, idx, axis):
         if axis == 0:
-            return self.rows[idx]
+            return self.rows[idx].copy()
         elif axis == 1:
-            return self.cols[idx]
+            return self.cols[idx].copy()
         else:
             raise Exception("Invalid axis %s" % (axis))
     def copy(self):
