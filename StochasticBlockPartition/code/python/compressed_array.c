@@ -316,6 +316,42 @@ static PyObject* copy(PyObject *self, PyObject *args)
   return ret;
 }
 
+static PyObject* setaxis(PyObject *self, PyObject *args)
+{
+  PyObject *obj, *obj_k, *obj_v;
+  long i, axis = 0;
+  
+  if (!PyArg_ParseTuple(args, "OllOO", &obj, &i, &axis, &obj_k, &obj_v)) {
+    return NULL;
+  }
+
+  struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
+
+  /* Handle one dimension with multiple elements. */
+  obj_k = PyArray_FROM_OTF(obj_k, NPY_LONG, NPY_IN_ARRAY);
+  obj_v = PyArray_FROM_OTF(obj_v, NPY_LONG, NPY_IN_ARRAY);
+
+  const long *keys = (const long *) PyArray_DATA(obj_k);
+  const long *vals = (const long *) PyArray_DATA(obj_v);
+
+  long k, N = (long) PyArray_DIM(obj_k, 0);
+
+  if (axis == 0) {
+    for (k=0; k<N; k++) {
+      compressed_set_single(x, i, keys[k], vals[k]);
+    }
+  }
+  else {
+    for (k=0; k<N; k++) {
+      compressed_set_single(x, keys[k], i, vals[k]);
+    }
+  }
+  
+  Py_RETURN_NONE;
+}
+
+#if 0
+
 static PyObject* setitem(PyObject *self, PyObject *args)
 {
   PyObject *obj;
@@ -328,6 +364,69 @@ static PyObject* setitem(PyObject *self, PyObject *args)
   compressed_set_single(x, i, j, val);
   Py_RETURN_NONE;
 }
+#else
+
+static PyObject* setitem(PyObject *self, PyObject *args)
+{
+  PyObject *obj, *obj_i, *obj_j, *obj_k, *obj_v;
+
+  if (!PyArg_ParseTuple(args, "OOOO", &obj, &obj_i, &obj_j, &obj_v)) {
+    return NULL;
+  }
+
+  struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
+
+  long axis = 0;
+
+  long i = PyLong_AsLongLong(obj_i);
+  long j = PyLong_AsLongLong(obj_j);
+
+  if (i != -1 && j != -1) {
+    /* Set a single item. */
+    long val = PyLong_AsLongLong(obj_v);
+
+    if (val < 0) {
+      return NULL;
+    }
+
+    compressed_set_single(x, i, j, val);
+    Py_RETURN_NONE;
+  }
+
+  /* Handle one dimension with multiple elements. */
+  if (i == -1 && j != -1) {
+    obj_k = PyArray_FROM_OTF(obj_i, NPY_LONG, NPY_IN_ARRAY);
+    axis = 0;
+  }
+  else if (j == -1 && i != -1) {
+    obj_k = PyArray_FROM_OTF(obj_j, NPY_LONG, NPY_IN_ARRAY);
+    axis = 1;
+  }
+  else {
+    return NULL;
+  }
+
+  PyErr_Restore(NULL, NULL, NULL); /* clear the exception */  
+
+  const long *keys = (const long *) PyArray_DATA(obj_k);
+  const long *vals = (const long *) PyArray_DATA(obj_v);
+  long k, N = (long) PyArray_DIM(obj_k, 0);
+
+
+  if (axis == 0) {
+    for (k=0; k<N; k++) {
+      compressed_set_single(x, keys[k], j, vals[k]);
+    }
+  }
+  else {
+    for (k=0; k<N; k++) {
+      compressed_set_single(x, i, keys[k], vals[k]);
+    }
+  }
+  
+  Py_RETURN_NONE;
+}
+#endif
 
 #if 0
 static PyObject* getitem(PyObject *self, PyObject *args)
@@ -506,6 +605,12 @@ static PyMethodDef compressed_array_methods[] =
     METH_VARARGS,
     "Set an item."
    },
+   {
+    "setaxis",
+    setaxis,
+    METH_VARARGS,
+    "Set items along an axis."
+   },   
    {
     "getitem",
     getitem,
