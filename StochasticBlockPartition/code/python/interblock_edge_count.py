@@ -34,48 +34,9 @@ class fast_sparse_array(object):
         self.width = width
         self.shape = tup
     def __getitem__(self, idx):
-        i,j = idx
-        if type(i) is slice and i == star:
-            L = [(k,v) for (k,v) in dict_items_func(self.cols[j])]
-        elif type(j) is slice and j == star:
-            L = [(k,v) for (k,v) in dict_items_func(self.rows[i])]
-        elif isinstance(i, Iterable) or isinstance(j, Iterable):
-            return compressed_array.take_multi(self.x, i, j)
-
-#        elif isinstance(i, Iterable):
-#            return np.array([compressed_array.getitem(self.x, k, j) for k in i], dtype=int)
-#        elif isinstance(j, Iterable):
-#            return np.array([compressed_array.getitem(self.x, i, k) for k in j], dtype=int)
-        
-#         elif isinstance(i, Iterable):
-# #            for k in i:
-# #                print("Py get %d %d = %d" % (k, j, compressed_array.getitem(self.x, k, j)))            
-#             L1 = np.array([compressed_array.getitem(self.x, k, j) for k in i], dtype=int)            
-#             L2 = compressed_array.take_multi(self.x, i, j)
-#             assert(len(L1) == len(L2))
-#             if not (L1 == L2).all():
-#                 print("Diff")
-#                 print("L1",L1)
-#                 print("L2",L2)
-#                 assert(0)
-#             return L2
-#         elif isinstance(j, Iterable):
-#             L1 = np.array([compressed_array.getitem(self.x, i, k) for k in j], dtype=int)
-#             L2 = compressed_array.take_multi(self.x, i, j)
-#             assert(len(L1) == len(L2))
-#             if not (L1 == L2).all():
-#                 print("Diff")
-#                 print("L1",L1)
-#                 print("L2",L2)
-#                 assert(0)            
-#            return L2
-        else:
-            L = compressed_array.getitem(self.x, i, j)
-
-        return L
+        return compressed_array.getitem(self.x, idx[0], idx[1])
     def __setitem__(self, idx, val):
-        i,j = idx
-        compressed_array.setitem(self.x, i, j, val)
+        compressed_array.setitem(self.x, idx[0], idx[1], val)
     def set_axis_dict(self, idx, axis, d_new):
         if axis == 0:
             for k,v in d_new.items():

@@ -151,10 +151,6 @@ struct compressed_array *compressed_array_create(size_t n_nodes, size_t max_degr
 
 inline int compressed_get_single(struct compressed_array *x, uint64_t i, uint64_t j, uint64_t *val)
 {
-#if 0
-  *val = *(x->rows.keys + (i * x->rows.n) + j);
-  return 0;
-#else
   uint64_t *base, *loc;
   long k, offset, L;
   uint64_t hj = hash(j);  
@@ -176,22 +172,18 @@ inline int compressed_get_single(struct compressed_array *x, uint64_t i, uint64_
       return 0;
     }
   }
-#endif
+
   return -1;
 }
 
-int compressed_set_single(struct compressed_array *x, uint64_t i, uint64_t j, uint64_t val)
+inline int compressed_set_single(struct compressed_array *x, uint64_t i, uint64_t j, uint64_t val)
 {
-#if 0
-  *(x->rows.keys + (i * x->rows.n) + j) = val;
-#else
+
   uint64_t *base, *loc;
   long k, offset, L;
   uint64_t hi = hash(i);
   uint64_t hj = hash(j);
 
-  //fprintf(stderr, "Set item %ld %ld = %ld\n", i, j, val);
-  
   /* set row[i][j] = val */
   L = x->rows.w;
   offset = hj % L;
@@ -205,7 +197,6 @@ int compressed_set_single(struct compressed_array *x, uint64_t i, uint64_t j, ui
       *loc = j;
       *loc &= ~EMPTY_FLAG;
       *(x->rows.vals + i * L + idx) = val;
-      //fprintf(stderr, "Setting at row %ld idx %ld to %ld\n", i, idx, val);
       break;
     }
   }
@@ -237,7 +228,6 @@ int compressed_set_single(struct compressed_array *x, uint64_t i, uint64_t j, ui
 
   /* set col[j][i] = val */
   return 0;
-#endif
 }
 
 int compressed_take(struct compressed_array *x, long idx, long axis, uint64_t *keys, uint64_t *vals, long *p_cnt)
@@ -246,8 +236,6 @@ int compressed_take(struct compressed_array *x, long idx, long axis, uint64_t *k
   long k, L;
   long cnt = 0;
 
-  //  fprintf(stderr, "compressed take idx %ld axis %ld\n", idx, axis);
-  
   if (axis == 0) {
       L = x->rows.w;    
       p = (x->rows.keys + idx * L);
@@ -341,6 +329,7 @@ static PyObject* setitem(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+#if 0
 static PyObject* getitem(PyObject *self, PyObject *args)
 {
   PyObject *obj;
@@ -359,10 +348,12 @@ static PyObject* getitem(PyObject *self, PyObject *args)
   PyObject *ret = Py_BuildValue("k", val);
   return ret;
 }
+#endif
 
-static PyObject* take_multi(PyObject *self, PyObject *args)
+static PyObject* getitem(PyObject *self, PyObject *args)
 {
-  PyObject *obj, *obj_i, *obj_j, *py_arr;
+  PyObject *obj, *obj_i, *obj_j, *py_arr;  
+  long i, j;
 
   if (!PyArg_ParseTuple(args, "OOO", &obj, &obj_i, &obj_j)) {
     return NULL;
@@ -370,14 +361,27 @@ static PyObject* take_multi(PyObject *self, PyObject *args)
 
   struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
 
-  int64_t i, j;
   long axis = 0;
-  
+
   i = PyLong_AsLongLong(obj_i);
+  j = PyLong_AsLongLong(obj_i);
+
+  if (i != -1 && j != -1) {
+    /* Return a single item. */
+    struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
+
+    unsigned long val;
+    if (compressed_get_single(x, i, j, &val) < 0) {
+      val = 0;
+    }
+
+    PyObject *ret = Py_BuildValue("k", val);
+    return ret;
+  }
+
+  PyErr_Restore(NULL, NULL, NULL); /* clear the exception */  
 
   if (i == -1) {
-    PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
-
     j = PyLong_AsLongLong(obj_j);
 
     if (j == -1) {
@@ -395,15 +399,11 @@ static PyObject* take_multi(PyObject *self, PyObject *args)
   long k, N = (long) PyArray_DIM(py_arr, 0);
   uint64_t *vals = malloc(N * sizeof(uint64_t));
 
-  memset(vals, 0xff, N * sizeof(uint64_t));
-  
   if (axis == 0) {
     for (k=0; k<N; k++) {
       if (compressed_get_single(x, arr[k], j, &vals[k]) < 0) {
 	vals[k] = 0;
       }
-
-      //fprintf(stderr, "C get %ld %ld = %ld\n", arr[k], j, *vals);      
     }
   }
   else {
@@ -413,12 +413,6 @@ static PyObject* take_multi(PyObject *self, PyObject *args)
       }
     }
   }
-
-#if 0
-  for(k=0;k<N;k++) {
-    fprintf(stderr, "vals %ld = %ld\n", k, vals[k]);
-  }
-#endif
   
   npy_intp dims[] = {N};
   PyObject *vals_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, vals);
@@ -439,7 +433,6 @@ static PyObject* take(PyObject *self, PyObject *args)
 
   struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
 
-#if 1
   long cnt, cnt_max = x->rows.w;
 
   uint64_t *keys = malloc(cnt_max * sizeof(uint64_t));
@@ -454,29 +447,7 @@ static PyObject* take(PyObject *self, PyObject *args)
 
   PyArray_ENABLEFLAGS((PyArrayObject*) keys_obj, NPY_ARRAY_OWNDATA);
   PyArray_ENABLEFLAGS((PyArrayObject*) vals_obj, NPY_ARRAY_OWNDATA);  
-  
-#if 0
-  for (i=0; i<x->rows.w; i++) {
-    keys[i] = i;
-  }
-#endif
-#else  
-  int N = 22;
-  uint64_t *kk = malloc(N * sizeof(uint64_t));
-  uint64_t *vv = malloc(N * sizeof(uint64_t));
 
-  for (i=0; i<N; i++) {
-    kk[i] = i;
-    vv[i] = i;
-  }
-
-  npy_intp dims[] = {N};
-  PyObject *keys_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, kk);
-  PyObject *vals_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, vv);
-  PyArray_ENABLEFLAGS((PyArrayObject*) keys_obj, NPY_ARRAY_OWNDATA);
-  PyArray_ENABLEFLAGS((PyArrayObject*) vals_obj, NPY_ARRAY_OWNDATA);  
-  
-#endif
   PyObject *ret = Py_BuildValue("OO", keys_obj, vals_obj);
   return ret;
 }
@@ -548,12 +519,6 @@ static PyMethodDef compressed_array_methods[] =
     take,
     METH_VARARGS,
     "Take items along an axis."
-   },
-   {
-    "take_multi",
-    take_multi,
-    METH_VARARGS,
-    "Take several items along an axis."
    },
    {
     "set_magic",
