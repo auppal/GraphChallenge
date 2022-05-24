@@ -10,9 +10,14 @@ import time, struct
 import traceback
 import numpy.random
 from compute_delta_entropy import compute_delta_entropy
-from fast_sparse_array import is_compressed
 import random
 import shutil
+
+new_compressed_impl = (os.getenv("new_compressed_impl") == "1")
+if new_compressed_impl:
+    from interblock_edge_count import is_compressed
+else:
+    from fast_sparse_array import is_compressed
 
 try:
     from queue import Empty as queue_empty

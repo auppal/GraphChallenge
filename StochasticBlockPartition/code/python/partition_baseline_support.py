@@ -16,9 +16,15 @@ from multiprocessing import sharedctypes
 import ctypes
 from compute_delta_entropy import compute_delta_entropy
 from collections import defaultdict
-from fast_sparse_array import fast_sparse_array, take_nonzero, nonzero_dict, fast_sparse_array
 from collections import Iterable
 import timeit
+
+import os
+new_compressed_impl = (os.getenv("new_compressed_impl") == "1")
+if new_compressed_impl:
+    from interblock_edge_count import fast_sparse_array, nonzero_slice, take_nonzero, nonzero_dict, is_compressed
+else:
+    from fast_sparse_array import fast_sparse_array, take_nonzero, nonzero_dict, is_compressed
 
 mydtype=np.dtype('int64')
 
@@ -297,13 +303,20 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         d_out = np.asarray(M.sum(axis=1)).ravel()
         d_in = np.asarray(M.sum(axis=0)).ravel()
         d = d_out + d_in
-        if verbose > 0:
+
+        if verbose > 1:
+            max_in_cnt = np.max(np.sum(M != 0, axis=0))
+            max_out_cnt = np.max(np.sum(M != 0, axis=1))            
             print("density(M) = %s" % (len(M.nonzero()[0]) / (B ** 2.)))
+            print("max_in_cnt = %d" % max_in_cnt)
+            print("max_out_cnt = %d" % max_out_cnt)
     else:
-        M = fast_sparse_array((B,B), base_type=list, dtype=mydtype)
         d_out = np.zeros(B, dtype=mydtype)
         d_in = np.zeros(B, dtype=mydtype)
         M_d = defaultdict(int)
+        in_cnt = np.zeros(B, dtype=int)
+        out_cnt = np.zeros(B, dtype=int)
+
         for v in range(len(out_neighbors)):
             k1 = b[v]
             if len(out_neighbors[v]) > 0:
@@ -311,6 +324,23 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
                 count = np.bincount(inverse_idx, weights=out_neighbors[v][:, 1]).astype(int)
                 for k,c in zip(k2, count):
                     M_d[(k1, k)] += c
+
+        for (i,j),w in M_d.items():
+            in_cnt[j] += 1
+            out_cnt[i] += 1
+        max_in_cnt = np.max(in_cnt)
+        max_out_cnt = np.max(out_cnt)
+
+        if verbose > 1:
+            print("density(M[%d]) = %s" % (B, len(M_d) / (B ** 2.)))
+            print("max_in_cnt = %d" % max_in_cnt)
+            print("max_out_cnt = %d" % max_out_cnt)     
+
+        if new_compressed_impl:
+            M = fast_sparse_array((B,B), width=max(max_in_cnt, max_out_cnt), base_type=list, dtype=mydtype)
+        else:
+            M = fast_sparse_array((B,B), base_type=list, dtype=mydtype)
+
         for (i,j),w in M_d.items():
             M[i,j] = w
             d_in[j] += w
@@ -771,7 +801,7 @@ def compute_overall_entropy(M, d_out, d_in, B, N, E):
         
         where the function h(x)=(1+x)\ln(1+x) - x\ln(x) and the sum runs over all entries (t_1, t_2) in the edge count matrix"""
 
-    if type(M) is not fast_sparse_array:
+    if not is_compressed(M):
         nonzeros = M.nonzero()
         edge_count_entries = M[nonzeros]
         entries = edge_count_entries * np.log(edge_count_entries / (d_out[nonzeros[0]] * d_in[nonzeros[1]]).astype(float))

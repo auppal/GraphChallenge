@@ -1,7 +1,12 @@
 import numpy as np
-from fast_sparse_array import take_nonzero, is_compressed
 import entropy_module
 import os
+
+new_compressed_impl = (os.getenv("new_compressed_impl") == "1")
+if new_compressed_impl:
+    from interblock_edge_count import take_nonzero, is_compressed
+else:
+    from fast_sparse_array import take_nonzero, is_compressed
 
 def entropy_row_nz_numpy(x, y, c):
     if c == 0:
