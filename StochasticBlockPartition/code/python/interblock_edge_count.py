@@ -66,9 +66,8 @@ class fast_sparse_array(object):
         keys,vals = compressed_array.take(self.x, idx, axis)
         return (keys,vals)
     def take_dict(self, idx, axis):
-        keys,vals = compressed_array.take(self.x, idx, axis)
-        d = nonzero_dict(zip(keys,vals))
-        return d
+        k,v = compressed_array.take(self.x, idx, axis)
+        return nonzero_dict(zip(k,v))
     def copy(self):
         c = fast_sparse_array((0,0), width=self.width)
         c.x = compressed_array.copy(self.x)
