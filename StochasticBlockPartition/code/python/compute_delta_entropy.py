@@ -3,8 +3,8 @@ import entropy_module
 import os
 import compressed_array
 
-new_compressed_impl = (os.getenv("new_compressed_impl") == "1")
-if new_compressed_impl:
+compressed_native = (os.getenv("compressed_native") == "1")
+if compressed_native:
     from interblock_edge_count import take_nonzero, is_compressed
 else:
     from fast_sparse_array import take_nonzero, is_compressed
@@ -73,16 +73,16 @@ def compute_delta_entropy_sparse(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_
     M_t2_r_i, M_t2_r = take_nonzero(M, r, 1, sort=False)
     M_t2_s_i, M_t2_s = take_nonzero(M, s, 1, sort=False)
     
-    try:
-        M_r_row_i, M_r_row = M_r_row.keys(), M_r_row.values()
-        M_r_col_i, M_r_col = M_r_col.keys(), M_r_col.values()
-        M_s_row_i, M_s_row = M_s_row.keys(), M_s_row.values()
-        M_s_col_i, M_s_col = M_s_col.keys(), M_s_col.values()
-    except AttributeError:
+    if compressed_native:
         M_r_row_i, M_r_row = compressed_array.keys_values_dict(M_r_row)
         M_r_col_i, M_r_col = compressed_array.keys_values_dict(M_r_col)
         M_s_row_i, M_s_row = compressed_array.keys_values_dict(M_s_row)
         M_s_col_i, M_s_col = compressed_array.keys_values_dict(M_s_col)
+    else:
+        M_r_row_i, M_r_row = M_r_row.keys(), M_r_row.values()
+        M_r_col_i, M_r_col = M_r_col.keys(), M_r_col.values()
+        M_s_row_i, M_s_row = M_s_row.keys(), M_s_row.values()
+        M_s_col_i, M_s_col = M_s_col.keys(), M_s_col.values()        
         
     # remove r and s from the cols to avoid double counting
     # only keep non-zero entries to avoid unnecessary computation

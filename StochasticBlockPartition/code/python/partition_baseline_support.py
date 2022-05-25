@@ -22,8 +22,8 @@ import compressed_array
 from collections import defaultdict
 
 import os
-new_compressed_impl = (os.getenv("new_compressed_impl") == "1")
-if new_compressed_impl:
+compressed_native = (os.getenv("compressed_native") == "1")
+if compressed_native:
     from interblock_edge_count import fast_sparse_array, nonzero_slice, take_nonzero, nonzero_dict, is_compressed
 else:
     from fast_sparse_array import fast_sparse_array, take_nonzero, nonzero_dict, is_compressed
@@ -338,7 +338,7 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
             print("max_in_cnt = %d" % max_in_cnt)
             print("max_out_cnt = %d" % max_out_cnt)     
 
-        if new_compressed_impl:
+        if compressed_native:
             M = fast_sparse_array((B,B), width=max(max_in_cnt, max_out_cnt), base_type=list, dtype=mydtype)
         else:
             M = fast_sparse_array((B,B), base_type=list, dtype=mydtype)
@@ -436,12 +436,12 @@ def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, 
 def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out, b_in, count_in, count_self,
                                                        agg_move, use_sparse_alg):
 
-    compressed = not isinstance(M, np.ndarray)
+    compressed = is_compressed(M)
 
     B = M.shape[0]
     if agg_move:  # the r row and column are simply empty after this merge move
         if compressed:
-            if os.getenv("take_dict_native") == "1":
+            if M.impl == 'compressed_native':
                 new_M_r_row = compressed_array.empty_dict(M.width)
                 new_M_r_col = compressed_array.empty_dict(M.width)
             else:
@@ -464,8 +464,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
             M_r_row[r] -= r_row_offset
             M_r_row[s] += r_row_offset
             new_M_r_row = M_r_row
-        elif os.getenv("take_dict_native") == "1":
-            # M_r_row_d = M.take_dict(r, 0)
+        elif M.impl == 'compressed_native':
             M_r_row_d = compressed_array.take_dict(M.x, r, 0)
             compressed_array.accum_dict(M_r_row_d, b_out, -count_out)
             compressed_array.accum_dict(M_r_row_d, [r], -r_row_offset)
@@ -487,8 +486,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
             M_r_col[r] -= r_col_offset
             M_r_col[s] += r_col_offset
             new_M_r_col = M_r_col
-        elif os.getenv("take_dict_native") == "1":
-            # M_r_col_d = M.take_dict(r, 1)
+        elif M.impl == 'compressed_native':
             M_r_col_d = compressed_array.take_dict(M.x, r, 1)            
             compressed_array.accum_dict(M_r_col_d, b_in, -count_in)
             compressed_array.accum_dict(M_r_col_d, [r], -r_col_offset)
@@ -513,8 +511,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         M_s_row[r] -= s_row_offset
         M_s_row[s] += s_row_offset
         new_M_s_row = M_s_row
-    elif os.getenv("take_dict_native") == "1":
-        #M_s_row_d = M.take_dict(s, 0)
+    elif M.impl == 'compressed_native':
         M_s_row_d = compressed_array.take_dict(M.x, s, 0)        
         compressed_array.accum_dict(M_s_row_d, b_out, +count_out)
         compressed_array.accum_dict(M_s_row_d, [r], -s_row_offset)
@@ -537,8 +534,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         M_s_col[r] -= s_col_offset
         M_s_col[s] += s_col_offset
         new_M_s_col = M_s_col
-    elif os.getenv("take_dict_native") == "1":
-        # M_s_col_d = M.take_dict(s, 1)
+    elif M.impl == 'compressed_native':
         M_s_col_d = compressed_array.take_dict(M.x, s, 1)
         compressed_array.accum_dict(M_s_col_d, b_in, +count_in)
         compressed_array.accum_dict(M_s_col_d, [r], -s_col_offset)
@@ -691,7 +687,7 @@ def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, M, M_r_r
     p_forward = np.sum(count * (M_t_s + M_s_t + 1) / (d[t] + B))
     p_backward = 0.0
 
-    if not os.getenv("take_dict_native") == "1":
+    if not is_compressed(M) or M.impl == 'compressed_python':
         c = count / (d_new[t] + B)
         p_backward += np.sum(c * M_r_row[t])
         p_backward += np.sum(c * (M_r_col[t] + 1))

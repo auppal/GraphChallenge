@@ -171,6 +171,7 @@ class fast_sparse_array(object):
         # The dtype is not really used except as a hint for conversion into a dense array.
         self.dtype=dtype
         self.base_type = base_type
+        self.impl = "compressed_python"
         if base_type is list:
             self.rows = [nonzero_data() for i in range(tup[0])]
             self.cols = [nonzero_data() for i in range(tup[1])]

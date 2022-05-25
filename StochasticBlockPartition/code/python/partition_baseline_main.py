@@ -13,8 +13,8 @@ from compute_delta_entropy import compute_delta_entropy
 import random
 import shutil
 
-new_compressed_impl = (os.getenv("new_compressed_impl") == "1")
-if new_compressed_impl:
+compressed_native = (os.getenv("compressed_native") == "1")
+if compressed_native:
     from interblock_edge_count import is_compressed
 else:
     from fast_sparse_array import is_compressed
@@ -440,16 +440,16 @@ def move_node(ni,r,s, partition,out_neighbors,in_neighbors,self_edge_weights,M,b
                             self_edge_weights[ni], agg_move = 0,
                             use_sparse_alg = args.sparse_algorithm)
 
-    if os.getenv("take_dict_native") == "1":
-        block_degrees_out[r] = dict_sum(new_M_r_row)
-        block_degrees_out[s] = dict_sum(new_M_s_row)
-        block_degrees_in[r] = dict_sum(new_M_r_col)
-        block_degrees_in[s] = dict_sum(new_M_s_col)
-    else:
+    if not is_compressed(M) or M.impl == 'compressed_python':
         block_degrees_out[r] = new_M_r_row.sum()
         block_degrees_out[s] = new_M_s_row.sum()
         block_degrees_in[r] = new_M_r_col.sum()
         block_degrees_in[s] = new_M_s_col.sum()        
+    else:
+        block_degrees_out[r] = dict_sum(new_M_r_row)
+        block_degrees_out[s] = dict_sum(new_M_s_row)
+        block_degrees_in[r] = dict_sum(new_M_r_col)
+        block_degrees_in[s] = dict_sum(new_M_s_col)        
 
     block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
     block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]

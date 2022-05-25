@@ -34,6 +34,7 @@ class fast_sparse_array(object):
             self.x = compressed_array.create(tup[0], width)
         self.width = width
         self.shape = tup
+        self.impl = "compressed_native"
     def __getitem__(self, idx):
         return compressed_array.getitem(self.x, idx[0], idx[1])
     def __setitem__(self, idx, val):
