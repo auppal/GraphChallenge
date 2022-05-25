@@ -69,24 +69,9 @@ class fast_sparse_array(object):
     # In any case there is a possible performance advantage to setting the dtype apriori.
     def take(self, idx, axis):
         return compressed_array.take(self.x, idx, axis)
-#        keys,vals = compressed_array.take(self.x, idx, axis)
-#        p = compressed_array.take_dict(self.x, idx, axis)
-#        print(dict(zip(keys,vals)))
-#        compressed_array.print_dict(p)
-#        compressed_array.accum_dict(p, keys, [-99 for v in vals])
-#        compressed_array.print_dict(p)        
-#        return (keys,vals)
     def take_dict(self, idx, axis):
-        if os.getenv("take_dict_native") == "1":
-            return compressed_array.take_dict(self.x, idx, axis)
-        else:
-            cd = compressed_array.take_dict(self.x, idx, axis)
-            ck,cv = compressed_array.keys_values_dict(cd)
-            cdd = dict(zip(ck,cv))
-            k,v = compressed_array.take(self.x, idx, axis)
-            d = nonzero_dict(zip(k,v))
-            assert(cdd == d)
-            return d
+        k,v = compressed_array.take(self.x, idx, axis)
+        return nonzero_dict(zip(k,v))
     def copy(self):
         c = fast_sparse_array((0,0), width=self.width)
         c.x = compressed_array.copy(self.x)
