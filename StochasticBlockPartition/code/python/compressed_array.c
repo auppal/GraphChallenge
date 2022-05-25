@@ -97,6 +97,13 @@ struct compressed_array *compressed_copy(const struct compressed_array *y)
   }
 
   memcpy(x->buf, y->buf, x->buf_size);
+
+  size_t table_size = x->rows.n * x->rows.w;
+  x->rows.keys = (uint64_t *) x->buf + 0 * table_size;
+  x->rows.vals = (uint64_t *) x->buf + 1 * table_size;
+  x->cols.keys = (uint64_t *) x->buf + 2 * table_size;
+  x->cols.vals = (uint64_t *) x->buf + 3 * table_size;
+  
   return x;
 }
 
