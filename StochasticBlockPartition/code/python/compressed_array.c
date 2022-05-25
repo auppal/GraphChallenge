@@ -438,7 +438,6 @@ static PyObject* take_dict(PyObject *self, PyObject *args)
     return NULL;
 
   struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
-  //fprintf(stderr, "get_pointer returned %p and magic 0x%x\n", x, x->magic);  
   
   long N = (axis == 0 ? x->rows.w : x->cols.w);
 
@@ -460,6 +459,64 @@ static PyObject* take_dict(PyObject *self, PyObject *args)
   }
 
   ret = PyCapsule_New(ent, "compressed_array_dict", destroy_dict);
+  return ret;
+}
+
+static PyObject* getitem_dict(PyObject *self, PyObject *args)
+{
+  PyObject *obj, *obj_k;
+  long i, j;
+
+  if (!PyArg_ParseTuple(args, "OO", &obj, &obj_k)) {
+    return NULL;
+  }
+
+  struct hash *h = PyCapsule_GetPointer(obj, "compressed_array_dict");
+
+  long k_int = PyLong_AsLongLong(obj_k);
+
+  if (k_int != -1) {
+    /* Return a single item. */
+    unsigned long val = 0;
+    PyObject *ret = Py_BuildValue("k", val);
+    return ret;
+  }
+
+  PyErr_Restore(NULL, NULL, NULL); /* clear the exception */  
+
+  obj_k = PyArray_FROM_OTF(obj_k, NPY_LONG, NPY_IN_ARRAY);
+  const long *keys = (const long *) PyArray_DATA(obj_k);
+  long N = (long) PyArray_DIM(obj_k, 0);
+
+  uint64_t *vals = malloc(N * sizeof(uint64_t));
+
+  long L = h->w;
+
+  for (i=0; i<N; i++) {
+    uint64_t k = keys[i];
+    long offset = hash(k) % L;
+
+    for (j=0; j<L; j++) {
+      long idx = (j + offset) % L;
+      uint64_t *loc = h->keys + idx;
+
+      if (*loc == k) {
+	vals[i] = h->vals[idx];
+	break;
+      }
+      else if (*loc & EMPTY_FLAG || (j == L - 1)) {
+	vals[i] = 0;
+	break;
+      }
+    }
+  }
+
+  npy_intp dims[] = {N};
+  PyObject *vals_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, vals);
+
+  PyArray_ENABLEFLAGS((PyArrayObject*) vals_obj, NPY_ARRAY_OWNDATA);  
+
+  PyObject *ret = Py_BuildValue("O", vals_obj);
   return ret;
 }
 
@@ -811,6 +868,7 @@ static PyMethodDef compressed_array_methods[] =
     "Print items along an axis in dict form."
    },
    { "empty_dict", empty_dict, METH_VARARGS, "New row dict." },
+   { "getitem_dict", getitem_dict, METH_VARARGS, "Look up in a row dict." },
    {
     "set_magic",
     set_magic,
