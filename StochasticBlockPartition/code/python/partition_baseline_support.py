@@ -692,13 +692,16 @@ def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, M, M_r_r
     p_backward = 0.0
 
     if not os.getenv("take_dict_native") == "1":
-        p_backward += np.sum(count * M_r_row[t] / (d_new[t] + B))
-        p_backward += np.sum(count * (M_r_col[t] + 1) / (d_new[t] + B))
+        c = count / (d_new[t] + B)
+        p_backward += np.sum(c * M_r_row[t])
+        p_backward += np.sum(c * (M_r_col[t] + 1))
     else:
         M_r_row_t = compressed_array.getitem_dict(M_r_row, t)
         M_r_col_t = compressed_array.getitem_dict(M_r_col, t)
-        p_backward += np.sum(count * M_r_row_t / (d_new[t] + B))
-        p_backward += np.sum(count * (M_r_col_t + 1) / (d_new[t] + B))
+
+        c = count / (d_new[t] + B)
+        p_backward += np.sum(c * M_r_row_t)
+        p_backward += np.sum(c * (M_r_col_t + 1))
 
     return p_backward / p_forward
 
