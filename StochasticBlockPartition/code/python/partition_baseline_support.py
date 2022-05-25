@@ -697,21 +697,6 @@ def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, M, M_r_r
     else:
         M_r_row_t = compressed_array.getitem_dict(M_r_row, t)
         M_r_col_t = compressed_array.getitem_dict(M_r_col, t)
-
-        # keys,vals = compressed_array.keys_values_dict(M_r_row)
-        # M_r_row_d = defaultdict(int, zip(keys,vals))
-
-        # assert((M_r_row_t == [M_r_row_d[k] for k in t]).all())
-
-        
-        # keys,vals = compressed_array.keys_values_dict(M_r_col)
-        # M_r_col_d = defaultdict(int, zip(keys,vals))
-
-        # assert((M_r_col_t == [M_r_col_d[k] for k in t]).all())
-
-        # M_r_row_calc = np.array([M_r_row_d[k] for k in t])
-        # M_r_col_calc = np.array([M_r_col_d[k] for k in t])
-
         p_backward += np.sum(count * M_r_row_t / (d_new[t] + B))
         p_backward += np.sum(count * (M_r_col_t + 1) / (d_new[t] + B))
 
