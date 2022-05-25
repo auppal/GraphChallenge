@@ -18,6 +18,8 @@ from compute_delta_entropy import compute_delta_entropy
 from collections import defaultdict
 from collections import Iterable
 import timeit
+import compressed_array
+from collections import defaultdict
 
 import os
 new_compressed_impl = (os.getenv("new_compressed_impl") == "1")
@@ -439,8 +441,12 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
     B = M.shape[0]
     if agg_move:  # the r row and column are simply empty after this merge move
         if compressed:
-            new_M_r_row = nonzero_dict()
-            new_M_r_col = nonzero_dict()
+            if os.getenv("take_dict_native") == "1":
+                new_M_r_row = compressed_array.empty_dict(M.width)
+                new_M_r_col = compressed_array.empty_dict(M.width)
+            else:
+                new_M_r_row = nonzero_dict()
+                new_M_r_col = nonzero_dict()
         else:
             M_r_row = np.zeros(B, dtype=M.dtype)
             M_r_col = np.zeros(B, dtype=M.dtype)
@@ -458,8 +464,15 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
             M_r_row[r] -= r_row_offset
             M_r_row[s] += r_row_offset
             new_M_r_row = M_r_row
+        elif os.getenv("take_dict_native") == "1":
+            # M_r_row_d = M.take_dict(r, 0)
+            M_r_row_d = compressed_array.take_dict(M.x, r, 0)
+            compressed_array.accum_dict(M_r_row_d, b_out, -count_out)
+            compressed_array.accum_dict(M_r_row_d, [r], -r_row_offset)
+            compressed_array.accum_dict(M_r_row_d, [s], +r_row_offset)
+            new_M_r_row = M_r_row_d
         else:
-            M_r_row_d = M.take_dict(r, 0)
+            M_r_row_d = M.take_dict(r, 0)            
             for k,v in zip(b_out,count_out):
                 M_r_row_d[k] -= v
             M_r_row_d[r] -= r_row_offset
@@ -474,6 +487,13 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
             M_r_col[r] -= r_col_offset
             M_r_col[s] += r_col_offset
             new_M_r_col = M_r_col
+        elif os.getenv("take_dict_native") == "1":
+            # M_r_col_d = M.take_dict(r, 1)
+            M_r_col_d = compressed_array.take_dict(M.x, r, 1)            
+            compressed_array.accum_dict(M_r_col_d, b_in, -count_in)
+            compressed_array.accum_dict(M_r_col_d, [r], -r_col_offset)
+            compressed_array.accum_dict(M_r_col_d, [s], +r_col_offset)
+            new_M_r_col = M_r_col_d
         else:
             M_r_col_d = M.take_dict(r, 1)
             for k,v in zip(b_in,count_in):
@@ -493,6 +513,13 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         M_s_row[r] -= s_row_offset
         M_s_row[s] += s_row_offset
         new_M_s_row = M_s_row
+    elif os.getenv("take_dict_native") == "1":
+        #M_s_row_d = M.take_dict(s, 0)
+        M_s_row_d = compressed_array.take_dict(M.x, s, 0)        
+        compressed_array.accum_dict(M_s_row_d, b_out, +count_out)
+        compressed_array.accum_dict(M_s_row_d, [r], -s_row_offset)
+        compressed_array.accum_dict(M_s_row_d, [s], +s_row_offset)
+        new_M_s_row = M_s_row_d
     else:
         M_s_row_d = M.take_dict(s, 0)
         for k,v in zip(b_out,count_out):
@@ -510,6 +537,13 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         M_s_col[r] -= s_col_offset
         M_s_col[s] += s_col_offset
         new_M_s_col = M_s_col
+    elif os.getenv("take_dict_native") == "1":
+        # M_s_col_d = M.take_dict(s, 1)
+        M_s_col_d = compressed_array.take_dict(M.x, s, 1)
+        compressed_array.accum_dict(M_s_col_d, b_in, +count_in)
+        compressed_array.accum_dict(M_s_col_d, [r], -s_col_offset)
+        compressed_array.accum_dict(M_s_col_d, [s], +s_col_offset)
+        new_M_s_col = M_s_col_d
     else:
         M_s_col_d = M.take_dict(s, 1)
         for k,v in zip(b_in,count_in):
@@ -657,8 +691,20 @@ def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, M, M_r_r
     p_forward = np.sum(count * (M_t_s + M_s_t + 1) / (d[t] + B))
     p_backward = 0.0
 
-    p_backward += np.sum(count * M_r_row[t] / (d_new[t] + B))
-    p_backward += np.sum(count * (M_r_col[t] + 1) / (d_new[t] + B))
+    if not os.getenv("take_dict_native") == "1":
+        p_backward += np.sum(count * M_r_row[t] / (d_new[t] + B))
+        p_backward += np.sum(count * (M_r_col[t] + 1) / (d_new[t] + B))
+    else:
+        keys,vals = compressed_array.keys_values_dict(M_r_row)
+        M_r_row_d = defaultdict(int, zip(keys,vals))
+        keys,vals = compressed_array.keys_values_dict(M_r_col)
+        M_r_col_d = defaultdict(int, zip(keys,vals))
+
+        M_r_row_calc = np.array([M_r_row_d[k] for k in t])
+        M_r_col_calc = np.array([M_r_col_d[k] for k in t])
+
+        p_backward += np.sum(count * M_r_row_calc / (d_new[t] + B))
+        p_backward += np.sum(count * (M_r_col_calc + 1) / (d_new[t] + B))
 
     return p_backward / p_forward
 

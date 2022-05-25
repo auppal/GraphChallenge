@@ -298,17 +298,180 @@ static PyObject* create(PyObject *self, PyObject *args)
 
   ret = PyCapsule_New(x, "compressed_array", destroy);
   return ret;
-  
 }
+
+
+static void destroy_dict(PyObject *obj)
+{
+  struct hash *h = PyCapsule_GetPointer(obj, "compressed_array_dict");
+  free(h);
+}
+
+static PyObject* print_dict(PyObject *self, PyObject *args)
+{
+    PyObject *obj;
+
+    if (!PyArg_ParseTuple(args, "O", &obj))
+      return NULL;
+
+    struct hash *h = PyCapsule_GetPointer(obj, "compressed_array_dict");
+
+    fprintf(stderr, "Print dict %p\n", h);
+    
+    long i, L=h->w;
+
+    fprintf(stderr, "[ ");
+    for (i=0; i<L; i++) {
+      if ((h->keys[i] & EMPTY_FLAG) == 0) {
+	fprintf(stderr, "%ld:%ld ", h->keys[i], h->vals[i]);
+      }
+    }
+    fprintf(stderr, "]\n");
+    
+    Py_RETURN_NONE;
+}
+
+static PyObject* keys_values_dict(PyObject *self, PyObject *args)
+{
+  PyObject *obj;
+
+  if (!PyArg_ParseTuple(args, "O", &obj))
+    return NULL;
+
+  struct hash *h = PyCapsule_GetPointer(obj, "compressed_array_dict");
+
+  long cnt = 0, cnt_max = h->w;
+
+  uint64_t *keys = malloc(cnt_max * sizeof(uint64_t));
+  uint64_t *vals = malloc(cnt_max * sizeof(uint64_t));
+
+  long i;
+  for (i=0; i<cnt_max; i++) {
+    if ((h->keys[i] & EMPTY_FLAG) == 0) {
+      keys[cnt] = h->keys[i];
+      vals[cnt] = h->vals[i];
+      cnt++;
+    }
+  }
+  
+  npy_intp dims[] = {cnt};
+
+  PyObject *keys_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, keys);
+  PyObject *vals_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, vals);
+
+  PyArray_ENABLEFLAGS((PyArrayObject*) keys_obj, NPY_ARRAY_OWNDATA);
+  PyArray_ENABLEFLAGS((PyArrayObject*) vals_obj, NPY_ARRAY_OWNDATA);  
+
+  PyObject *ret = Py_BuildValue("OO", keys_obj, vals_obj);
+  return ret;
+}
+
+static PyObject* accum_dict(PyObject *self, PyObject *args)
+{
+  PyObject *obj, *obj_k, *obj_v;
+
+  if (!PyArg_ParseTuple(args, "OOO", &obj, &obj_k, &obj_v))
+    return NULL;
+
+  struct hash *h = PyCapsule_GetPointer(obj, "compressed_array_dict");
+
+  obj_k = PyArray_FROM_OTF(obj_k, NPY_LONG, NPY_IN_ARRAY);
+  obj_v = PyArray_FROM_OTF(obj_v, NPY_LONG, NPY_IN_ARRAY);
+
+  const long *keys = (const long *) PyArray_DATA(obj_k);
+  const long *vals = (const long *) PyArray_DATA(obj_v);
+
+  long i, j, N = (long) PyArray_DIM(obj_k, 0);
+  long L = h->w;
+
+  for (i=0; i<N; i++) {
+    uint64_t k = keys[i];
+    long offset = hash(k) % L;
+
+    for (j=0; j<L; j++) {
+      long idx = (j + offset) % L;
+      uint64_t *loc = h->keys + idx;
+
+      if (*loc == k) {
+	h->vals[idx] += vals[i];
+	break;
+      }
+      else if (*loc & EMPTY_FLAG) {
+	*loc = k;
+	*loc &= ~EMPTY_FLAG;	
+	h->vals[idx] = vals[i];
+	break;
+      }
+    }
+  }
+
+  Py_RETURN_NONE;
+}
+
+static PyObject* empty_dict(PyObject *self, PyObject *args)
+{
+  PyObject *ret;
+  long N;
+
+  if (!PyArg_ParseTuple(args, "l", &N))
+    return NULL;
+
+  char *buf = malloc(sizeof(struct hash) + 2 * N * sizeof(uint64_t));
+  struct hash *ent = (struct hash *) buf;
+
+  ent->keys = (uint64_t *) (buf + sizeof(struct hash));
+  ent->vals = (uint64_t *) (buf + sizeof(struct hash) + N * sizeof(uint64_t));
+  ent->w = N;
+  ent->n = 1;
+
+  memset(ent->keys, 0xff, N * sizeof(uint64_t));
+  ret = PyCapsule_New(ent, "compressed_array_dict", destroy_dict);
+  return ret;  
+}
+
+static PyObject* take_dict(PyObject *self, PyObject *args)
+{
+  PyObject *obj, *ret;
+  long idx, axis;
+
+  if (!PyArg_ParseTuple(args, "Oll", &obj, &idx, &axis))
+    return NULL;
+
+  struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
+  //fprintf(stderr, "get_pointer returned %p and magic 0x%x\n", x, x->magic);  
+  
+  long N = (axis == 0 ? x->rows.w : x->cols.w);
+
+  char *buf = malloc(sizeof(struct hash) + 2 * N * sizeof(uint64_t));
+  struct hash *ent = (struct hash *) buf;
+
+  ent->keys = (uint64_t *) (buf + sizeof(struct hash));
+  ent->vals = (uint64_t *) (buf + sizeof(struct hash) + N * sizeof(uint64_t));
+  ent->w = N;
+  ent->n = 1;
+
+  if (axis == 0) {
+    memcpy(ent->keys, x->rows.keys + idx * N, N * sizeof(uint64_t));
+    memcpy(ent->vals, x->rows.vals + idx * N, N * sizeof(uint64_t));        
+  }
+  else {
+    memcpy(ent->keys, x->cols.keys + idx * N, N * sizeof(uint64_t));
+    memcpy(ent->vals, x->cols.vals + idx * N, N * sizeof(uint64_t));    
+  }
+
+  ret = PyCapsule_New(ent, "compressed_array_dict", destroy_dict);
+  return ret;
+}
+
 
 static PyObject* copy(PyObject *self, PyObject *args)
 {
-  PyObject *obj;  
-  PyObject *ret;
+  PyObject *obj, *ret;
 
   if (!PyArg_ParseTuple(args, "O", &obj)) {
     return NULL;
   }
+
   struct compressed_array *y = PyCapsule_GetPointer(obj, "compressed_array");
   struct compressed_array *x = compressed_copy(y);
 
@@ -623,6 +786,31 @@ static PyMethodDef compressed_array_methods[] =
     METH_VARARGS,
     "Take items along an axis."
    },
+   {
+    "take_dict",
+    take_dict,
+    METH_VARARGS,
+    "Take items along an axis in dict form."
+   },
+   {
+    "accum_dict",
+    accum_dict,
+    METH_VARARGS,
+    "Add to items in a dict slice."
+   },
+   {
+    "keys_values_dict",
+    keys_values_dict,
+    METH_VARARGS,
+    "Get keys and values from a dict slice."
+   },      
+   {
+    "print_dict",
+    print_dict,
+    METH_VARARGS,
+    "Print items along an axis in dict form."
+   },
+   { "empty_dict", empty_dict, METH_VARARGS, "New row dict." },
    {
     "set_magic",
     set_magic,

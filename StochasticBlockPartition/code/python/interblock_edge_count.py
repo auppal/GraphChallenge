@@ -2,6 +2,7 @@ import numpy as np
 import compressed_array
 from collections import Iterable
 from collections import defaultdict
+import os
 
 def is_compressed(M):
     return not isinstance(M, np.ndarray)
@@ -38,7 +39,11 @@ class fast_sparse_array(object):
     def __setitem__(self, idx, val):
         compressed_array.setitem(self.x, idx[0], idx[1], val)
     def set_axis_dict(self, idx, axis, d_new):
-        compressed_array.setaxis(self.x, idx, axis, d_new.keys(), d_new.values())
+        try:
+            compressed_array.setaxis(self.x, idx, axis, d_new.keys(), d_new.values())
+        except AttributeError:
+            keys,values = compressed_array.keys_values_dict(d_new)
+            compressed_array.setaxis(self.x, idx, axis, keys, values)
     def set_axis_dict_old(self, idx, axis, d_new):
         if axis == 0:
             for k,v in d_new.items():
@@ -63,11 +68,25 @@ class fast_sparse_array(object):
     # But we need a default dtype for a length zero array.
     # In any case there is a possible performance advantage to setting the dtype apriori.
     def take(self, idx, axis):
-        keys,vals = compressed_array.take(self.x, idx, axis)
-        return (keys,vals)
+        return compressed_array.take(self.x, idx, axis)
+#        keys,vals = compressed_array.take(self.x, idx, axis)
+#        p = compressed_array.take_dict(self.x, idx, axis)
+#        print(dict(zip(keys,vals)))
+#        compressed_array.print_dict(p)
+#        compressed_array.accum_dict(p, keys, [-99 for v in vals])
+#        compressed_array.print_dict(p)        
+#        return (keys,vals)
     def take_dict(self, idx, axis):
-        k,v = compressed_array.take(self.x, idx, axis)
-        return nonzero_dict(zip(k,v))
+        if os.getenv("take_dict_native") == "1":
+            return compressed_array.take_dict(self.x, idx, axis)
+        else:
+            cd = compressed_array.take_dict(self.x, idx, axis)
+            ck,cv = compressed_array.keys_values_dict(cd)
+            cdd = dict(zip(ck,cv))
+            k,v = compressed_array.take(self.x, idx, axis)
+            d = nonzero_dict(zip(k,v))
+            assert(cdd == d)
+            return d
     def copy(self):
         c = fast_sparse_array((0,0), width=self.width)
         c.x = compressed_array.copy(self.x)
