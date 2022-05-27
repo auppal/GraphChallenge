@@ -307,11 +307,15 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         d = d_out + d_in
 
         if verbose > 1:
-            max_in_cnt = np.max(np.sum(M != 0, axis=0))
-            max_out_cnt = np.max(np.sum(M != 0, axis=1))            
+            in_cnt = np.sum(M != 0, axis=0)
+            out_cnt = np.sum(M != 0, axis=1)            
+            max_in_cnt = np.max(in_cnt)
+            max_out_cnt = np.max(out_cnt)
             print("density(M) = %s" % (len(M.nonzero()[0]) / (B ** 2.)))
             print("max_in_cnt = %d" % max_in_cnt)
             print("max_out_cnt = %d" % max_out_cnt)
+            print("avg_in_cnt = %f" % np.mean(in_cnt))
+            print("avg_out_cnt = %f" % np.mean(out_cnt))
     else:
         d_out = np.zeros(B, dtype=mydtype)
         d_in = np.zeros(B, dtype=mydtype)
@@ -336,7 +340,13 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         if verbose > 1:
             print("density(M[%d]) = %s" % (B, len(M_d) / (B ** 2.)))
             print("max_in_cnt = %d" % max_in_cnt)
-            print("max_out_cnt = %d" % max_out_cnt)     
+            print("max_out_cnt = %d" % max_out_cnt)
+            print("min_in_cnt = %f" % np.min(in_cnt))
+            print("min_out_cnt = %f" % np.min(out_cnt))
+            print("avg_in_cnt = %f" % np.mean(in_cnt))
+            print("avg_out_cnt = %f" % np.mean(out_cnt))
+            print("std_in_cnt = %f" % np.std(in_cnt))
+            print("std_out_cnt = %f" % np.std(out_cnt))
 
         if compressed_native:
             M = fast_sparse_array((B,B), width=max(max_in_cnt, max_out_cnt), base_type=list, dtype=mydtype)

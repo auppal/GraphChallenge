@@ -167,7 +167,7 @@ nonzero_data = nonzero_dict
 
 star = slice(None, None, None)
 class fast_sparse_array(object):
-    def __init__(self, tup, base_type=list, dtype=None):
+    def __init__(self, tup, base_type=list, dtype=np.dtype('int64')):
         # The dtype is not really used except as a hint for conversion into a dense array.
         self.dtype=dtype
         self.base_type = base_type

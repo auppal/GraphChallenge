@@ -469,6 +469,38 @@ static PyObject* take_dict(PyObject *self, PyObject *args)
   return ret;
 }
 
+static PyObject* set_dict(PyObject *self, PyObject *args)
+{
+  PyObject *obj, *obj_ent;
+  long idx, axis;
+
+  if (!PyArg_ParseTuple(args, "OllO", &obj, &idx, &axis, &obj_ent))
+    return NULL;
+
+  struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
+  struct hash *ent = PyCapsule_GetPointer(obj_ent, "compressed_array_dict");
+  
+  if (axis == 0 && x->rows.w != ent->w) {
+    return NULL;
+  }
+  else if (x->cols.w != ent->w) {
+    return NULL;
+  }
+
+  if (axis == 0) {
+    long N = x->rows.w;
+    memcpy(x->rows.keys + idx * N, ent->keys, N * sizeof(uint64_t));
+    memcpy(x->rows.vals + idx * N, ent->vals, N * sizeof(uint64_t));
+  }
+  else {
+    long N = x->cols.w;
+    memcpy(x->cols.keys + idx * N, ent->keys, N * sizeof(uint64_t));
+    memcpy(x->cols.vals + idx * N, ent->vals, N * sizeof(uint64_t));
+  }
+
+  Py_RETURN_NONE;
+}
+
 static PyObject* getitem_dict(PyObject *self, PyObject *args)
 {
   PyObject *obj, *obj_k;
@@ -541,6 +573,33 @@ static PyObject* copy(PyObject *self, PyObject *args)
 
   ret = PyCapsule_New(x, "compressed_array", destroy);
   return ret;
+}
+
+static PyObject* select_copy(PyObject *self, PyObject *args)
+{
+  PyObject *obj_dst, *obj_src, *obj_where;
+
+  if (!PyArg_ParseTuple(args, "OOO", &obj_dst, &obj_src, &obj_where)) {
+    return NULL;
+  }
+
+  struct compressed_array *src = PyCapsule_GetPointer(obj_src, "compressed_array");
+  struct compressed_array *dst = PyCapsule_GetPointer(obj_dst, "compressed_array");  
+
+  obj_where = PyArray_FROM_OTF(obj_where, NPY_LONG, NPY_IN_ARRAY);
+  const long *where = (const long *) PyArray_DATA(obj_where);
+  long i, W = (long) PyArray_DIM(obj_where, 0);
+  long N = src->rows.w;
+
+  for (i=0; i<W; i++) {
+    long idx = where[i];
+    memcpy(dst->rows.keys + idx * N, src->rows.keys + idx * N, N * sizeof(uint64_t));
+    memcpy(dst->rows.vals + idx * N, src->rows.vals + idx * N, N * sizeof(uint64_t));
+    memcpy(dst->cols.keys + idx * N, src->cols.keys + idx * N, N * sizeof(uint64_t));
+    memcpy(dst->cols.vals + idx * N, src->cols.vals + idx * N, N * sizeof(uint64_t));    
+  }
+
+  Py_RETURN_NONE;
 }
 
 static PyObject* setaxis(PyObject *self, PyObject *args)
@@ -876,6 +935,8 @@ static PyMethodDef compressed_array_methods[] =
    },
    { "empty_dict", empty_dict, METH_VARARGS, "New row dict." },
    { "getitem_dict", getitem_dict, METH_VARARGS, "Look up in a row dict." },
+   { "set_dict", set_dict, METH_VARARGS, "Set a row dict." },
+   { "select_copy", select_copy, METH_VARARGS, "Selectively copy row and colummns." },      
    {
     "set_magic",
     set_magic,

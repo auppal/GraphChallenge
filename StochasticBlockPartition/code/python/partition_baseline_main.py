@@ -212,8 +212,17 @@ def propose_node_movement_wrapper(tup):
             numpy.random.seed((mypid + int(timeit.default_timer() * 1e6)) % 4294967295)
         else:
             w = np.where(block_modified_time_shared > update_id)[0]
-            M[w, :] = M_shared[w, :]
-            M[:, w] = M_shared[:, w]
+
+            if not is_compressed(M):
+                M[w, :] = M_shared[w, :]
+                M[:, w] = M_shared[:, w]
+            else:
+                compressed_array.select_copy(M.x, M_shared.x, w)
+#                for idx in w:
+#                    d0 = compressed_array.take_dict(M_shared.x, idx, 0)
+#                    d1 = compressed_array.take_dict(M_shared.x, idx, 1)
+#                    compressed_array.set_dict(M.x, idx, 0, d0)
+#                    compressed_array.set_dict(M.x, idx, 1, d1)                
 
             block_degrees_in[w] = block_degrees_in_shared[w]
             block_degrees_out[w] = block_degrees_out_shared[w]
@@ -265,7 +274,6 @@ def propose_node_movement_sparse_wrapper(tup):
 
     (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared, block_modified_time_shared) = syms['nodal_move_state']
 
-
     if update_id == -1:
         mypid = current_process().pid
 
@@ -273,8 +281,8 @@ def propose_node_movement_sparse_wrapper(tup):
             = (shared_memory_to_private(i) for i in (partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared))
 
         mypid_idx = next(i for i,e in enumerate(worker_pids) if e == mypid)
-        M = M_shared
-
+        M = M_shared.copy()
+        
         # Ensure every worker has a different random seed.
         numpy.random.seed((mypid + int(timeit.default_timer() * 1e6)) % 4294967295)
         update_id = 0
@@ -480,7 +488,7 @@ dtype_to_ctype = {"float64" : ctypes.c_double, "float" : ctypes.c_double, "int64
 def shared_memory_copy(z):
     prod = reduce((lambda x,y : x*y), (i for i in z.shape))
     ctype = dtype_to_ctype[str(z.dtype)]
-    raw = sharedctypes.RawArray(ctype, prod)
+    raw = sharedctypes.RawArray(ctype, int(prod))
     a = np.frombuffer(raw, dtype=z.dtype).reshape(z.shape)
     a[:] = z
     return a
@@ -488,7 +496,7 @@ def shared_memory_copy(z):
 def shared_memory_empty(shape, dtype='int64'):
     prod = reduce((lambda x,y : x*y), (i for i in shape))
     ctype = dtype_to_ctype[str(dtype)]
-    raw = sharedctypes.RawArray(ctype, prod)
+    raw = sharedctypes.RawArray(ctype, int(prod))
     a = np.frombuffer(raw, dtype=dtype).reshape(shape)
     return a
 
@@ -578,9 +586,9 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     if is_compressed(M):
         pid_box = [Queue() for i in range(2 * n_thread_move)]
         # XXX Need to determine a threshold and crossover point between compressed and uncompressed.
-        if not args.compressed_nodal_moves:
+        if M.impl == 'compressed_python' and not args.compressed_nodal_moves:
             # XXX Just uncompress the compressed array for nodal movements.
-            M_uncompressed = shared_memory_empty((len(M.rows),len(M.cols)), dtype=M.dtype)
+            M_uncompressed = shared_memory_empty(M.shape, dtype=M.dtype)
             for i,e in enumerate(M.rows):
                 idx = e.keys()
                 val = e.values()
@@ -595,7 +603,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
             # If the dict implementation used shared memory we could do this:
             # M_shared = M.copy()
             # But instead:
-            M_shared = M
+            M_shared = M.copy()
     else:
         M_shared = shared_memory_copy(M)
 
@@ -643,7 +651,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
         group_size = args.node_propose_batch_size
         chunks = [((i // group_size) % n_thread_move, i, min(i+group_size, N), 1) for i in range(0,N,group_size)]
 
-        if nodal_movement_use_compressed:
+        if nodal_movement_use_compressed and M.impl == 'compressed_python':
             if args.profile > 1:
                 movements = pool.imap_unordered(propose_node_movement_profile_sparse_wrapper, chunks)
             else:
@@ -712,13 +720,18 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
                         if not is_compressed(M):
                             M_shared[where_modified, :] = M[where_modified, :]
                             M_shared[:, where_modified] = M[:, where_modified]
-                        else:
+                        elif M.impl == 'compressed_native':
                             # If the dict implementation used shared memory we could do this:
                             # for idx in where_modified:
                             #     M_shared.set_axis_dict(r, 0, M.take_dict(idx, 0))
                             #     M_shared.set_axis_dict(s, 0, M.take_dict(idx, 1))
                             # But instead:
-                            pass
+                            #for idx in where_modified:
+                            #    d0 = compressed_array.take_dict(M.x, idx, 0)
+                            #    d1 = compressed_array.take_dict(M.x, idx, 1)
+                            #    compressed_array.set_dict(M_shared.x, idx, 0, d0)
+                            #    compressed_array.set_dict(M_shared.x, idx, 1, d1)
+                            compressed_array.select_copy(M_shared.x, M.x, where_modified)
 
                         if verbose > 1:
                             t1 = timeit.default_timer()
