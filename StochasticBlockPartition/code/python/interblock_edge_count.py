@@ -7,26 +7,6 @@ import os
 def is_compressed(M):
     return not isinstance(M, np.ndarray)
 
-class nonzero_dict(dict):
-    def __getitem__(self, idx):
-        try:
-            return dict.__getitem__(self, idx)
-        except KeyError:
-            return 0
-        except TypeError:
-            # idx is likely iterable, the trick is to default to 0 for each element that is not in the dict
-            L = [(k in self and dict.__getitem__(self,k)) or 0 for k in idx]
-            return np.array(L)
-    def copy(self):
-        d = nonzero_dict(self)
-        return d
-    def keys(self):
-        return np.fromiter(dict.keys(self), dtype=int, count=len(self))
-    def values(self):
-        return np.fromiter(dict.values(self), dtype=int, count=len(self))
-    def sum(self):
-        return np.fromiter(dict.values(self), dtype=int).sum()
-
 star = slice(None, None, None)
 class fast_sparse_array(object):
     def __init__(self, tup, width, base_type=list, dtype=None):

@@ -24,7 +24,7 @@ from collections import defaultdict
 import os
 compressed_native = (os.getenv("compressed_native") == "1")
 if compressed_native:
-    from interblock_edge_count import fast_sparse_array, nonzero_slice, take_nonzero, nonzero_dict, is_compressed
+    from interblock_edge_count import fast_sparse_array, nonzero_slice, take_nonzero, is_compressed
 else:
     from fast_sparse_array import fast_sparse_array, take_nonzero, nonzero_dict, is_compressed
 
