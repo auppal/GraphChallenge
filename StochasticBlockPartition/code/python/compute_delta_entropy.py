@@ -68,7 +68,7 @@ def compute_delta_entropy_sparse(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_
     if not is_compressed(M):
         return compute_delta_entropy_dense(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new)
     
-    if compressed_native:
+    if M.impl == 'compressed_native':
         M_r_t1 = compressed_array.take_dict(M.x, r, 0)
         M_s_t1 = compressed_array.take_dict(M.x, s, 0)
         M_t2_r = compressed_array.take_dict(M.x, r, 1)
