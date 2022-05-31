@@ -306,7 +306,7 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         d_in = np.asarray(M.sum(axis=0)).ravel()
         d = d_out + d_in
 
-        if verbose > 1:
+        if verbose > 2:
             in_cnt = np.sum(M != 0, axis=0)
             out_cnt = np.sum(M != 0, axis=1)            
             max_in_cnt = np.max(in_cnt)
@@ -337,7 +337,7 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         max_in_cnt = np.max(in_cnt)
         max_out_cnt = np.max(out_cnt)
 
-        if verbose > 1:
+        if verbose > 2:
             print("density(M[%d]) = %s" % (B, len(M_d) / (B ** 2.)))
             print("max_in_cnt = %d" % max_in_cnt)
             print("max_out_cnt = %d" % max_out_cnt)
