@@ -185,6 +185,21 @@ inline void hash_search_multi(const struct hash *h, const uint64_t *keys, int64_
   }
 }
 
+inline int64_t hash_sum(const struct hash *h)
+{
+  size_t i;
+  int64_t s = 0;
+
+  for (i=0; i<h->width; i++) {
+    if ((h->keys[i] & EMPTY_FLAG) == 0) {
+      s += h->vals[i];
+    }
+  }
+
+  return s;
+}
+
+
 inline size_t hash_keys(const struct hash *h, uint64_t *keys, size_t max_cnt)
 {
   size_t i, width = h->width, cnt = 0;
@@ -737,6 +752,26 @@ static PyObject* copy_dict(PyObject *self, PyObject *args)
   return ret;
 }
 
+static PyObject* sum_dict(PyObject *self, PyObject *args)
+{
+  PyObject *obj;
+
+  if (!PyArg_ParseTuple(args, "O", &obj))
+    return NULL;
+
+  struct hash **ph = PyCapsule_GetPointer(obj, "compressed_array_dict");
+
+  if (!ph) {
+    PyErr_SetString(PyExc_RuntimeError, "Invalid compressed_array_dict object");
+    return NULL;
+  }
+
+  uint64_t val = hash_sum(*ph);
+  PyObject *ret = Py_BuildValue("k", val);
+  return ret;
+}
+
+
 static PyObject* getitem_dict(PyObject *self, PyObject *args)
 {
   PyObject *obj, *obj_k;
@@ -1103,7 +1138,8 @@ static PyMethodDef compressed_array_methods[] =
    { "empty_dict", empty_dict, METH_VARARGS, "New row dict." },
    { "getitem_dict", getitem_dict, METH_VARARGS, "Look up in a row dict." },
    { "set_dict", set_dict, METH_VARARGS, "Set a row dict." },
-   { "copy_dict", copy_dict, METH_VARARGS, "Copy a row dict." },   
+   { "copy_dict", copy_dict, METH_VARARGS, "Copy a row dict." },
+   { "sum_dict", sum_dict, METH_VARARGS, "Sum the values of a dict." },   
    { "select_copy", select_copy, METH_VARARGS, "Selectively copy row and colummns." },
    { "sanity_check", sanity_check, METH_VARARGS, "Run a sanity check." },   
    {NULL, NULL, 0, NULL}
