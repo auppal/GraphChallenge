@@ -67,37 +67,46 @@ def compute_delta_entropy_sparse(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_
 
     if not is_compressed(M):
         return compute_delta_entropy_dense(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new)
-
-    M_r_t1_i, M_r_t1 = take_nonzero(M, r, 0, sort=False)
-    M_s_t1_i, M_s_t1 = take_nonzero(M, s, 0, sort=False)
-    M_t2_r_i, M_t2_r = take_nonzero(M, r, 1, sort=False)
-    M_t2_s_i, M_t2_s = take_nonzero(M, s, 1, sort=False)
     
     if compressed_native:
-        M_r_row_i, M_r_row = compressed_array.keys_values_dict(M_r_row)
-        M_r_col_i, M_r_col = compressed_array.keys_values_dict(M_r_col)
-        M_s_row_i, M_s_row = compressed_array.keys_values_dict(M_s_row)
-        M_s_col_i, M_s_col = compressed_array.keys_values_dict(M_s_col)
+        M_r_t1 = compressed_array.take_dict(M.x, r, 0)
+        M_s_t1 = compressed_array.take_dict(M.x, s, 0)
+        M_t2_r = compressed_array.take_dict(M.x, r, 1)
+        M_t2_s = compressed_array.take_dict(M.x, s, 1)
+
+        d0 = compressed_array.dict_entropy_row(M_r_row, d_in_new, d_out_new[r])
+        d1 = compressed_array.dict_entropy_row(M_s_row, d_in_new, d_out_new[s])
+        d2 = compressed_array.dict_entropy_row_excl(M_r_col, d_out_new, d_in_new[r], r, s)
+        d3 = compressed_array.dict_entropy_row_excl(M_s_col, d_out_new, d_in_new[s], r, s)
+        d4 = compressed_array.dict_entropy_row(M_r_t1,  d_in, d_out[r])
+        d5 = compressed_array.dict_entropy_row(M_s_t1,  d_in, d_out[s])
+        d6 = compressed_array.dict_entropy_row_excl(M_t2_r,  d_out, d_in[r], r, s)
+        d7 = compressed_array.dict_entropy_row_excl(M_t2_s,  d_out, d_in[s], r, s)
     else:
-        M_r_row_i, M_r_row = M_r_row.keys(), M_r_row.values()
-        M_r_col_i, M_r_col = M_r_col.keys(), M_r_col.values()
-        M_s_row_i, M_s_row = M_s_row.keys(), M_s_row.values()
-        M_s_col_i, M_s_col = M_s_col.keys(), M_s_col.values()        
+        M_r_t1_i, M_r_t1_v = take_nonzero(M, r, 0, sort=False)
+        M_s_t1_i, M_s_t1_v = take_nonzero(M, s, 0, sort=False)
+        M_t2_r_i, M_t2_r_v = take_nonzero(M, r, 1, sort=False)
+        M_t2_s_i, M_t2_s_v = take_nonzero(M, s, 1, sort=False)
         
-    # remove r and s from the cols to avoid double counting
-    # only keep non-zero entries to avoid unnecessary computation
+        M_r_row_i, M_r_row_v = M_r_row.keys(), M_r_row.values()
+        M_r_col_i, M_r_col_v = M_r_col.keys(), M_r_col.values()
+        M_s_row_i, M_s_row_v = M_s_row.keys(), M_s_row.values()
+        M_s_col_i, M_s_col_v = M_s_col.keys(), M_s_col.values()        
 
-    d0 = entropy_row_nz(M_r_row, d_in_new[M_r_row_i], d_out_new[r])
-    d1 = entropy_row_nz(M_s_row, d_in_new[M_s_row_i], d_out_new[s])
+        # remove r and s from the cols to avoid double counting
+        # only keep non-zero entries to avoid unnecessary computation
 
-    d2 = entropy_row_nz_ignore(M_r_col, d_out_new[M_r_col_i], d_in_new[r], M_r_col_i, r, s)
-    d3 = entropy_row_nz_ignore(M_s_col, d_out_new[M_s_col_i], d_in_new[s], M_s_col_i, r, s)
+        d0 = entropy_row_nz(M_r_row_v, d_in_new[M_r_row_i], d_out_new[r])
+        d1 = entropy_row_nz(M_s_row_v, d_in_new[M_s_row_i], d_out_new[s])
 
-    d4 = entropy_row_nz(M_r_t1,  d_in[M_r_t1_i], d_out[r])
-    d5 = entropy_row_nz(M_s_t1,  d_in[M_s_t1_i], d_out[s])
+        d2 = entropy_row_nz_ignore(M_r_col_v, d_out_new[M_r_col_i], d_in_new[r], M_r_col_i, r, s)
+        d3 = entropy_row_nz_ignore(M_s_col_v, d_out_new[M_s_col_i], d_in_new[s], M_s_col_i, r, s)
 
-    d6 = entropy_row_nz_ignore(M_t2_r,  d_out[M_t2_r_i], d_in[r], M_t2_r_i, r, s)
-    d7 = entropy_row_nz_ignore(M_t2_s,  d_out[M_t2_s_i], d_in[s], M_t2_s_i, r, s)
+        d4 = entropy_row_nz(M_r_t1_v,  d_in[M_r_t1_i], d_out[r])
+        d5 = entropy_row_nz(M_s_t1_v,  d_in[M_s_t1_i], d_out[s])
+
+        d6 = entropy_row_nz_ignore(M_t2_r_v,  d_out[M_t2_r_i], d_in[r], M_t2_r_i, r, s)
+        d7 = entropy_row_nz_ignore(M_t2_s_v,  d_out[M_t2_s_i], d_in[s], M_t2_s_i, r, s)
 
     return -d0 - d1 - d2 - d3 + d4 + d5 + d6 + d7
 

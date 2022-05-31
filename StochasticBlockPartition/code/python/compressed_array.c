@@ -14,7 +14,6 @@
 #define errExit(msg)    do { perror(msg); exit(EXIT_FAILURE);	\
   } while (0)
 
-
 /* From khash */
 #define kh_int64_hash_func(key) (khint32_t)((key)>>33^(key)^(key)<<11)
 #define hash(x) (((x) >> 33 ^ (x) ^ (x) << 11))
@@ -1139,6 +1138,123 @@ static PyObject* sanity_check(PyObject *self, PyObject *args)
 }
 
 
+/*
+ * Compute the delta entropy for a row using a compressed hash only.
+ A typical call in Python looks like this:
+ d0 = entropy_row_nz(M_r_row_v, d_in_new[M_r_row_i], d_out_new[r])
+*/
+
+static inline double entropy_row(struct hash *h, const int64_t *restrict deg, long N, int64_t c)
+{
+  double sum = 0, log_c;
+  size_t i;
+
+  if (c == 0) {
+    return 0.0;
+  }
+
+  log_c = log(c);
+
+  /* Iterate over keys and values */
+  for (i=0; i<h->width; i++) {
+    if ((h->keys[i] & EMPTY_FLAG) == 0) {
+      int64_t xi = h->vals[i];
+      int64_t yi = deg[h->keys[i]];
+      if (xi > 0 && yi > 0) {
+	sum += xi * (log(xi) - log(yi) - log_c);
+      }
+    }
+  }
+
+  return sum;
+}
+
+static PyObject* dict_entropy_row(PyObject *self, PyObject *args)
+{
+  PyObject *hash_obj, *deg_obj;
+  double c;
+
+  if (!PyArg_ParseTuple(args, "OOd", &hash_obj, &deg_obj, &c))
+    return NULL;
+
+
+  struct hash **ph = PyCapsule_GetPointer(hash_obj, "compressed_array_dict");
+  if (!ph) {
+    PyErr_SetString(PyExc_RuntimeError, "Invalid compressed_array_dict object");
+    return NULL;
+  }
+  struct hash *h = *ph;
+
+  PyObject *deg_array = PyArray_FROM_OTF(deg_obj, NPY_LONG, NPY_IN_ARRAY);
+  long N = (long) PyArray_DIM(deg_array, 0);
+
+  const int64_t *deg = (const int64_t *) PyArray_DATA(deg_array);
+
+  double val = entropy_row(h, deg, N, c);
+
+  Py_DECREF(deg_array);
+
+  PyObject *ret = Py_BuildValue("d", val);
+  return ret;
+}
+
+
+static inline double entropy_row_excl(struct hash *h, const int64_t *restrict deg, long N, int64_t c, uint64_t r, uint64_t s)
+{
+  double sum = 0, log_c;
+  size_t i;
+
+  if (c == 0) {
+    return 0.0;
+  }
+
+  log_c = log(c);
+
+  /* Iterate over keys and values */
+  for (i=0; i<h->width; i++) {
+    if ((h->keys[i] & EMPTY_FLAG) == 0 && h->keys[i] != r && h->keys[i] != s) {
+      int64_t xi = h->vals[i];
+      int64_t yi = deg[h->keys[i]];
+      if (xi > 0 && yi > 0) {
+	sum += xi * (log(xi) - log(yi) - log_c);
+      }
+    }
+  }
+
+  return sum;
+}
+
+static PyObject* dict_entropy_row_excl(PyObject *self, PyObject *args)
+{
+  PyObject *hash_obj, *deg_obj;
+  double c;
+  uint64_t r, s;
+
+  if (!PyArg_ParseTuple(args, "OOdll", &hash_obj, &deg_obj, &c, &r, &s))
+    return NULL;
+
+
+  struct hash **ph = PyCapsule_GetPointer(hash_obj, "compressed_array_dict");
+  if (!ph) {
+    PyErr_SetString(PyExc_RuntimeError, "Invalid compressed_array_dict object");
+    return NULL;
+  }
+  struct hash *h = *ph;
+
+  PyObject *deg_array = PyArray_FROM_OTF(deg_obj, NPY_LONG, NPY_IN_ARRAY);
+  long N = (long) PyArray_DIM(deg_array, 0);
+
+  const int64_t *deg = (const int64_t *) PyArray_DATA(deg_array);
+
+  double val = entropy_row_excl(h, deg, N, c, r, s);
+
+  Py_DECREF(deg_array);
+
+  PyObject *ret = Py_BuildValue("d", val);
+  return ret;
+}
+
+
 static PyMethodDef compressed_array_methods[] =
   {
    { "create", create, METH_VARARGS, "Create a new object." },
@@ -1158,6 +1274,8 @@ static PyMethodDef compressed_array_methods[] =
    { "sum_dict", sum_dict, METH_VARARGS, "Sum the values of a dict." },   
    { "select_copy", select_copy, METH_VARARGS, "Selectively copy row and colummns." },
    { "sanity_check", sanity_check, METH_VARARGS, "Run a sanity check." },   
+   { "dict_entropy_row", dict_entropy_row, METH_VARARGS, "Compute part of delta entropy for a row entry." },
+   { "dict_entropy_row_excl", dict_entropy_row_excl, METH_VARARGS, "Compute part of delta entropy for a row entry." },      
    {NULL, NULL, 0, NULL}
   };
 
