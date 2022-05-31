@@ -10,8 +10,9 @@ def is_compressed(M):
 star = slice(None, None, None)
 class fast_sparse_array(object):
     def __init__(self, tup, width, base_type=list, dtype=None):
+        print("tup,width",tup,width)
         if (tup[0] > 0):
-            self.x = compressed_array.create(tup[0], width)
+            self.x = compressed_array.create(tup[0], 16)
         self.width = width
         self.shape = tup
         self.impl = "compressed_native"
@@ -19,30 +20,22 @@ class fast_sparse_array(object):
         return compressed_array.getitem(self.x, idx[0], idx[1])
     def __setitem__(self, idx, val):
         compressed_array.setitem(self.x, idx[0], idx[1], val)
-    def set_axis_dict(self, idx, axis, d_new):
+    def set_axis_dict_old(self, idx, axis, d_new):
         try:
             compressed_array.setaxis(self.x, idx, axis, d_new.keys(), d_new.values())
         except AttributeError:
             keys,values = compressed_array.keys_values_dict(d_new)
             compressed_array.setaxis(self.x, idx, axis, keys, values)
-    def set_axis_dict_old(self, idx, axis, d_new):
-        if axis == 0:
-            for k,v in d_new.items():
-                compressed_array.setitem(self.x, idx, k, v)
-        else:
-            for k,v in d_new.items():
-                compressed_array.setitem(self.x, k, idx, v)
-            
+    def set_axis_dict(self, idx, axis, d_new):
+        keys,values = compressed_array.keys_values_dict(d_new)
+        compressed_array.setaxis(self.x, idx, axis, keys, values)
         # I am surprised this works.
         # There should be entries in the old row that are not in the new one.
         # But apparently:             assert(len(dict_keys_func(self.rows[idx]) - dict_keys_func(d_new)) == 0)
         # and:                        assert(len(dict_keys_func(self.cols[idx]) - dict_keys_func(d_new)) == 0)
         # This seems to be a consequence of moving nodes from one community to another and how this affects the edge counts.
     def __str__(self):
-        s = ""
-        for i in range(self.shape[0]):
-            s += str(self.rows[i]) + "\n"
-        return s
+        return "Not implemented"
     def count_nonzero(self):
         return sum(len(d) for d in self.rows)
     # There is a complicated issue. If the graph is streamed in parts there may be a node without edges. In that case we should return an empty array.
@@ -50,9 +43,6 @@ class fast_sparse_array(object):
     # In any case there is a possible performance advantage to setting the dtype apriori.
     def take(self, idx, axis):
         return compressed_array.take(self.x, idx, axis)
-    def take_dict(self, idx, axis):
-        k,v = compressed_array.take(self.x, idx, axis)
-        return nonzero_dict(zip(k,v))
     def copy(self):
         c = fast_sparse_array((0,0), width=self.width)
         c.x = compressed_array.copy(self.x)
