@@ -477,8 +477,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         elif M.impl == 'compressed_native':
             M_r_row_d = compressed_array.take_dict(M.x, r, 0)
             compressed_array.accum_dict(M_r_row_d, b_out, -count_out)
-            compressed_array.accum_dict(M_r_row_d, [r], -r_row_offset)
-            compressed_array.accum_dict(M_r_row_d, [s], +r_row_offset)
+            compressed_array.accum_dict(M_r_row_d, [r, s], [-r_row_offset, +r_row_offset])
             new_M_r_row = M_r_row_d
         else:
             M_r_row_d = M.take_dict(r, 0)            
@@ -499,8 +498,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         elif M.impl == 'compressed_native':
             M_r_col_d = compressed_array.take_dict(M.x, r, 1)            
             compressed_array.accum_dict(M_r_col_d, b_in, -count_in)
-            compressed_array.accum_dict(M_r_col_d, [r], -r_col_offset)
-            compressed_array.accum_dict(M_r_col_d, [s], +r_col_offset)
+            compressed_array.accum_dict(M_r_col_d, [r, s], [-r_col_offset, +r_col_offset])
             new_M_r_col = M_r_col_d
         else:
             M_r_col_d = M.take_dict(r, 1)
@@ -524,8 +522,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
     elif M.impl == 'compressed_native':
         M_s_row_d = compressed_array.take_dict(M.x, s, 0)        
         compressed_array.accum_dict(M_s_row_d, b_out, +count_out)
-        compressed_array.accum_dict(M_s_row_d, [r], -s_row_offset)
-        compressed_array.accum_dict(M_s_row_d, [s], +s_row_offset)
+        compressed_array.accum_dict(M_s_row_d, [r, s], [-s_row_offset, +s_row_offset])
         new_M_s_row = M_s_row_d
     else:
         M_s_row_d = M.take_dict(s, 0)
@@ -547,8 +544,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
     elif M.impl == 'compressed_native':
         M_s_col_d = compressed_array.take_dict(M.x, s, 1)
         compressed_array.accum_dict(M_s_col_d, b_in, +count_in)
-        compressed_array.accum_dict(M_s_col_d, [r], -s_col_offset)
-        compressed_array.accum_dict(M_s_col_d, [s], +s_col_offset)
+        compressed_array.accum_dict(M_s_col_d, [r, s], [-s_col_offset, +s_col_offset])
         new_M_s_col = M_s_col_d
     else:
         M_s_col_d = M.take_dict(s, 1)
