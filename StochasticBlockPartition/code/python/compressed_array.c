@@ -379,7 +379,9 @@ void compressed_array_destroy(struct compressed_array *x)
   for (i=0; i<x->n_row; i++) {
     hash_destroy(x->rows[i]);
   }
-  
+
+  free(x->rows);
+  free(x->cols);
   free(x);
 }
 
@@ -564,6 +566,7 @@ static void destroy_dict(PyObject *obj)
   struct hash **ph = PyCapsule_GetPointer(obj, "compressed_array_dict");
   if (ph) {
     hash_destroy(*ph);
+    free(ph);
   }
 }
 
@@ -615,7 +618,7 @@ static PyObject* keys_values_dict(PyObject *self, PyObject *args)
   PyArray_ENABLEFLAGS((PyArrayObject*) keys_obj, NPY_ARRAY_OWNDATA);
   PyArray_ENABLEFLAGS((PyArrayObject*) vals_obj, NPY_ARRAY_OWNDATA);  
 
-  PyObject *ret = Py_BuildValue("OO", keys_obj, vals_obj);
+  PyObject *ret = Py_BuildValue("NN", keys_obj, vals_obj);
   return ret;
 }
 
@@ -643,6 +646,9 @@ static PyObject* accum_dict(PyObject *self, PyObject *args)
   long N = (long) PyArray_DIM(obj_k, 0);
 
   h = hash_accum_multi(h, keys, vals, N);
+
+  Py_DECREF(obj_k);
+  Py_DECREF(obj_v);
 
   *ph = h;
   Py_RETURN_NONE;
@@ -812,8 +818,9 @@ static PyObject* getitem_dict(PyObject *self, PyObject *args)
   PyObject *vals_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, vals);
 
   PyArray_ENABLEFLAGS((PyArrayObject*) vals_obj, NPY_ARRAY_OWNDATA);  
-
-  PyObject *ret = Py_BuildValue("O", vals_obj);
+  Py_DECREF(obj_k);
+ 
+  PyObject *ret = Py_BuildValue("N", vals_obj);
   return ret;
 }
 
@@ -862,6 +869,7 @@ static PyObject* select_copy(PyObject *self, PyObject *args)
 #endif
   }
 
+  Py_DECREF(obj_where);
   Py_RETURN_NONE;
 }
 
@@ -901,6 +909,9 @@ static PyObject* setaxis(PyObject *self, PyObject *args)
     }    
   }
 #endif
+
+  Py_DECREF(obj_k);
+  Py_DECREF(obj_v);
   
   Py_RETURN_NONE;
 }
@@ -961,6 +972,9 @@ static PyObject* setitem(PyObject *self, PyObject *args)
       compressed_set_single(x, i, keys[k], vals[k]);
     }
   }
+
+  Py_DECREF(obj_k);
+  Py_DECREF(obj_v);
   
   Py_RETURN_NONE;
 }
@@ -1023,8 +1037,10 @@ static PyObject* getitem(PyObject *self, PyObject *args)
   npy_intp dims[] = {N};
   PyObject *vals_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, vals);
   PyArray_ENABLEFLAGS((PyArrayObject*) vals_obj, NPY_ARRAY_OWNDATA);  
+
+  Py_DECREF(py_arr);
   
-  PyObject *ret = Py_BuildValue("O", vals_obj);
+  PyObject *ret = Py_BuildValue("N", vals_obj);
   return ret;
 }
 
@@ -1074,7 +1090,7 @@ static PyObject* take(PyObject *self, PyObject *args)
   PyArray_ENABLEFLAGS((PyArrayObject*) keys_obj, NPY_ARRAY_OWNDATA);
   PyArray_ENABLEFLAGS((PyArrayObject*) vals_obj, NPY_ARRAY_OWNDATA);  
 
-  PyObject *ret = Py_BuildValue("OO", keys_obj, vals_obj);
+  PyObject *ret = Py_BuildValue("NN", keys_obj, vals_obj);
   return ret;
 }
 
