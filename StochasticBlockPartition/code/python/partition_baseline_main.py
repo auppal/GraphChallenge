@@ -139,8 +139,7 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
                                                     out_idx, out_weight,
                                                     in_idx, in_weight,
                                                     M[current_block, current_block],
-                                                    agg_move = 1,
-                                                    use_sparse_alg = args.sparse_algorithm)
+                                                    agg_move = 1)
 
             # compute change in entropy / posterior
             block_degrees_out_new, block_degrees_in_new, block_degrees_new \
@@ -385,8 +384,7 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col = \
             compute_new_rows_cols_interblock_edge_count_matrix(interblock_edge_count, current_block, proposal,
                                                                blocks_out, count_out, blocks_in, count_in,
-                                                               self_edge_weight, agg_move = 0,
-                                                               use_sparse_alg = args.sparse_algorithm)
+                                                               self_edge_weight, agg_move = 0)
 
         # compute new block degrees
         block_degrees_out_new, block_degrees_in_new, block_degrees_new = compute_new_block_degrees(
@@ -397,7 +395,6 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
 
         # XXX
         use_sparse_data = is_compressed(interblock_edge_count)
-        use_sparse_alg = use_sparse_data
 
         # compute the Hastings correction
         Hastings_correction = compute_Hastings_correction(blocks_out, count_out, blocks_in, count_in,
@@ -440,8 +437,7 @@ def move_node(ni,r,s, partition,out_neighbors,in_neighbors,self_edge_weights,M,b
                         compute_new_rows_cols_interblock_edge_count_matrix(
                             M, r, s,
                             blocks_out, count_out, blocks_in, count_in,
-                            self_edge_weights[ni], agg_move = 0,
-                            use_sparse_alg = args.sparse_algorithm)
+                            self_edge_weights[ni], agg_move = 0)
 
     if not is_compressed(M) or M.impl == 'compressed_python':
         block_degrees_out[r] = new_M_r_row.sum()
@@ -850,7 +846,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
             else:
                 use_compressed = 0
         else:
-            use_compressed = args.sparse_data
+            use_compressed = (args.sparse != 0)
 
         # XXX This type of full re-initialization seems wasteful memory for large graphs.
 
@@ -1001,9 +997,8 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
                 use_compressed = 1
             else:
                 use_compressed = 0
-            print("Use num_blocks is %d compressed is %d" % (num_blocks,use_compressed))
         else:
-            use_compressed = args.sparse_data
+            use_compressed = (args.sparse != 0)
 
         # initialize edge counts and block degrees
         interblock_edge_count, block_degrees_out, block_degrees_in, block_degrees \
@@ -1030,9 +1025,10 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
         delta_entropy_threshold = delta_entropy_threshold1
         n_proposals_evaluated = 0
         total_num_nodal_moves = 0
+        use_compressed = (args.sparse != 0)
 
         interblock_edge_count, block_degrees_out, block_degrees_in, block_degrees \
-            = initialize_edge_counts(out_neighbors, num_blocks, partition, args.sparse_data, args.verbose)
+            = initialize_edge_counts(out_neighbors, num_blocks, partition, use_compressed, args.verbose)
 
         overall_entropy = compute_overall_entropy(interblock_edge_count, block_degrees_out, block_degrees_in, num_blocks, N, E)
         partition, interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in, num_blocks, num_blocks_to_merge, hist, optimal_num_blocks_found = \
@@ -1127,10 +1123,18 @@ class NonDaemonicPool(multiprocessing.pool.Pool):
 
 from concurrent.futures import ProcessPoolExecutor
 
-def merge_partitions(partitions, stop_pieces, out_neighbors, verbose, use_sparse_alg, use_sparse_data):
+def merge_partitions(partitions, stop_pieces, out_neighbors, verbose):
     """
     Create a unified graph block partition from the supplied partition pieces into a partiton of size stop_pieces.
     """
+
+    if args.sparse == 2:
+        if num_blocks >= compressed_threshold:
+            use_compressed = 1
+        else:
+            use_compressed = 0
+    else:
+        use_compressed = (args.sparse != 0)
 
     pieces = len(partitions)
     N = sum(len(i) for i in partitions)
@@ -1160,7 +1164,7 @@ def merge_partitions(partitions, stop_pieces, out_neighbors, verbose, use_sparse
         # Instead of relying on initialize_edge_counts.
 
         M, block_degrees_out, block_degrees_in, block_degrees \
-            = initialize_edge_counts(out_neighbors, B, partition, use_sparse_data)
+            = initialize_edge_counts(out_neighbors, B, partition, use_compressed)
 
         if verbose > 2:
             print("M.shape = %s, M = \n%s" % (str(M.shape),M))
@@ -1173,8 +1177,7 @@ def merge_partitions(partitions, stop_pieces, out_neighbors, verbose, use_sparse
                                                    partition_offsets[i], partition_offsets[i + 1],
                                                    Bs[i], Bs[i + 1],
                                                    verbose,
-                                                   use_sparse_alg,
-                                                   use_sparse_data)
+                                                   use_compressed)
             next_partitions.append(np.concatenate((partitions[i], partitions[i+1])))
 
         partitions = next_partitions
@@ -1184,7 +1187,7 @@ def merge_partitions(partitions, stop_pieces, out_neighbors, verbose, use_sparse
 
 
 
-def merge_two_partitions(M, block_degrees_out, block_degrees_in, block_degrees, partition0, partition1, partition_offset_0, partition_offset_1, B0, B1, verbose, use_sparse_alg, use_sparse_data):
+def merge_two_partitions(M, block_degrees_out, block_degrees_in, block_degrees, partition0, partition1, partition_offset_0, partition_offset_1, B0, B1, verbose):
     """
     Merge two partitions each from a decimated piece of the graph.
     Note
@@ -1218,8 +1221,7 @@ def merge_two_partitions(M, block_degrees_out, block_degrees_in, block_degrees, 
                 = compute_new_rows_cols_interblock_edge_count_matrix(M, current_block, proposal,
                                                                      out_idx, out_weight,
                                                                      in_idx, in_weight,
-                                                                     M[current_block, current_block], agg_move = 1,
-                                                                     use_sparse_alg = use_sparse_alg)
+                                                                     M[current_block, current_block], agg_move = 1)
 
             block_degrees_out_new, block_degrees_in_new, block_degrees_new \
                 = compute_new_block_degrees(current_block,
@@ -1479,13 +1481,6 @@ def do_main(args):
             args.t_move = args.threads
 
     min_number_blocks = args.min_number_blocks
-
-    if args.sparse:
-        args.sparse_algorithm = 1
-        args.sparse_data = 1
-    elif args.sparse_data:
-        args.sparse_algorithm = 1
-
     t_prog_start = timeit.default_timer()
 
     if args.verbose > 0:
@@ -1647,7 +1642,7 @@ def partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, ar
 
         # Merge all pieces into a smaller number.
         partitions = merge_partitions(partitions,
-                                      4, out_neighbors, args.verbose, args.sparse_data, args.sparse_algorithm)
+                                      4, out_neighbors, args.verbose)
 
         # Merge piece into  big partition and then merge down.
         Bs = [max(i) + 1 for i in partitions]
@@ -1708,8 +1703,6 @@ if __name__ == '__main__':
     parser.add_argument("-b", "--node-move-update-batch-size", type=int, required=False, default=1)
     parser.add_argument("-g", "--node-propose-batch-size", type=int, required=False, default=4)
     parser.add_argument("--sparse", type=int, required=False, default=0)
-    parser.add_argument("--sparse-algorithm", type=int, required=False, default=0)
-    parser.add_argument("--sparse-data", type=int, required=False, default=0)
     parser.add_argument("-s", "--sort", type=int, required=False, default=0)
     parser.add_argument("-S", "--seed", type=int, required=False, default=-1)
     parser.add_argument("-m", "--merge-method", type=int, required=False, default=0)

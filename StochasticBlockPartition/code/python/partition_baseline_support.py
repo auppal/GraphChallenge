@@ -443,9 +443,7 @@ def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, 
         return s2
 
 
-def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out, b_in, count_in, count_self,
-                                                       agg_move, use_sparse_alg):
-
+def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move):
     compressed = is_compressed(M)
 
     B = M.shape[0]
