@@ -393,9 +393,6 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
             num_in_neighbor_edges,
             num_neighbor_edges)
 
-        # XXX
-        use_sparse_data = is_compressed(interblock_edge_count)
-
         # compute the Hastings correction
         Hastings_correction = compute_Hastings_correction(blocks_out, count_out, blocks_in, count_in,
                                                           current_block,
