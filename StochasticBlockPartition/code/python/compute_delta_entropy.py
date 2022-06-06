@@ -41,52 +41,42 @@ def entropy_dense_row_ignore_numpy(x, y, c, r, s):
     return np.sum(xm * (np.log(xm) - np.log(ym) - log_c))
 
 
-def compute_delta_entropy_dense(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new):
+def compute_delta_entropy_dense(r, s, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new):
     """Compute change in entropy under the proposal with a faster method."""
-    M_r_t1 = M[r, :]
-    M_s_t1 = M[s, :]
-    M_t2_r = M[:, r]
-    M_t2_s = M[:, s]
-
     d0 = entropy_row_nz(M_r_row, d_in_new, d_out_new[r])
     d1 = entropy_row_nz(M_s_row, d_in_new, d_out_new[s])
 
     d2 = entropy_dense_row_ignore(M_r_col, d_out_new, d_in_new[r], r, s)
     d3 = entropy_dense_row_ignore(M_s_col, d_out_new, d_in_new[s], r, s)
 
-    d4 = entropy_row_nz(M_r_t1,  d_in, d_out[r])
-    d5 = entropy_row_nz(M_s_t1,  d_in, d_out[s])
+    d4 = entropy_row_nz(cur_M_r_row,  d_in, d_out[r])
+    d5 = entropy_row_nz(cur_M_s_row,  d_in, d_out[s])
 
-    d6 = entropy_dense_row_ignore(M_t2_r,  d_out, d_in[r], r, s)
-    d7 = entropy_dense_row_ignore(M_t2_s,  d_out, d_in[s], r, s)
+    d6 = entropy_dense_row_ignore(cur_M_r_col,  d_out, d_in[r], r, s)
+    d7 = entropy_dense_row_ignore(cur_M_s_col,  d_out, d_in[s], r, s)
 
     return -d0 - d1 - d2 - d3 + d4 + d5 + d6 + d7
 
-def compute_delta_entropy_sparse(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new):
+def compute_delta_entropy_sparse(r, s, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new):
     """Compute change in entropy under the proposal with a faster method."""
 
-    if not is_compressed(M):
-        return compute_delta_entropy_dense(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new)
+    if isinstance(cur_M_r_row, np.ndarray):
+        return compute_delta_entropy_dense(r, s, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new)
     
-    if M.impl == 'compressed_native':
-        M_r_t1 = compressed_array.take_dict(M.x, r, 0)
-        M_s_t1 = compressed_array.take_dict(M.x, s, 0)
-        M_t2_r = compressed_array.take_dict(M.x, r, 1)
-        M_t2_s = compressed_array.take_dict(M.x, s, 1)
-
+    try:
         d0 = compressed_array.dict_entropy_row(M_r_row, d_in_new, d_out_new[r])
         d1 = compressed_array.dict_entropy_row(M_s_row, d_in_new, d_out_new[s])
         d2 = compressed_array.dict_entropy_row_excl(M_r_col, d_out_new, d_in_new[r], r, s)
         d3 = compressed_array.dict_entropy_row_excl(M_s_col, d_out_new, d_in_new[s], r, s)
-        d4 = compressed_array.dict_entropy_row(M_r_t1,  d_in, d_out[r])
-        d5 = compressed_array.dict_entropy_row(M_s_t1,  d_in, d_out[s])
-        d6 = compressed_array.dict_entropy_row_excl(M_t2_r,  d_out, d_in[r], r, s)
-        d7 = compressed_array.dict_entropy_row_excl(M_t2_s,  d_out, d_in[s], r, s)
-    else:
-        M_r_t1_i, M_r_t1_v = take_nonzero(M, r, 0, sort=False)
-        M_s_t1_i, M_s_t1_v = take_nonzero(M, s, 0, sort=False)
-        M_t2_r_i, M_t2_r_v = take_nonzero(M, r, 1, sort=False)
-        M_t2_s_i, M_t2_s_v = take_nonzero(M, s, 1, sort=False)
+        d4 = compressed_array.dict_entropy_row(cur_M_r_row,  d_in, d_out[r])
+        d5 = compressed_array.dict_entropy_row(cur_M_s_row,  d_in, d_out[s])
+        d6 = compressed_array.dict_entropy_row_excl(cur_M_r_col,  d_out, d_in[r], r, s)
+        d7 = compressed_array.dict_entropy_row_excl(cur_M_s_col,  d_out, d_in[s], r, s)
+    except:
+        M_r_t1_i, M_r_t1_v = cur_M_r_row[0], cur_M_r_row[1]
+        M_s_t1_i, M_s_t1_v = cur_M_s_row[0], cur_M_s_row[1]
+        M_t2_r_i, M_t2_r_v = cur_M_r_col[0], cur_M_r_col[1]
+        M_t2_s_i, M_t2_s_v = cur_M_s_col[0], cur_M_s_col[1]
         
         M_r_row_i, M_r_row_v = M_r_row.keys(), M_r_row.values()
         M_r_col_i, M_r_col_v = M_r_col.keys(), M_r_col.values()

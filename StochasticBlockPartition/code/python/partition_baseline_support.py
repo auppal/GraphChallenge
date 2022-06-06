@@ -621,7 +621,7 @@ def compute_new_block_degrees(r, s, d_out, d_in, d, k_out, k_in, k):
         return (d_outs, d_ins, ds)
 
 
-def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, M, M_r_row, M_r_col, B, d, d_new):
+def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, cur_M_s_row, cur_M_s_col, M_r_row, M_r_col, B, d, d_new):
     """Compute the Hastings correction for the proposed block from the current block
 
         Parameters
@@ -685,17 +685,27 @@ def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, M, M_r_r
     count = np.bincount(idx, weights=np.append(count_out, count_in)).astype(int)  # count edges to neighboring blocks
     B = float(B)
 
-    M_t_s = M[t, s]
-    M_s_t = M[s, t]
+    try:
+        M_t_s = cur_M_s_col[t]
+        M_s_t = cur_M_s_row[t]
+    except TypeError:
+        if isinstance(cur_M_s_col, tuple):
+            D = defaultdict(int, zip(cur_M_s_col[0], cur_M_s_col[1]))
+            M_t_s = np.array([D[i] for i in t])
+            D = defaultdict(int, zip(cur_M_s_row[0], cur_M_s_row[1]))
+            M_s_t = np.array([D[i] for i in t])
+        else:
+            M_t_s = compressed_array.getitem_dict(cur_M_s_col, t)
+            M_s_t = compressed_array.getitem_dict(cur_M_s_row, t)
 
     p_forward = np.sum(count * (M_t_s + M_s_t + 1) / (d[t] + B))
     p_backward = 0.0
 
-    if not is_compressed(M) or M.impl == 'compressed_python':
+    try:
         c = count / (d_new[t] + B)
         p_backward += np.sum(c * M_r_row[t])
         p_backward += np.sum(c * (M_r_col[t] + 1))
-    else:
+    except TypeError:
         M_r_row_t = compressed_array.getitem_dict(M_r_row, t)
         M_r_col_t = compressed_array.getitem_dict(M_r_col, t)
 
