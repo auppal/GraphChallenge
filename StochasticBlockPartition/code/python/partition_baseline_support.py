@@ -458,29 +458,29 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         if agg_move:
             new_M_r_row = np.zeros(B, dtype=M.dtype)
             new_M_r_col = np.zeros(B, dtype=M.dtype)            
-        else:
-            M_r_row = M[r, :].copy()
-            M_r_col = M[:, r].copy()
-        M_s_row = M[s, :].copy()
-        M_s_col = M[:, s].copy()
+
+        cur_M_r_row = M[r, :].copy()
+        cur_M_r_col = M[:, r].copy()
+        cur_M_s_row = M[s, :].copy()
+        cur_M_s_col = M[:, s].copy()
     elif M.impl == 'compressed_native':
         if agg_move:
             new_M_r_row = compressed_array.empty_dict(M.width)
             new_M_r_col = compressed_array.empty_dict(M.width)            
-        else:
-            M_r_row_d = compressed_array.take_dict(M.x, r, 0)
-            M_r_col_d = compressed_array.take_dict(M.x, r, 1)
-        M_s_row_d = compressed_array.take_dict(M.x, s, 0)
-        M_s_col_d = compressed_array.take_dict(M.x, s, 1)
+
+        cur_M_r_row = compressed_array.take_dict(M.x, r, 0)
+        cur_M_r_col = compressed_array.take_dict(M.x, r, 1)
+        cur_M_s_row = compressed_array.take_dict(M.x, s, 0)
+        cur_M_s_col = compressed_array.take_dict(M.x, s, 1)
     else:
         if agg_move:
             new_M_r_row = nonzero_dict()
             new_M_r_col = nonzero_dict()            
-        else:
-            M_r_row_d = M.take_dict(r, 0)
-            M_r_col_d = M.take_dict(r, 1)
-        M_s_row_d = M.take_dict(s, 0)
-        M_s_col_d = M.take_dict(s, 1)
+
+        cur_M_r_row = M.take_dict(r, 0)
+        cur_M_r_col = M.take_dict(r, 1)
+        cur_M_s_row = M.take_dict(s, 0)
+        cur_M_s_col = M.take_dict(s, 1)
 
     if M_lock:
         M_lock.release()
@@ -492,38 +492,38 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         r_row_offset = np.sum(count_in[where_b_in_r])
 
         if not compressed:
-            M_r_row[b_out] -= count_out
-            M_r_row[r] -= r_row_offset
-            M_r_row[s] += r_row_offset
-            new_M_r_row = M_r_row
+            new_M_r_row = cur_M_r_row.copy()
+            new_M_r_row[b_out] -= count_out
+            new_M_r_row[r] -= r_row_offset
+            new_M_r_row[s] += r_row_offset
         elif M.impl == 'compressed_native':
-            compressed_array.accum_dict(M_r_row_d, b_out, -count_out)
-            compressed_array.accum_dict(M_r_row_d, [r, s], [-r_row_offset, +r_row_offset])
-            new_M_r_row = M_r_row_d
+            new_M_r_row = compressed_array.copy_dict(cur_M_r_row)
+            compressed_array.accum_dict(new_M_r_row, b_out, -count_out)
+            compressed_array.accum_dict(new_M_r_row, [r, s], [-r_row_offset, +r_row_offset])
         else:
+            new_M_r_row = cur_M_r_row.copy()
             for k,v in zip(b_out,count_out):
-                M_r_row_d[k] -= v
-            M_r_row_d[r] -= r_row_offset
-            M_r_row_d[s] += r_row_offset
-            new_M_r_row = M_r_row_d
+                new_M_r_row[k] -= v
+            new_M_r_row[r] -= r_row_offset
+            new_M_r_row[s] += r_row_offset
 
         r_col_offset = np.sum(count_out[where_b_out_r])
 
         if not compressed:
-            M_r_col[b_in] -= count_in
-            M_r_col[r] -= r_col_offset
-            M_r_col[s] += r_col_offset
-            new_M_r_col = M_r_col
+            new_M_r_col = cur_M_r_col.copy()
+            new_M_r_col[b_in] -= count_in
+            new_M_r_col[r] -= r_col_offset
+            new_M_r_col[s] += r_col_offset
         elif M.impl == 'compressed_native':
-            compressed_array.accum_dict(M_r_col_d, b_in, -count_in)
-            compressed_array.accum_dict(M_r_col_d, [r, s], [-r_col_offset, +r_col_offset])
-            new_M_r_col = M_r_col_d
+            new_M_r_col = compressed_array.copy_dict(cur_M_r_col)
+            compressed_array.accum_dict(new_M_r_col, b_in, -count_in)
+            compressed_array.accum_dict(new_M_r_col, [r, s], [-r_col_offset, +r_col_offset])
         else:
+            new_M_r_col = cur_M_r_col.copy()
             for k,v in zip(b_in,count_in):
-                M_r_col_d[k] -= v
-            M_r_col_d[r] -= r_col_offset
-            M_r_col_d[s] += r_col_offset
-            new_M_r_col = M_r_col_d
+                new_M_r_col[k] -= v
+            new_M_r_col[r] -= r_col_offset
+            new_M_r_col[s] += r_col_offset
 
     where_b_in_s = np.where(b_in == s)
     where_b_out_s = np.where(b_out == s)
@@ -531,41 +531,41 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
     # Compute M_s_row
     s_row_offset = np.sum(count_in[where_b_in_s]) + count_self
     if not compressed:
-        M_s_row[b_out] += count_out
-        M_s_row[r] -= s_row_offset
-        M_s_row[s] += s_row_offset
-        new_M_s_row = M_s_row
+        new_M_s_row = cur_M_s_row.copy()
+        new_M_s_row[b_out] += count_out
+        new_M_s_row[r] -= s_row_offset
+        new_M_s_row[s] += s_row_offset
     elif M.impl == 'compressed_native':
-        compressed_array.accum_dict(M_s_row_d, b_out, +count_out)
-        compressed_array.accum_dict(M_s_row_d, [r, s], [-s_row_offset, +s_row_offset])
-        new_M_s_row = M_s_row_d
+        new_M_s_row = compressed_array.copy_dict(cur_M_s_row)
+        compressed_array.accum_dict(new_M_s_row, b_out, +count_out)
+        compressed_array.accum_dict(new_M_s_row, [r, s], [-s_row_offset, +s_row_offset])
     else:
+        new_M_s_row = cur_M_s_row.copy()
         for k,v in zip(b_out,count_out):
-            M_s_row_d[k] += v
-        M_s_row_d[r] -= s_row_offset
-        M_s_row_d[s] += s_row_offset
-        new_M_s_row = M_s_row_d
+            new_M_s_row[k] += v
+        new_M_s_row[r] -= s_row_offset
+        new_M_s_row[s] += s_row_offset
 
     # Compute M_s_col
     s_col_offset = np.sum(count_out[where_b_out_s]) + count_self
 
     if not compressed:
-        M_s_col[b_in] += count_in
-        M_s_col[r] -= s_col_offset
-        M_s_col[s] += s_col_offset
-        new_M_s_col = M_s_col
+        new_M_s_col = cur_M_s_col.copy()
+        new_M_s_col[b_in] += count_in
+        new_M_s_col[r] -= s_col_offset
+        new_M_s_col[s] += s_col_offset
     elif M.impl == 'compressed_native':
-        compressed_array.accum_dict(M_s_col_d, b_in, +count_in)
-        compressed_array.accum_dict(M_s_col_d, [r, s], [-s_col_offset, +s_col_offset])
-        new_M_s_col = M_s_col_d
+        new_M_s_col = compressed_array.copy_dict(cur_M_s_col)
+        compressed_array.accum_dict(new_M_s_col, b_in, +count_in)
+        compressed_array.accum_dict(new_M_s_col, [r, s], [-s_col_offset, +s_col_offset])
     else:
+        new_M_s_col = cur_M_s_col.copy()
         for k,v in zip(b_in,count_in):
-            M_s_col_d[k] += v
-        M_s_col_d[r] -= s_col_offset
-        M_s_col_d[s] += s_col_offset
-        new_M_s_col = M_s_col_d
+            new_M_s_col[k] += v
+        new_M_s_col[r] -= s_col_offset
+        new_M_s_col[s] += s_col_offset
 
-    return new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col
+    return new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col
 
 
 def compute_new_block_degrees(r, s, d_out, d_in, d, k_out, k_in, k):

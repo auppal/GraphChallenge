@@ -143,12 +143,12 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
             proposals[proposal_idx] = s
 
             # compute the two new rows and columns of the interblock edge count matrix
-            new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col \
-                = compute_new_rows_cols_interblock_edge_count_matrix(M, r, s,
-                                                    out_idx, out_weight,
-                                                    in_idx, in_weight,
-                                                    M[r, r],
-                                                    agg_move = 1)
+            new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col = \
+                compute_new_rows_cols_interblock_edge_count_matrix(M, r, s,
+                                                                   out_idx, out_weight,
+                                                                   in_idx, in_weight,
+                                                                   M[r, r],
+                                                                   agg_move = 1)
 
             # compute change in entropy / posterior
             block_degrees_out_new, block_degrees_in_new, block_degrees_new \
@@ -160,22 +160,6 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
                                             num_out_block_edges,
                                             num_in_block_edges,
                                             num_block_edges)
-
-            if not is_compressed(M):
-                cur_M_s_row = M[s, :]
-                cur_M_s_col = M[:, s]
-                cur_M_r_row = M[r, :]
-                cur_M_r_col = M[:, r]
-            elif M.impl == 'compressed_python':
-                cur_M_s_row = take_nonzero(M, s, 0, sort = False)
-                cur_M_s_col = take_nonzero(M, s, 1, sort = False)
-                cur_M_r_row = take_nonzero(M, r, 0, sort = False)
-                cur_M_r_col = take_nonzero(M, r, 1, sort = False)
-            else:
-                cur_M_s_row = compressed_array.take_dict(M.x, s, 0)
-                cur_M_s_col = compressed_array.take_dict(M.x, s, 1)
-                cur_M_r_row = compressed_array.take_dict(M.x, r, 0)
-                cur_M_r_col = compressed_array.take_dict(M.x, r, 1)
 
             delta_entropy[proposal_idx] = compute_delta_entropy(r, s,
                                                                 cur_M_r_row,
@@ -404,25 +388,10 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
 
         acquire_lock(vertex_lock)
         
-        new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col = \
+        new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col = \
             compute_new_rows_cols_interblock_edge_count_matrix(M, r, s,
                                                                blocks_out, count_out, blocks_in, count_in,
                                                                self_edge_weight, agg_move = 0, M_lock=None)
-        if not is_compressed(M):
-            cur_M_s_row = M[s, :].copy()
-            cur_M_s_col = M[:, s].copy()
-            cur_M_r_row = M[r, :].copy()
-            cur_M_r_col = M[:, r].copy()
-        elif M.impl == 'compressed_python':
-            cur_M_s_row = take_nonzero(M, s, 0, sort = False)
-            cur_M_s_col = take_nonzero(M, s, 1, sort = False)
-            cur_M_r_row = take_nonzero(M, r, 0, sort = False)
-            cur_M_r_col = take_nonzero(M, r, 1, sort = False)
-        else:
-            cur_M_s_row = compressed_array.take_dict(M.x, s, 0)
-            cur_M_s_col = compressed_array.take_dict(M.x, s, 1)
-            cur_M_r_row = compressed_array.take_dict(M.x, r, 0)
-            cur_M_r_col = compressed_array.take_dict(M.x, r, 1)
 
         release_lock(vertex_lock)
 
@@ -484,7 +453,7 @@ def move_node(ni,r,s, partition,out_neighbors,in_neighbors,self_edge_weights,M,b
     blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[ni][:, 0]], return_inverse=True)
     count_in = np.bincount(inverse_idx_in, weights=in_neighbors[ni][:, 1]).astype(int)
 
-    (new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col) = \
+    new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col = \
                         compute_new_rows_cols_interblock_edge_count_matrix(
                             M, r, s,
                             blocks_out, count_out, blocks_in, count_in,

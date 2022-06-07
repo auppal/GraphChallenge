@@ -73,10 +73,10 @@ def compute_delta_entropy_sparse(r, s, cur_M_r_row, cur_M_s_row, cur_M_r_col, cu
         d6 = compressed_array.dict_entropy_row_excl(cur_M_r_col,  d_out, d_in[r], r, s)
         d7 = compressed_array.dict_entropy_row_excl(cur_M_s_col,  d_out, d_in[s], r, s)
     except:
-        M_r_t1_i, M_r_t1_v = cur_M_r_row[0], cur_M_r_row[1]
-        M_s_t1_i, M_s_t1_v = cur_M_s_row[0], cur_M_s_row[1]
-        M_t2_r_i, M_t2_r_v = cur_M_r_col[0], cur_M_r_col[1]
-        M_t2_s_i, M_t2_s_v = cur_M_s_col[0], cur_M_s_col[1]
+        M_r_t1_i, M_r_t1_v = cur_M_r_row.keys(), cur_M_r_row.values()
+        M_s_t1_i, M_s_t1_v = cur_M_s_row.keys(), cur_M_s_row.values()
+        M_t2_r_i, M_t2_r_v = cur_M_r_col.keys(), cur_M_r_col.values()
+        M_t2_s_i, M_t2_s_v = cur_M_s_col.keys(), cur_M_s_col.values()
         
         M_r_row_i, M_r_row_v = M_r_row.keys(), M_r_row.values()
         M_r_col_i, M_r_col_v = M_r_col.keys(), M_r_col.values()
