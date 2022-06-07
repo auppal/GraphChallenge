@@ -53,7 +53,6 @@ def is_sorted(x):
     return len(x) == 1 or (x[1:] >= x[0:-1]).all()
 
 def take_nonzero(A, idx, axis, sort):
-    assert(A is not None)
     if not is_compressed(A):
         a = np.take(A, idx, axis)
         idx = a.nonzero()[0]
