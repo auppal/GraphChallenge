@@ -234,7 +234,7 @@ def propose_node_movement_wrapper(tup):
     for current_node in range(start, stop, step):
         movement = propose_node_movement(current_node, partition, out_neighbors, in_neighbors,
                                          M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
-                                         vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args, vertex_lock=vertex_lock, block_lock=None)
+                                         vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args, vertex_lock=vertex_lock, block_lock=block_lock)
         
         (ni, current_block, proposal, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
 
@@ -366,7 +366,7 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         vertex_neighbors[current_node][:, 1],
         vertex_num_neighbor_edges[current_node],
         partition,
-        M, block_degrees, num_blocks, agg_move = 0, M_lock=vertex_lock)
+        M, block_degrees, num_blocks, agg_move = 0, M_lock=block_lock)
 
     num_out_neighbor_edges = vertex_num_out_neighbor_edges[current_node]
     num_in_neighbor_edges = vertex_num_in_neighbor_edges[current_node]
@@ -386,14 +386,10 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         # compute the two new rows and columns of the interblock edge count matrix
         self_edge_weight = self_edge_weights[current_node]
 
-        acquire_lock(vertex_lock)
-        
         new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col = \
             compute_new_rows_cols_interblock_edge_count_matrix(M, r, s,
                                                                blocks_out, count_out, blocks_in, count_in,
-                                                               self_edge_weight, agg_move = 0, M_lock=None)
-
-        release_lock(vertex_lock)
+                                                               self_edge_weight, agg_move = 0, M_lock=block_lock)
 
         block_degrees_out_new = block_degrees_out.copy()
         block_degrees_in_new = block_degrees_in.copy()
