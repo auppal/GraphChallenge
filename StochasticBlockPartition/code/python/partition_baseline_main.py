@@ -265,92 +265,6 @@ def propose_node_movement_wrapper(tup):
     return rank,mypid,update_id,start,stop,step
 
 
-def propose_node_movement_profile_sparse_wrapper(tup):
-    mypid = current_process().pid
-    rc = []
-    cnt = len(propose_node_movement_profile_stats)
-    propose_node_movement_profile_stats.append(cProfile.runctx("rc.append(propose_node_movement_sparse_wrapper(tup))", globals(), locals(), filename="propose_node_movement-%d-%d.prof" % (mypid,cnt)))
-    return rc[0]
-
-def propose_node_movement_sparse_wrapper(tup):
-    global update_id, partition, M, block_degrees, block_degrees_out, block_degrees_in, mypid
-
-    rank,start,stop,step = tup
-
-    args = syms['args']
-    vertex_lock,block_lock = syms['locks']
-
-    results = syms['results']
-    (results_proposal, results_delta_entropy, results_accept) = syms['results']
-
-    (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights) = syms['static_state']
-
-    (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared, block_modified_time_shared) = syms['nodal_move_state']
-
-    # print("Rank %d aquiring lock\n" % (rank))
-    
-    acquire_lock(vertex_lock)
-    M = M_shared
-    block_degrees = block_degrees_shared.copy()
-    block_degrees_out = block_degrees_out_shared.copy()
-    block_degrees_in = block_degrees_in_shared.copy()
-    partition = partition_shared.copy()
-    release_lock(vertex_lock)
-
-    # print("Rank %d released lock\n" % (rank))
-    
-    if update_id != update_id_shared.value:
-        if update_id == -1:
-            # Ensure every worker has a different random seed.
-            mypid = current_process().pid
-            numpy.random.seed((mypid + int(timeit.default_timer() * 1e6)) % 4294967295)
-
-        update_id = update_id_shared.value
-
-    if args.verbose > 3:
-        print("Rank %d pid %d start %d stop %d step %d" % (rank,mypid,start,stop,step))
-
-    #acquire_lock(block_lock)
-
-    for current_node in range(start, stop, step):
-#        print("Rank %d propose movement for node %d" % (rank,current_node))
-        
-        movement = propose_node_movement(current_node, partition, out_neighbors, in_neighbors,
-                                         M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
-                                         vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args, vertex_lock=vertex_lock, block_lock=block_lock)
-
-#        print("Rank %d DONE propose movement for node %d" % (rank,current_node))
-
-        
-        (ni, current_block, proposal, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
-
-        accept = (np.random.uniform() <= p_accept)
-        ni = current_node
-        r = current_block
-        s = proposal
-
-        if accept:
-            if args.verbose > 3:
-                print("Rank %d pid %d moving node %d from %d to %d" % (rank,mypid,ni,r,s))
-            
-            acquire_lock(vertex_lock)
-            move_node(ni, r, s, partition_shared,
-                      out_neighbors, in_neighbors, self_edge_weights, M_shared,
-                      block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared)
-            release_lock(vertex_lock)
-
-            if args.verbose > 3:
-                print("Rank %d pid %d done moving node %d from %d to %d" % (rank,mypid,ni,r,s))
-                      
-
-        results_proposal[ni] = proposal
-        results_delta_entropy[ni] = delta_entropy
-        results_accept[ni] = accept
-
- #   print("Rank %d pid %d returning" % (rank,mypid))
-    return rank,mypid,update_id,start,stop,step
-
-
 def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, M, num_blocks,
                           block_degrees, block_degrees_out, block_degrees_in,
                           vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args, vertex_lock=None, block_lock=None):
@@ -637,16 +551,10 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
         group_size = args.node_propose_batch_size
         chunks = [((i // group_size) % n_thread_move, i, min(i+group_size, N), 1) for i in range(0,N,group_size)]
 
-        if is_compressed(M):
-            if args.profile > 1:
-                movements = pool.imap_unordered(propose_node_movement_profile_sparse_wrapper, chunks)
-            else:
-                movements = pool.imap_unordered(propose_node_movement_sparse_wrapper, chunks)
+        if args.profile > 1:
+            movements = pool.imap_unordered(propose_node_movement_profile_wrapper, chunks)
         else:
-            if args.profile > 1:
-                movements = pool.imap_unordered(propose_node_movement_profile_wrapper, chunks)
-            else:
-                movements = pool.imap_unordered(propose_node_movement_wrapper, chunks)
+            movements = pool.imap_unordered(propose_node_movement_wrapper, chunks)
 
         proposal_cnt = 0
         next_batch_cnt = num_nodal_moves + batch_size
