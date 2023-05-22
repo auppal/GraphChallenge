@@ -51,14 +51,15 @@ def find_self_edge_weights(N, out_neighbors):
                 out_neighbors[i_node][:, 0] == i), 1])
     return self_edge_weights
 
-def acquire_lock(lock):
-    if lock:
-        lock.acquire()
+def acquire_locks(locks):
+    if locks:
+        for i in locks:
+            i.acquire()
 
-def release_lock(lock):
-    if lock:
-        lock.release()
-
+def release_locks(locks):
+    if locks:
+        for i in locks[::-1]:
+            i.release()
 
 def entropy_max_argsort(x):
     a = np.argsort(x)
@@ -209,13 +210,13 @@ def propose_node_movement_wrapper(tup):
 
     (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared, block_modified_time_shared) = syms['nodal_move_state']
 
-    acquire_lock(vertex_lock)
+    acquire_locks([vertex_lock])
     M = M_shared
     block_degrees = block_degrees_shared.copy()
     block_degrees_out = block_degrees_out_shared.copy()
     block_degrees_in = block_degrees_in_shared.copy()
     partition = partition_shared.copy()    
-    release_lock(vertex_lock)
+    release_locks([vertex_lock])
 
     if update_id != update_id_shared.value:
         if update_id == -1:
@@ -246,11 +247,11 @@ def propose_node_movement_wrapper(tup):
             if args.verbose > 3:
                 print("Rank %d pid %d moving node %d from %d to %d" % (rank,mypid,ni,r,s))
             
-            acquire_lock(vertex_lock)
+            acquire_locks([vertex_lock])
             move_node(ni, r, s, partition_shared,
                       out_neighbors, in_neighbors, self_edge_weights, M_shared,
                       block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared)
-            release_lock(vertex_lock)
+            release_locks([vertex_lock])
 
             if args.verbose > 3:
                 print("Rank %d pid %d done moving node %d from %d to %d" % (rank,mypid,ni,r,s))
@@ -353,7 +354,8 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
 
 def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights, M, block_degrees_out, block_degrees_in, block_degrees, vertex_lock = None, block_lock = None):
 
-    acquire_lock(block_lock)
+    acquire_locks(vertex_lock)
+    acquire_locks(block_lock)
     
     blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[ni][:, 0]], return_inverse=True)
     count_out = np.bincount(inverse_idx_out, weights=out_neighbors[ni][:, 1]).astype(int)
@@ -396,7 +398,9 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
         M[:, s] = new_M_s_col
 
     partition[ni] = s
-    release_lock(block_lock)
+
+    release_locks(block_lock)
+    release_locks(vertex_lock)
     return
 
 
@@ -424,9 +428,6 @@ def shared_memory_to_private(z):
 def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args):
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
-
-    # XXX
-    # Try to find bug in shared state copy.
     
     (partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared) \
         = (shared_memory_copy(i) for i in (partition, block_degrees, block_degrees_out, block_degrees_in, ))
