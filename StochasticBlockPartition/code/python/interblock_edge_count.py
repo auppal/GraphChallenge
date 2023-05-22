@@ -26,9 +26,9 @@ class fast_sparse_array(object):
         except AttributeError:
             keys,values = compressed_array.keys_values_dict(d_new)
             compressed_array.setaxis(self.x, idx, axis, keys, values)
-    def set_axis_dict_new(self, idx, axis, d_new):
-        compressed_array.setaxis_from_dict(self.x, idx, axis, d_new)
     def set_axis_dict(self, idx, axis, d_new):
+        compressed_array.setaxis_from_dict(self.x, idx, axis, d_new)
+    def set_axis_dict_old(self, idx, axis, d_new):
         keys,values = compressed_array.keys_values_dict(d_new)
         compressed_array.setaxis(self.x, idx, axis, keys, values)
         # I am surprised this works.
