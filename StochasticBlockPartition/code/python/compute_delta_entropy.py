@@ -2,12 +2,7 @@ import numpy as np
 import entropy_module
 import os
 import compressed_array
-
-compressed_native = (os.getenv("compressed_native") == "1")
-if compressed_native:
-    from interblock_edge_count import take_nonzero, is_compressed
-else:
-    from fast_sparse_array import take_nonzero, is_compressed
+from interblock_edge_count import take_nonzero, is_compressed
 
 def entropy_row_nz_numpy(x, y, c):
     if c == 0:
