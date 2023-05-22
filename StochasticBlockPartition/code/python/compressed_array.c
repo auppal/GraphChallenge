@@ -10,9 +10,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include "shared_mem.h"
 
 #define errExit(msg)    do { perror(msg); exit(EXIT_FAILURE);	\
   } while (0)
+
+
 
 /* From khash */
 #define kh_int64_hash_func(key) (khint32_t)((key)>>33^(key)^(key)<<11)
@@ -26,14 +29,35 @@ struct hash {
   size_t cnt;
   size_t limit;
   size_t width; /* width of each hash table */
+  size_t alloc_size;
+  void *(*fn_malloc)(size_t);  
+  void (*fn_free)(void *, size_t);
 };
 
-struct hash *hash_create(size_t initial_size)
+static void private_free(void *p, size_t len)
 {
+  free(p);
+}
+
+struct hash *hash_create(size_t initial_size, int shared_mem)
+{
+  void (*fn_free)(void *, size_t);
+  void *(*fn_malloc)(size_t);  
+  
+  if (shared_mem) {
+    fn_malloc = shared_malloc;
+    fn_free = shared_free;
+  }
+  else {
+    fn_malloc = malloc;
+    fn_free = private_free;
+  }
+  
   size_t buf_size = sizeof(struct hash) + 2 * initial_size * sizeof(uint64_t);
 
-  char *buf = malloc(buf_size);
+  char *buf = fn_malloc(buf_size);
   if (!buf) {
+    fprintf(stderr, "hash_create(%ld): return NULL\n", initial_size);
     return NULL;
   }
 
@@ -43,6 +67,9 @@ struct hash *hash_create(size_t initial_size)
   h->limit = h->width * 0.70;
   h->keys = (uint64_t *) (buf + sizeof(struct hash) + 0 * h->width * sizeof(uint64_t));
   h->vals = (int64_t *) (buf + sizeof(struct hash) + 1 * h->width * sizeof(int64_t));
+  h->alloc_size = buf_size;
+  h->fn_malloc = fn_malloc;
+  h->fn_free = fn_free;
   memset(h->keys, 0xff, h->width * sizeof(uint64_t));
 
   return h;
@@ -51,16 +78,30 @@ struct hash *hash_create(size_t initial_size)
 void hash_destroy(struct hash *h)
 {
   if (h) {
-    free(h);
+    h->fn_free(h, h->alloc_size);
   }
 }
 
-struct hash *hash_copy(const struct hash *y)
+struct hash *hash_copy(const struct hash *y, int shared_mem)
 {
+  void (*fn_free)(void *, size_t);
+  void *(*fn_malloc)(size_t);  
+  
+  if (shared_mem) {
+    fn_malloc = shared_malloc;
+    fn_free = shared_free;
+  }
+  else {
+    fn_malloc = malloc;
+    fn_free = private_free;
+  }
+  
   size_t buf_size = sizeof(struct hash) + 2 * y->width * sizeof(uint64_t);
 
-  char *buf = malloc(buf_size);
+  char *buf = fn_malloc(buf_size);
+
   if (!buf) {
+    fprintf(stderr, "hash_copy: return NULL\n");    
     return NULL;
   }
 
@@ -70,7 +111,10 @@ struct hash *hash_copy(const struct hash *y)
   h->limit = y->limit;
   h->keys = (uint64_t *) (buf + sizeof(struct hash) + 0 * h->width * sizeof(uint64_t));
   h->vals = (int64_t *) (buf + sizeof(struct hash) + 1 * h->width * sizeof(int64_t));
-  
+  h->alloc_size = buf_size;
+  h->fn_malloc = fn_malloc;
+  h->fn_free = fn_free;
+
   memcpy(h->keys, y->keys, y->width * sizeof(uint64_t));
   memcpy(h->vals, y->vals, y->width * sizeof(int64_t));
 
@@ -94,8 +138,11 @@ inline struct hash *hash_resize(struct hash *h)
     hash_print(h);
 #endif
 
-    h2 = hash_create(h->width * 2);
+    int shared_mem = (h->fn_malloc == malloc) ? 0 : 1;
+    
+    h2 = hash_create(h->width * 2, shared_mem);
     if (!h2) {
+      fprintf(stderr, "hash_resize: hash_create to size %ld from %ld failed\n", h->width * 2, h->limit);
       return NULL;
     }
 #if RESIZE_DEBUG
@@ -152,6 +199,12 @@ struct hash *hash_insert_single(struct hash *h, uint64_t k, int64_t v)
   }
 
   h = hash_resize(h);
+
+  if (!h) {
+    fprintf(stderr, "Warning in hash_insert_single: hash_resize failed\n");
+    abort();
+  }
+  
   return h;
 }
 
@@ -288,9 +341,13 @@ inline struct hash *hash_accum_multi(struct hash *h, const uint64_t *keys, const
     }
 
     h = hash_resize(h); /* Be careful to not re-use h->width. */
+
+    if (!h) {
+      fprintf(stderr, "Warning in hash_accum_multi: hash_resize failed\n");
+    }
   }
 
-#if 0  
+#if 1  
   int flag = 0;
   if (h->cnt == h->limit) {
     fprintf(stderr, "Resize on accum before %ld %ld\n", h->cnt, h->limit);
@@ -298,7 +355,7 @@ inline struct hash *hash_accum_multi(struct hash *h, const uint64_t *keys, const
   }
 #endif  
 
-#if 0
+#if 1
   if (flag) {
     fprintf(stderr, "Resize on accum after %ld %ld\n", h->cnt, h->limit);
   }
@@ -328,26 +385,29 @@ struct compressed_array *compressed_array_create(size_t n_nodes, size_t initial_
   x->n_col = n_nodes;
 
   size_t i;
-  x->rows = calloc(x->n_row, sizeof(struct hash *));
+  x->rows = shared_calloc(x->n_row, sizeof(struct hash *));
 
   if (!x->rows) {
     free(x);
     return NULL;
   }
 
-  x->cols = calloc(x->n_col, sizeof(struct hash *));
+  x->cols = shared_calloc(x->n_col, sizeof(struct hash *));
 
   if (!x->cols) {
-    free(x->rows);
+    shared_free(x->rows, x->n_row * sizeof(struct hash *));
     free(x);
     return NULL;
   }
   
   for (i=0; i<n_nodes; i++) {
-    x->rows[i] = hash_create(initial_width * 2);
-    x->cols[i] = hash_create(initial_width * 2);
-    if (!x->rows[i] || !x->cols[i])
+    x->rows[i] = hash_create(initial_width * 2, 1);
+    x->cols[i] = hash_create(initial_width * 2, 1);
+    if (!x->rows[i] || !x->cols[i]) {
+      fprintf(stderr, "compressed_array_create: hash_create failed\n");
+      return NULL;
       break;
+    }
   }
 
   if (i != n_nodes) {
@@ -355,9 +415,10 @@ struct compressed_array *compressed_array_create(size_t n_nodes, size_t initial_
       hash_destroy(x->rows[i]);
       hash_destroy(x->cols[i]);
     }
-    free(x->rows);
-    free(x->cols);
+    shared_free(x->rows, x->n_row * sizeof(struct hash *));
+    shared_free(x->cols, x->n_col * sizeof(struct hash *));
     free(x);
+    fprintf(stderr, "compressed_array_create return NULL\n");
     return NULL;
   }
 
@@ -379,8 +440,8 @@ void compressed_array_destroy(struct compressed_array *x)
     hash_destroy(x->rows[i]);
   }
 
-  free(x->rows);
-  free(x->cols);
+  shared_free(x->rows, x->n_row * sizeof(struct hash *));
+  shared_free(x->cols, x->n_col * sizeof(struct hash *));
   free(x);
 }
 
@@ -397,26 +458,28 @@ struct compressed_array *compressed_copy(const struct compressed_array *y)
   x->n_col = y->n_col;
 
   size_t i;
-  x->rows = calloc(x->n_row, sizeof(struct hash *));
+  x->rows = shared_calloc(x->n_row, sizeof(struct hash *));
 
   if (!x->rows) {
     free(x);
     return NULL;
   }
 
-  x->cols = calloc(x->n_col, sizeof(struct hash *));
+  x->cols = shared_calloc(x->n_col, sizeof(struct hash *));
 
   if (!x->cols) {
-    free(x->rows);
+    shared_free(x->rows, x->n_row * sizeof(struct hash *));
     free(x);
     return NULL;
   }
   
   for (i=0; i<x->n_row; i++) {
-    x->rows[i] = hash_copy(y->rows[i]);
-    x->cols[i] = hash_copy(y->cols[i]);
-    if (!x->rows[i] || !x->cols[i])
+    x->rows[i] = hash_copy(y->rows[i], 1);
+    x->cols[i] = hash_copy(y->cols[i], 1);
+    if (!x->rows[i] || !x->cols[i]) {
+      fprintf(stderr, "compressed_copy failed: hash_copy returned NULL\n");
       break;
+    }
   }
 
   if (i != x->n_row) {
@@ -424,8 +487,9 @@ struct compressed_array *compressed_copy(const struct compressed_array *y)
       hash_destroy(x->rows[i]);
       hash_destroy(x->cols[i]);
     }
-    free(x->rows);
-    free(x->cols);
+
+    shared_free(x->rows, x->n_row * sizeof(struct hash *));
+    shared_free(x->cols, x->n_col * sizeof(struct hash *));    
     free(x);
     return NULL;
   }
@@ -482,53 +546,6 @@ inline struct hash *compressed_take(struct compressed_array *x, long idx, long a
   return (axis == 0 ? x->rows[idx] : x->cols[idx]);
 }
 
-
-#if 0
-void *shared_memory_get(const char *shm_path, size_t buf_size)
-{
-#if 0
-  /* The shm_open approach is for if we ever want to have processes besides 
-   * self and children share the memory region.
-   */
-
-  /* Create shared memory object and set its size to the size
-     of our structure. */
-
-  int fd = shm_open(shm_path, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
-
-  if (fd == -1) {
-    perror("shm_open");
-    return NULL;
-  }
-
-  if (ftruncate(fd, sizeof(struct compressed_array)) == -1) {
-   perror("ftruncate");
-   return NULL;
-  }
-
-  /* Map the object into the caller's address space. */
-
-  void *rc = mmap(NULL, buf_size, PROT_READ | PROT_WRITE,
-			     MAP_SHARED, fd, 0);
-
-  if (rc == MAP_FAILED) {
-    perror("mmap");
-    return NULL;
-  }
-#else
-  void *rc = mmap(NULL, buf_size, PROT_READ | PROT_WRITE,
-			     MAP_ANONYMOUS | MAP_SHARED, -1, 0);
-
-  if (rc == MAP_FAILED) {
-    perror("mmap");
-    return NULL;
-  }  
-#endif
-  return rc;
-}
-#endif
-
-
 /* Python interface functions */
 static void destroy(PyObject *obj)
 {
@@ -551,6 +568,7 @@ static PyObject* create(PyObject *self, PyObject *args)
   return ret;
 }
 
+/* xxx should be shared or not? */
 inline struct hash **create_dict(struct hash *p)
 {
   struct hash **ph = malloc(sizeof(struct hash **));
@@ -581,6 +599,7 @@ static PyObject* print_dict(PyObject *self, PyObject *args)
     Py_RETURN_NONE;
 }
 
+/* Return keys and values from a dict. */
 static PyObject* keys_values_dict(PyObject *self, PyObject *args)
 {
   PyObject *obj;
@@ -661,7 +680,13 @@ static PyObject* empty_dict(PyObject *self, PyObject *args)
   if (!PyArg_ParseTuple(args, "l", &N))
     return NULL;
 
-  struct hash *ent = hash_create(N);
+  struct hash *ent = hash_create(N, 0);
+
+  if (!ent) {
+    PyErr_SetString(PyExc_RuntimeError, "empty_dict: hash_create failed");    
+    return NULL;
+  }
+  
   struct hash **ph = create_dict(ent);
   
   ret = PyCapsule_New(ph, "compressed_array_dict", destroy_dict);
@@ -684,7 +709,13 @@ static PyObject* take_dict(PyObject *self, PyObject *args)
 #else
   struct hash *orig = compressed_take(x, idx, axis);
   //hash_print(orig);
-  struct hash *ent = hash_copy(orig);
+  struct hash *ent = hash_copy(orig, 0);
+
+  if (!ent) {
+    PyErr_SetString(PyExc_RuntimeError, "take_dict: hash_copy failed");    
+    return NULL;
+  }
+  
 #endif
 
   struct hash **ph = create_dict(ent);
@@ -722,11 +753,11 @@ static PyObject* set_dict(PyObject *self, PyObject *args)
 #else
   if (axis == 0) {
     hash_destroy(x->rows[idx]);
-    x->rows[idx] = hash_copy(ent);
+    x->rows[idx] = hash_copy(ent, 1);
   }
   else {
     hash_destroy(x->cols[idx]);
-    x->cols[idx] = hash_copy(ent);
+    x->cols[idx] = hash_copy(ent, 1);
   }
   
 #endif
@@ -750,7 +781,7 @@ static PyObject* copy_dict(PyObject *self, PyObject *args)
 
   struct hash *h = *ph;
 
-  struct hash *h2 = hash_copy(h);
+  struct hash *h2 = hash_copy(h, 0);
   struct hash **ph2 = create_dict(h2);
 
   ret = PyCapsule_New(ph2, "compressed_array_dict", destroy_dict);
@@ -863,8 +894,8 @@ static PyObject* select_copy(PyObject *self, PyObject *args)
 #else
     hash_destroy(dst->rows[idx]);
     hash_destroy(dst->cols[idx]);
-    dst->rows[idx] = hash_copy(src->rows[idx]);
-    dst->cols[idx] = hash_copy(src->cols[idx]);
+    dst->rows[idx] = hash_copy(src->rows[idx], 1);
+    dst->cols[idx] = hash_copy(src->cols[idx], 1);
 #endif
   }
 
