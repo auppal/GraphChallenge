@@ -505,7 +505,7 @@ inline int compressed_get_single(struct compressed_array *x, uint64_t i, uint64_
 
 inline void compressed_set_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t val)
 {
-  /* XXX There is a bug in this logic if any one fails. */
+  /* XXX There is a bug in this logic if exactly one fails. */
   x->rows[i] = hash_insert_single(x->rows[i], j, val);
   x->cols[j] = hash_insert_single(x->cols[j], i, val);
 }
@@ -946,6 +946,36 @@ static PyObject* setaxis(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+static PyObject* setaxis_from_dict(PyObject *self, PyObject *args)
+{
+  PyObject *obj, *obj_d;
+  long i, axis = 0;
+
+  if (!PyArg_ParseTuple(args, "OllO", &obj, &i, &axis, &obj_d)) {
+    return NULL;
+  }
+
+  struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
+  struct hash **ph = PyCapsule_GetPointer(obj_d, "compressed_array_dict");
+  struct hash *h = *ph;
+
+  unsigned long j;
+  for (j=0; j<h->width; j++) {
+    if ((h->keys[j] & EMPTY_FLAG) == 0) {
+      if (axis == 0) {
+	compressed_set_single(x, i, h->keys[j], h->vals[j]);
+      }
+      else {
+	compressed_set_single(x, h->keys[j], i, h->vals[j]);
+      }
+    }
+  }
+
+  /* Handle one dimension with multiple elements. */
+  Py_RETURN_NONE;
+}
+
+
 static PyObject* setitem(PyObject *self, PyObject *args)
 {
   PyObject *obj, *obj_i, *obj_j, *obj_k, *obj_v;
@@ -1291,7 +1321,8 @@ static PyMethodDef compressed_array_methods[] =
    { "create", create, METH_VARARGS, "Create a new object." },
    { "copy", copy, METH_VARARGS, "Copy an existing object." },   
    { "setitem", setitem, METH_VARARGS, "Set an item." },
-   { "setaxis", setaxis, METH_VARARGS, "Set items along an axis." },   
+   { "setaxis", setaxis, METH_VARARGS, "Set items along an axis from key and value arrays." },
+   { "setaxis_from_dict", setaxis_from_dict, METH_VARARGS, "Set items along an axis from another dict." },
    { "getitem", getitem, METH_VARARGS, "Get an item." },
    { "take", take, METH_VARARGS, "Take items along an axis." },
    { "take_dict", take_dict, METH_VARARGS, "Take items along an axis in dict form." },

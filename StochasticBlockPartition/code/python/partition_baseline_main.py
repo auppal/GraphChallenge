@@ -467,6 +467,10 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
     block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
 
     if is_compressed(M):
+        # compressed_array.setaxis_from_dict(M.x, r, 0, new_M_r_row)
+        # compressed_array.setaxis_from_dict(M.x, s, 0, new_M_s_row)
+        # compressed_array.setaxis_from_dict(M.x, r, 1, new_M_r_col)
+        # compressed_array.setaxis_from_dict(M.x, s, 1, new_M_s_col)
         M.set_axis_dict(r, 0, new_M_r_row)
         M.set_axis_dict(s, 0, new_M_s_row)
         M.set_axis_dict(r, 1, new_M_r_col)
@@ -542,7 +546,7 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
             num_nodal_moves += 1
             itr_delta_entropy[itr] += delta_entropy
 
-            if verbose > 2:
+            if verbose > 3:
                 print("Move %5d from block %5d to block %5d." % (ni, r, s))
 
             move_node(ni, r, s, partition_shared,
