@@ -208,15 +208,22 @@ def propose_node_movement_wrapper(tup):
 
     (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights) = syms['static_state']
 
-    (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared, block_modified_time_shared) = syms['nodal_move_state']
+    (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared,) = syms['nodal_move_state']
 
-    acquire_locks([vertex_lock])
-    M = M_shared
-    block_degrees = block_degrees_shared.copy()
-    block_degrees_out = block_degrees_out_shared.copy()
-    block_degrees_in = block_degrees_in_shared.copy()
-    partition = partition_shared.copy()    
-    release_locks([vertex_lock])
+    if 1:
+        M = M_shared
+        block_degrees = block_degrees_shared
+        block_degrees_out = block_degrees_out_shared
+        block_degrees_in = block_degrees_in_shared
+        partition = partition_shared
+    else:
+        acquire_locks([vertex_lock])
+        M = M_shared
+        block_degrees = block_degrees_shared.copy()
+        block_degrees_out = block_degrees_out_shared.copy()
+        block_degrees_in = block_degrees_in_shared.copy()
+        partition = partition_shared.copy()
+        release_locks([vertex_lock])
 
     if update_id != update_id_shared.value:
         if update_id == -1:
@@ -500,10 +507,6 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     vertex_lock = mp.Lock()
 
     modified = np.zeros(M.shape[0], dtype=bool)
-    # Every block gets a timestamp to track modifications from each worker to every other worker..
-    block_modified_time_shared = shared_memory_empty(modified.shape)
-    block_modified_time_shared[:] = 0
-
     update_id_shared = Value('i', 0)
 
     last_purge = -1
@@ -533,7 +536,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     syms['results'] = (results_proposal, results_delta_entropy, results_accept)
     syms['locks'] = vertex_lock,block_lock
     syms['static_state'] = static_state
-    syms['nodal_move_state'] = (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared, block_modified_time_shared)
+    syms['nodal_move_state'] = (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared)
     syms['args'] = args
 
     pool = Pool(n_thread_move)
