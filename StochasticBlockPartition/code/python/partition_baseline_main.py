@@ -255,34 +255,35 @@ def propose_node_movement_wrapper(tup):
             if args.verbose > 3:
                 print("Rank %d pid %d moving node %d from %d to %d" % (rank,mypid,ni,r,s))
 
-            if 0:
-                neighbors = vertex_neighbors[ni][:, 0]
-                bl = [block_locks[min(r,s)], block_locks[max(r,s)]]
-                vil = sorted(list(neighbors) + [ni])
-                vl = [vertex_locks[i] for i in vil]
+            neighbors = vertex_neighbors[ni][:, 0]
+            bl = [block_locks[min(r,s)], block_locks[max(r,s)]]
+            vl = [vertex_locks[i] for i in sorted(list(neighbors) + [ni])]
 
-                #print("Rank %d bil is %s" % (rank,vil))
-                acquire_locks(bl)
-
-                #print("Rank %d vil is %s" % (rank,vil))
-                acquire_locks(vl)
+            if is_compressed(M):
+                if 0:
+                    locks = vl + bl
+                elif 0:
+                    locks = bl
+                elif 1:
+                    locks = vl
+                elif 0:
+                    # single lock
+                    locks = [vertex_locks[0]]
             else:
-                acquire_locks([vertex_locks[0]])
-            
+                # single lock
+                locks = [vertex_locks[0]]
+
+            acquire_locks(locks)
+                
             move_node(ni, r, s, partition_shared,
                       out_neighbors, in_neighbors, self_edge_weights, M_shared,
                       block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared)
 
-            if 0:
-                release_locks(vl)
-                release_locks(bl)
-            else:
-                release_locks([vertex_locks[0]])
+            release_locks(locks)
 
             if args.verbose > 3:
                 print("Rank %d pid %d done moving node %d from %d to %d" % (rank,mypid,ni,r,s))
                       
-
         results_proposal[ni] = proposal
         results_delta_entropy[ni] = delta_entropy
         results_accept[ni] = accept
@@ -387,16 +388,14 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
     return current_node, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new    
 
 
-def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights, M, block_degrees_out, block_degrees_in, block_degrees, vertex_lock = None, block_lock = None):
+def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights, M, block_degrees_out, block_degrees_in, block_degrees, vertex_locks = None, block_lock = None):
+    # acquire_locks([vertex_locks[0]])
 
-    acquire_locks(vertex_lock)
-    acquire_locks(block_lock)
-    
     blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[ni][:, 0]], return_inverse=True)
     count_out = np.bincount(inverse_idx_out, weights=out_neighbors[ni][:, 1]).astype(int)
     blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[ni][:, 0]], return_inverse=True)
     count_in = np.bincount(inverse_idx_in, weights=in_neighbors[ni][:, 1]).astype(int)
-
+    
     if is_compressed(M):
         (M_r_row_sum, M_r_col_sum, M_s_row_sum, M_s_col_sum) = compressed_array.inplace_compute_new_rows_cols_interblock_edge_count_matrix(M.x, r, s, blocks_out, count_out, blocks_in, count_in)
 
@@ -428,9 +427,7 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
         M[:, s] = new_M_s_col
 
     partition[ni] = s
-
-    release_locks(block_lock)
-    release_locks(vertex_lock)
+    # release_locks([vertex_locks[0]])
     return
 
 
