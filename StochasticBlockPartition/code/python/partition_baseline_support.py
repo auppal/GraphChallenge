@@ -292,8 +292,12 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         for v in range(len(out_neighbors)):
             k1 = b[v]
             if len(out_neighbors[v]) > 0:
-                k2, inverse_idx = np.unique(b[out_neighbors[v][:, 0]], return_inverse=True)
-                count = np.bincount(inverse_idx, weights=out_neighbors[v][:, 1]).astype(int)
+                if 0:
+                    k2, inverse_idx = np.unique(b[out_neighbors[v][:, 0]], return_inverse=True)
+                    count = np.bincount(inverse_idx, weights=out_neighbors[v][:, 1]).astype(int)
+                else:
+                    k2,count = compressed_array.blocks_and_counts(
+                        b, out_neighbors[v][:, 0], out_neighbors[v][:, 1])
                 M[k1, k2] += count
 
         # compute initial block degrees
@@ -321,8 +325,13 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         for v in range(len(out_neighbors)):
             k1 = b[v]
             if len(out_neighbors[v]) > 0:
-                k2, inverse_idx = np.unique(b[out_neighbors[v][:, 0]], return_inverse=True)
-                count = np.bincount(inverse_idx, weights=out_neighbors[v][:, 1]).astype(int)
+                if 0:
+                    k2, inverse_idx = np.unique(b[out_neighbors[v][:, 0]], return_inverse=True)
+                    count = np.bincount(inverse_idx, weights=out_neighbors[v][:, 1]).astype(int)
+                else:
+                    k2,count = compressed_array.blocks_and_counts(
+                        b, out_neighbors[v][:, 0], out_neighbors[v][:, 1])
+                    
                 for k,c in zip(k2, count):
                     M_d[(k1, k)] += c
 

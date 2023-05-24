@@ -1581,6 +1581,63 @@ static PyObject* inplace_compute_new_rows_cols_interblock_edge_count_matrix(PyOb
 }
 
 
+/* 
+ * Args: M, r, s, b_out, count_out, b_in, count_in
+ */
+static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
+{
+  PyObject *obj_partition, *obj_neighbors, *obj_weights;
+
+  if (!PyArg_ParseTuple(args, "OOO", &obj_partition, &obj_neighbors, &obj_weights)) {
+    return NULL;
+  }
+
+  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);  
+  const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_weights = PyArray_FROM_OTF(obj_weights, NPY_LONG, NPY_IN_ARRAY);
+
+  const uint64_t *partition = (const uint64_t *) PyArray_DATA(ar_partition);
+  const uint64_t *neighbors = (const uint64_t *) PyArray_DATA(ar_neighbors);  
+  const uint64_t *weights = (const int64_t *) PyArray_DATA(ar_weights);
+
+  long i;
+  long n = (long) PyArray_DIM(ar_neighbors, 0);
+
+  /* Reserve at least 2x elements to avoid resizes. */
+  struct hash *h = hash_create(2 * n, 0);
+
+  for (i=0; i<n; i++) {
+    uint64_t k = partition[neighbors[i]];
+    uint64_t w = weights[i];
+    h = hash_accum_single(h, k, w);
+  }
+  
+  Py_DECREF(ar_partition);
+  Py_DECREF(ar_neighbors);
+  Py_DECREF(ar_weights);
+
+  uint64_t *blocks = malloc(n * sizeof(uint64_t));
+  int64_t *counts = malloc(n * sizeof(int64_t));  
+
+  long cnt;
+  cnt = hash_keys(h, blocks, n);
+  hash_vals(h, counts, n);
+
+  hash_destroy(h);
+
+  npy_intp dims[] = {cnt};
+  PyObject *blocks_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, blocks);
+  PyObject *counts_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, counts);
+
+  PyArray_ENABLEFLAGS((PyArrayObject*) blocks_obj, NPY_ARRAY_OWNDATA);
+  PyArray_ENABLEFLAGS((PyArrayObject*) counts_obj, NPY_ARRAY_OWNDATA);  
+
+  PyObject *ret = Py_BuildValue("NN", blocks_obj, counts_obj);
+  return ret;
+}
+
+
+
 static PyMethodDef compressed_array_methods[] =
   {
    { "create", create, METH_VARARGS, "Create a new object." },
@@ -1605,6 +1662,7 @@ static PyMethodDef compressed_array_methods[] =
    { "dict_entropy_row", dict_entropy_row, METH_VARARGS, "Compute part of delta entropy for a row entry." },
    { "dict_entropy_row_excl", dict_entropy_row_excl, METH_VARARGS, "Compute part of delta entropy for a row entry." },
    { "inplace_compute_new_rows_cols_interblock_edge_count_matrix", inplace_compute_new_rows_cols_interblock_edge_count_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
+   { "blocks_and_counts", blocks_and_counts, METH_VARARGS, "" },   
    {NULL, NULL, 0, NULL}
   };
 

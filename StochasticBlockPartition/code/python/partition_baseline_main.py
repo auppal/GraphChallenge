@@ -84,6 +84,22 @@ def entropy_max_argsort(x):
                 k += 1
     return out
 
+def blocks_and_counts(partition, neighbors):
+    """"
+    Compute neighboring blocks and edge counts to those blocks for a vertex.
+    neighbors has shape (n_neighbors, 2)
+    """
+    if 0:
+        d = defaultdict(int)
+        blocks = partition[neighbors[:, 0]]
+        weights = neighbors[:, 1]
+        for k,v in zip(blocks, weights):
+            d[k] += v
+        blocks = np.array(list(d.keys()), dtype=blocks.dtype)
+        counts = np.array(list(d.values()), dtype=weights.dtype)
+        return blocks,counts
+    else:
+        return compressed_array.blocks_and_counts(partition, neighbors[:, 0], neighbors[:, 1]);
 
 def compute_best_block_merge_wrapper(tup):
     (blocks, num_blocks) = tup
@@ -264,9 +280,9 @@ def propose_node_movement_wrapper(tup):
                     locks = vl + bl
                 elif 0:
                     locks = bl
-                elif 1:
-                    locks = vl
                 elif 0:
+                    locks = vl
+                elif 1:
                     # single lock
                     locks = [vertex_locks[0]]
             else:
@@ -323,11 +339,20 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         # SHR: read partition[in_neighbors[current_node]
         
         # compute block counts of in and out neighbors
-        blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[current_node][:, 0]],
-                                                return_inverse=True)
-        count_out = np.bincount(inverse_idx_out, weights=out_neighbors[current_node][:, 1]).astype(int)
-        blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[current_node][:, 0]], return_inverse=True)
-        count_in = np.bincount(inverse_idx_in, weights=in_neighbors[current_node][:, 1]).astype(int)
+        if 0:
+            blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[current_node][:, 0]],
+                                                    return_inverse=True)
+            count_out = np.bincount(inverse_idx_out, weights=out_neighbors[current_node][:, 1]).astype(int)
+            blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[current_node][:, 0]], return_inverse=True)
+            count_in = np.bincount(inverse_idx_in, weights=in_neighbors[current_node][:, 1]).astype(int)
+        elif 0:
+            blocks_out,count_out = blocks_and_counts(partition, out_neighbors[current_node])
+            blocks_in,count_in = blocks_and_counts(partition, in_neighbors[current_node])
+        else:
+            blocks_out,count_out = compressed_array.blocks_and_counts(
+                partition, out_neighbors[current_node][:, 0], out_neighbors[current_node][:, 1])
+            blocks_in,count_in = compressed_array.blocks_and_counts(
+                partition, in_neighbors[current_node][:, 0], in_neighbors[current_node][:, 1])
 
         # compute the two new rows and columns of the interblock edge count matrix
         self_edge_weight = self_edge_weights[current_node]
@@ -387,15 +412,23 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
 
     return current_node, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new    
 
-
 def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights, M, block_degrees_out, block_degrees_in, block_degrees, vertex_locks = None, block_lock = None):
     # acquire_locks([vertex_locks[0]])
 
-    blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[ni][:, 0]], return_inverse=True)
-    count_out = np.bincount(inverse_idx_out, weights=out_neighbors[ni][:, 1]).astype(int)
-    blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[ni][:, 0]], return_inverse=True)
-    count_in = np.bincount(inverse_idx_in, weights=in_neighbors[ni][:, 1]).astype(int)
-    
+    if 0:
+        blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[ni][:, 0]], return_inverse=True)
+        count_out = np.bincount(inverse_idx_out, weights=out_neighbors[ni][:, 1]).astype(int)
+        blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[ni][:, 0]], return_inverse=True)
+        count_in = np.bincount(inverse_idx_in, weights=in_neighbors[ni][:, 1]).astype(int)
+    elif 0:
+        blocks_out,count_out = blocks_and_counts(partition, out_neighbors[ni])
+        blocks_in,count_in = blocks_and_counts(partition, in_neighbors[ni])
+    else:
+        blocks_out,count_out = compressed_array.blocks_and_counts(partition,
+                                                                  out_neighbors[ni][:, 0], out_neighbors[ni][:, 1])
+        blocks_in,count_in = compressed_array.blocks_and_counts(partition,
+                                                                in_neighbors[ni][:, 0], in_neighbors[ni][:, 1])
+        
     if is_compressed(M):
         (M_r_row_sum, M_r_col_sum, M_s_row_sum, M_s_col_sum) = compressed_array.inplace_compute_new_rows_cols_interblock_edge_count_matrix(M.x, r, s, blocks_out, count_out, blocks_in, count_in)
 
