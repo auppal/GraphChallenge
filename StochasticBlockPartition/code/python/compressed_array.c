@@ -122,7 +122,7 @@ struct hash *hash_copy(const struct hash *y, int shared_mem)
 }
 
 void hash_print(struct hash *h);
-struct hash *hash_insert_single(struct hash *h, uint64_t k, int64_t v);
+struct hash *hash_set_single(struct hash *h, uint64_t k, int64_t v);
 #define RESIZE_DEBUG (0)
 
 inline struct hash *hash_resize(struct hash *h)
@@ -153,7 +153,7 @@ inline struct hash *hash_resize(struct hash *h)
     for (i=0; i<h->width; i++) {
       if ((h->keys[i] & EMPTY_FLAG) == 0) {
 	//fprintf(stderr, " %ld ", h->keys[i]);	
-	hash_insert_single(h2, h->keys[i], h->vals[i]);
+	hash_set_single(h2, h->keys[i], h->vals[i]);
 	ins++;
       }
     }
@@ -176,7 +176,7 @@ inline struct hash *hash_resize(struct hash *h)
 }
 
 
-struct hash *hash_insert_single(struct hash *h, uint64_t k, int64_t v)
+struct hash *hash_set_single(struct hash *h, uint64_t k, int64_t v)
 {
   /* To avoid a subtle logic bug, first check for existance. 
    * Beacuse not every insertion will cause an increase in cnt.
@@ -201,12 +201,44 @@ struct hash *hash_insert_single(struct hash *h, uint64_t k, int64_t v)
   h = hash_resize(h);
 
   if (!h) {
-    fprintf(stderr, "Warning in hash_insert_single: hash_resize failed\n");
-    abort();
+    fprintf(stderr, "Warning in hash_set_single: hash_resize failed\n");
   }
   
   return h;
 }
+
+
+struct hash *hash_accum_single(struct hash *h, uint64_t k, int64_t c)
+{
+  /* To avoid a subtle logic bug, first check for existance. 
+   * Beacuse not every insertion will cause an increase in cnt.
+   */
+  size_t i, width = h->width;
+  uint64_t kh = hash(k);
+
+  for (i=0; i<width; i++) {
+    size_t idx = (kh + i) % width;
+    if (h->keys[idx] == k) {
+      h->vals[idx] += c;
+      break;      
+    }
+    else if (h->keys[idx] & EMPTY_FLAG) {
+      h->keys[idx] = k & ~EMPTY_FLAG;
+      h->vals[idx] = c;
+      h->cnt++;
+      break;
+    }
+  }
+
+  h = hash_resize(h);
+
+  if (!h) {
+    fprintf(stderr, "Warning in hash_accum_single: hash_resize failed\n");
+  }
+  
+  return h;
+}
+
 
 inline int hash_search(const struct hash *h, uint64_t k, int64_t *v)
 {
@@ -300,6 +332,35 @@ void hash_print(struct hash *h)
   fprintf(stderr, "}\n");
 }
 
+int hash_eq(const struct hash *h, const struct hash *h2)
+{
+  size_t i;
+
+  for (i=0; i<h->width; i++) {
+    if ((h->keys[i] & EMPTY_FLAG) == 0) {
+      int64_t v2 = 0;
+      hash_search(h2, h->keys[i], &v2);
+      if (v2 != h->vals[i]) {
+	fprintf(stderr, "Mismatch at key %lu\n", h->keys[i]);
+	return 1;
+      }
+    }
+  }
+
+  for (i=0; i<h2->width; i++) {
+    if ((h2->keys[i] & EMPTY_FLAG) == 0) {
+      int64_t v = 0;
+      hash_search(h, h2->keys[i], &v);
+      if (v != h2->vals[i]) {
+	fprintf(stderr, "Mismatch at key %lu\n", h2->keys[i]);	
+	return 1;
+      }
+    }
+  }
+
+  return 0;
+}
+
 inline void hash_accum_constant(const struct hash *h, size_t C)
 {
   size_t i, width = h->width;
@@ -313,7 +374,7 @@ inline void hash_accum_constant(const struct hash *h, size_t C)
 
 inline struct hash *hash_accum_multi(struct hash *h, const uint64_t *keys, const int64_t *vals, size_t n_keys)
 {
-  size_t j, i;;
+  size_t j, i;
 
 #if 0  
   fprintf(stderr, "Before accum_multi\n");
@@ -506,8 +567,15 @@ inline int compressed_get_single(struct compressed_array *x, uint64_t i, uint64_
 inline void compressed_set_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t val)
 {
   /* XXX There is a bug in this logic if exactly one fails. */
-  x->rows[i] = hash_insert_single(x->rows[i], j, val);
-  x->cols[j] = hash_insert_single(x->cols[j], i, val);
+  x->rows[i] = hash_set_single(x->rows[i], j, val);
+  x->cols[j] = hash_set_single(x->cols[j], i, val);
+}
+
+inline void compressed_accum_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t C)
+{
+  /* XXX There is a bug in this logic if exactly one fails. */
+  x->rows[i] = hash_accum_single(x->rows[i], j, C);
+  x->cols[j] = hash_accum_single(x->cols[j], i, C);
 }
 
 /* Take values along a particular axis */
@@ -764,6 +832,35 @@ static PyObject* set_dict(PyObject *self, PyObject *args)
 
   Py_RETURN_NONE;
 }
+
+
+static PyObject* eq_dict(PyObject *self, PyObject *args)
+{
+  PyObject *obj_h1, *obj_h2;
+
+  if (!PyArg_ParseTuple(args, "OO", &obj_h1, &obj_h2))
+    return NULL;
+
+  struct hash **ph1 = PyCapsule_GetPointer(obj_h1, "compressed_array_dict");
+
+  if (!ph1) {
+    PyErr_SetString(PyExc_RuntimeError, "Invalid compressed_array_dict object");
+    return NULL;
+  }
+
+  struct hash **ph2 = PyCapsule_GetPointer(obj_h2, "compressed_array_dict");  
+
+  if (!ph2) {
+    PyErr_SetString(PyExc_RuntimeError, "Invalid compressed_array_dict object");
+    return NULL;
+  }
+
+  long val = hash_eq(*ph1, *ph2);
+  
+  PyObject *ret = Py_BuildValue("k", val);
+  return ret;
+}
+
 
 static PyObject* copy_dict(PyObject *self, PyObject *args)
 {
@@ -1316,6 +1413,68 @@ static PyObject* dict_entropy_row_excl(PyObject *self, PyObject *args)
 }
 
 
+/* 
+ * Args: M, r, s, b_out, count_out, b_in, count_in
+ */
+static PyObject* inplace_compute_new_rows_cols_interblock_edge_count_matrix(PyObject *self, PyObject *args)
+{
+  PyObject *obj_M, *obj_b_out, *obj_count_out, *obj_b_in, *obj_count_in;
+  uint64_t r, s;
+
+  if (!PyArg_ParseTuple(args, "OllOOOO", &obj_M, &r, &s, &obj_b_out, &obj_count_out, &obj_b_in, &obj_count_in)) {
+    return NULL;
+  }
+
+  struct compressed_array *M = PyCapsule_GetPointer(obj_M, "compressed_array");
+
+  if (!M) {
+    PyErr_SetString(PyExc_RuntimeError, "NULL pointer to compresed array");
+    return NULL;
+  }
+
+  const PyObject *ar_b_out = PyArray_FROM_OTF(obj_b_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_count_out = PyArray_FROM_OTF(obj_count_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_b_in = PyArray_FROM_OTF(obj_b_in, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_count_in = PyArray_FROM_OTF(obj_count_in, NPY_LONG, NPY_IN_ARRAY);
+
+  const uint64_t *b_out = (const uint64_t *) PyArray_DATA(ar_b_out);
+  const int64_t *count_out = (const int64_t *) PyArray_DATA(ar_count_out);
+  const uint64_t *b_in = (const uint64_t *) PyArray_DATA(ar_b_in);
+  const int64_t *count_in = (const int64_t *) PyArray_DATA(ar_count_in);
+
+  long n_out= (long) PyArray_DIM(ar_b_out, 0);
+  long n_in = (long) PyArray_DIM(ar_b_in, 0);  
+  long i;
+
+  for (i=0; i<n_out; i++) {
+    /* M[r, b_out[i]] -= count_out[i] */
+    /* M[s, b_out[i]] += count_out[i] */
+    compressed_accum_single(M, r, b_out[i], -count_out[i]);
+    compressed_accum_single(M, s, b_out[i], +count_out[i] );
+  }
+
+  for (i=0; i<n_in; i++) {
+    /* M[b_in[i], s] -= count_in[i] */
+    /* M[b_in[i], s] += count_in[i] */
+    compressed_accum_single(M, b_in[i], r, -count_in[i] );
+    compressed_accum_single(M, b_in[i], s, +count_in[i] );
+  }
+
+  long M_r_row_sum = hash_sum(M->rows[r]);
+  long M_r_col_sum = hash_sum(M->cols[r]);
+  long M_s_row_sum = hash_sum(M->rows[s]);
+  long M_s_col_sum = hash_sum(M->cols[s]);  
+
+  Py_DECREF(ar_b_out);
+  Py_DECREF(ar_count_out);
+  Py_DECREF(ar_b_in);
+  Py_DECREF(ar_count_in);
+
+  PyObject *ret = Py_BuildValue("kkkk", M_r_row_sum, M_r_col_sum, M_s_row_sum, M_s_col_sum);
+  return ret;
+}
+
+
 static PyMethodDef compressed_array_methods[] =
   {
    { "create", create, METH_VARARGS, "Create a new object." },
@@ -1332,12 +1491,14 @@ static PyMethodDef compressed_array_methods[] =
    { "empty_dict", empty_dict, METH_VARARGS, "New row dict." },
    { "getitem_dict", getitem_dict, METH_VARARGS, "Look up in a row dict." },
    { "set_dict", set_dict, METH_VARARGS, "Set a row dict." },
+   { "eq_dict", eq_dict, METH_VARARGS, "Compare two dicts." },
    { "copy_dict", copy_dict, METH_VARARGS, "Copy a row dict." },
    { "sum_dict", sum_dict, METH_VARARGS, "Sum the values of a dict." },   
    { "select_copy", select_copy, METH_VARARGS, "Selectively copy row and colummns." },
    { "sanity_check", sanity_check, METH_VARARGS, "Run a sanity check." },   
    { "dict_entropy_row", dict_entropy_row, METH_VARARGS, "Compute part of delta entropy for a row entry." },
-   { "dict_entropy_row_excl", dict_entropy_row_excl, METH_VARARGS, "Compute part of delta entropy for a row entry." },      
+   { "dict_entropy_row_excl", dict_entropy_row_excl, METH_VARARGS, "Compute part of delta entropy for a row entry." },
+   { "inplace_compute_new_rows_cols_interblock_edge_count_matrix", inplace_compute_new_rows_cols_interblock_edge_count_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
    {NULL, NULL, 0, NULL}
   };
 

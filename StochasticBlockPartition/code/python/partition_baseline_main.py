@@ -12,12 +12,7 @@ import numpy.random
 from compute_delta_entropy import compute_delta_entropy
 import random
 import shutil
-
-compressed_native = (os.getenv("compressed_native") == "1")
-if compressed_native:
-    from interblock_edge_count import is_compressed
-else:
-    from fast_sparse_array import is_compressed
+from interblock_edge_count import is_compressed
 
 try:
     from queue import Empty as queue_empty
@@ -52,12 +47,12 @@ def find_self_edge_weights(N, out_neighbors):
     return self_edge_weights
 
 def acquire_locks(locks):
-    if locks:
+    if locks is not None:
         for i in locks:
             i.acquire()
 
 def release_locks(locks):
-    if locks:
+    if locks is not None:
         for i in locks[::-1]:
             i.release()
 
@@ -201,7 +196,7 @@ def propose_node_movement_wrapper(tup):
     rank,start,stop,step = tup
 
     args = syms['args']
-    vertex_lock,block_lock = syms['locks']
+    vertex_locks,block_locks = syms['locks']
     
     results = syms['results']
     (results_proposal, results_delta_entropy, results_accept) = syms['results']
@@ -239,11 +234,17 @@ def propose_node_movement_wrapper(tup):
     #acquire_lock(block_lock)
 
     for current_node in range(start, stop, step):
+#        neighbors = vertex_neighbors[current_node][:, 0]
+#        vl = vertex_locks[neighbors])
+#        acquire_locks(vl)
+        
         movement = propose_node_movement(current_node, partition, out_neighbors, in_neighbors,
                                          M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
-                                         vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args, vertex_lock=vertex_lock, block_lock=block_lock)
+                                         vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args, vertex_lock=None, block_lock=None)
 
         (ni, current_block, proposal, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
+
+#        release_locks(vl)
 
         accept = (np.random.uniform() <= p_accept)
         ni = current_node
@@ -253,12 +254,30 @@ def propose_node_movement_wrapper(tup):
         if accept:
             if args.verbose > 3:
                 print("Rank %d pid %d moving node %d from %d to %d" % (rank,mypid,ni,r,s))
+
+            if 0:
+                neighbors = vertex_neighbors[ni][:, 0]
+                bl = [block_locks[min(r,s)], block_locks[max(r,s)]]
+                vil = sorted(list(neighbors) + [ni])
+                vl = [vertex_locks[i] for i in vil]
+
+                #print("Rank %d bil is %s" % (rank,vil))
+                acquire_locks(bl)
+
+                #print("Rank %d vil is %s" % (rank,vil))
+                acquire_locks(vl)
+            else:
+                acquire_locks([vertex_locks[0]])
             
-            acquire_locks([vertex_lock])
             move_node(ni, r, s, partition_shared,
                       out_neighbors, in_neighbors, self_edge_weights, M_shared,
                       block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared)
-            release_locks([vertex_lock])
+
+            if 0:
+                release_locks(vl)
+                release_locks(bl)
+            else:
+                release_locks([vertex_locks[0]])
 
             if args.verbose > 3:
                 print("Rank %d pid %d done moving node %d from %d to %d" % (rank,mypid,ni,r,s))
@@ -277,8 +296,12 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
                           block_degrees, block_degrees_out, block_degrees_in,
                           vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args, vertex_lock=None, block_lock=None):
 
+    # SHR: read partition
     r = partition[current_node]
 
+    # SHR: read u = partition[rand_neighbor]
+    # SHR: read row M[u,0] col M[0,u]
+    
     s = propose_new_partition(
         r,
         vertex_neighbors[current_node][:, 0],
@@ -295,6 +318,9 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
     if s == r:
         (current_node, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = current_node, r, int(s), 0.0, False, None, None, None, None, None, None
     else:
+        # SHR: read partition[out_neighbors[current_node]
+        # SHR: read partition[in_neighbors[current_node]
+        
         # compute block counts of in and out neighbors
         blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[current_node][:, 0]],
                                                 return_inverse=True)
@@ -305,11 +331,14 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         # compute the two new rows and columns of the interblock edge count matrix
         self_edge_weight = self_edge_weights[current_node]
 
+
+        # SHR: read M[r,:] M[s,:] M[:,r] M[:s]
         new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col = \
             compute_new_rows_cols_interblock_edge_count_matrix(M, r, s,
                                                                blocks_out, count_out, blocks_in, count_in,
                                                                self_edge_weight, agg_move = 0, M_lock=block_lock)
 
+        # SHR: read block_degrees_out[:], block_degrees_in[:], block_degrees[:]
         block_degrees_out_new = block_degrees_out.copy()
         block_degrees_in_new = block_degrees_in.copy()
         block_degrees_new = block_degrees.copy()
@@ -321,7 +350,7 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         block_degrees_new[s] = block_degrees_out[s] + block_degrees_in[s]
         block_degrees_new[r] = block_degrees_out[r] + block_degrees_in[r]
 
-        # compute the Hastings correction
+        # SHR: read block_degrees[t] where t is union of b_out and b_in
         Hastings_correction = compute_Hastings_correction(blocks_out, count_out, blocks_in, count_in,
                                                           r,
                                                           s,
@@ -347,8 +376,6 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
                                               block_degrees_out_new,
                                               block_degrees_in_new)
 
-        # compute probability of acceptance
-
         # Clamp to avoid under- and overflow
         if delta_entropy > 10.0:
             delta_entropy = 10.0
@@ -357,7 +384,8 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
 
         p_accept = np.min([np.exp(-args.beta * delta_entropy) * Hastings_correction, 1])
 
-    return current_node, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new
+    return current_node, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new    
+
 
 def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights, M, block_degrees_out, block_degrees_in, block_degrees, vertex_lock = None, block_lock = None):
 
@@ -369,36 +397,31 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
     blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[ni][:, 0]], return_inverse=True)
     count_in = np.bincount(inverse_idx_in, weights=in_neighbors[ni][:, 1]).astype(int)
 
-    new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col = \
-                        compute_new_rows_cols_interblock_edge_count_matrix(
-                            M, r, s,
-                            blocks_out, count_out, blocks_in, count_in,
-                            self_edge_weights[ni], agg_move = 0)
+    if is_compressed(M):
+        (M_r_row_sum, M_r_col_sum, M_s_row_sum, M_s_col_sum) = compressed_array.inplace_compute_new_rows_cols_interblock_edge_count_matrix(M.x, r, s, blocks_out, count_out, blocks_in, count_in)
 
-    if not is_compressed(M) or M.impl == 'compressed_python':
+        block_degrees_out[r] = M_r_row_sum
+        block_degrees_out[s] = M_s_row_sum
+        block_degrees_in[r] = M_r_col_sum
+        block_degrees_in[s] = M_s_col_sum
+
+        block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
+        block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
+    else:
+        new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col = \
+            compute_new_rows_cols_interblock_edge_count_matrix(
+                M, r, s,
+                blocks_out, count_out, blocks_in, count_in,
+                self_edge_weights[ni], agg_move = 0)
+    
         block_degrees_out[r] = new_M_r_row.sum()
         block_degrees_out[s] = new_M_s_row.sum()
         block_degrees_in[r] = new_M_r_col.sum()
         block_degrees_in[s] = new_M_s_col.sum()
-    else:
-        block_degrees_out[r] = compressed_array.sum_dict(new_M_r_row)
-        block_degrees_out[s] = compressed_array.sum_dict(new_M_s_row)
-        block_degrees_in[r] = compressed_array.sum_dict(new_M_r_col)
-        block_degrees_in[s] = compressed_array.sum_dict(new_M_s_col)
 
-    block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
-    block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
+        block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
+        block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
 
-    if is_compressed(M):
-        # compressed_array.setaxis_from_dict(M.x, r, 0, new_M_r_row)
-        # compressed_array.setaxis_from_dict(M.x, s, 0, new_M_s_row)
-        # compressed_array.setaxis_from_dict(M.x, r, 1, new_M_r_col)
-        # compressed_array.setaxis_from_dict(M.x, s, 1, new_M_s_col)
-        M.set_axis_dict(r, 0, new_M_r_row)
-        M.set_axis_dict(s, 0, new_M_s_row)
-        M.set_axis_dict(r, 1, new_M_r_col)
-        M.set_axis_dict(s, 1, new_M_s_col)
-    else:
         M[r, :] = new_M_r_row
         M[:, r] = new_M_r_col
         M[s, :] = new_M_s_row
@@ -503,8 +526,8 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
 
-    block_lock = mp.Lock() #[mp.Lock() for i in range(M.shape[0])]
-    vertex_lock = mp.Lock()
+    block_lock = np.array([mp.Lock() for i in range(M.shape[0])])
+    vertex_lock = np.array([mp.Lock() for i in range(N)])
 
     modified = np.zeros(M.shape[0], dtype=bool)
     update_id_shared = Value('i', 0)
@@ -832,7 +855,9 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
     vertex_num_in_neighbor_edges = np.empty(N, dtype=int)
     vertex_num_out_neighbor_edges = np.empty(N, dtype=int)
     vertex_num_neighbor_edges = np.empty(N, dtype=int)
-    vertex_neighbors = [np.concatenate((out_neighbors[i], in_neighbors[i])) for i in range(N)]
+
+    # XXX I think it is ok to apply unique to each node's neighbors. But it may be an issue if it messes up the neighbor selection probabilities.
+    vertex_neighbors = [np.unique(np.concatenate((out_neighbors[i], in_neighbors[i])), axis=0) for i in range(N)]
 
     for i in range(N):
         vertex_num_out_neighbor_edges[i] = sum(out_neighbors[i][:,1])
@@ -1259,8 +1284,7 @@ def incremental_streaming(args):
                 vertex_num_in_neighbor_edges = np.empty(N, dtype=int)
                 vertex_num_out_neighbor_edges = np.empty(N, dtype=int)
                 vertex_num_neighbor_edges = np.empty(N, dtype=int)
-                vertex_neighbors = [np.concatenate((out_neighbors[i], in_neighbors[i])) for i in range(N)]
-
+                vertex_neighbors = [np.unique(np.concatenate((out_neighbors[i], in_neighbors[i])), axis=0) for i in range(N)]
                 for i in range(N):
                     vertex_num_out_neighbor_edges[i] = sum(out_neighbors[i][:,1])
                     vertex_num_in_neighbor_edges[i] = sum(in_neighbors[i][:,1])

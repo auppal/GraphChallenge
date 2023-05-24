@@ -10,7 +10,6 @@ def is_compressed(M):
 star = slice(None, None, None)
 class fast_sparse_array(object):
     def __init__(self, tup, width, base_type=list, dtype=None):
-        print("tup,width",tup,width)
         if (tup[0] > 0):
             self.x = compressed_array.create(tup[0], width)
         self.width = width
