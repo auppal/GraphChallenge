@@ -1257,9 +1257,12 @@ static PyObject* take(PyObject *self, PyObject *args)
   fprintf(stderr, "\n");
 #endif
 
+#if 0
+  /* Large sized graph seems to trigger the empty case. */
   if (cnt == 0) {
     Py_RETURN_NONE;
   }
+#endif  
   
   npy_intp dims[] = {cnt};
 
