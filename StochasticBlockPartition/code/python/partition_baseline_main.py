@@ -271,9 +271,9 @@ def propose_node_movement_wrapper(tup):
             if args.verbose > 3:
                 print("Rank %d pid %d moving node %d from %d to %d" % (rank,mypid,ni,r,s))
 
-            neighbors = vertex_neighbors[ni][:, 0]
-            bl = [block_locks[min(r,s)], block_locks[max(r,s)]]
-            vl = [vertex_locks[i] for i in sorted(list(neighbors) + [ni])]
+            # neighbors = vertex_neighbors[ni][:, 0]
+            # bl = [block_locks[min(r,s)], block_locks[max(r,s)]]
+            # vl = [vertex_locks[i] for i in sorted(list(neighbors) + [ni])]
 
             if is_compressed(M):
                 if 0:
@@ -556,8 +556,8 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
 
-    block_lock = np.array([mp.Lock() for i in range(M.shape[0])])
-    vertex_lock = np.array([mp.Lock() for i in range(N)])
+    block_lock = None
+    vertex_lock = [mp.Lock()]
 
     modified = np.zeros(M.shape[0], dtype=bool)
     update_id_shared = Value('i', 0)
