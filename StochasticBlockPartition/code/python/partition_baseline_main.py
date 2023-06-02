@@ -219,7 +219,7 @@ def propose_node_movement_wrapper(tup):
 
     (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights) = syms['static_state']
 
-    (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared,) = syms['nodal_move_state']
+    (update_id_shared, M_shared, M_out, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared,) = syms['nodal_move_state']
 
     if 1:
         M = M_shared
@@ -489,26 +489,21 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
     
-    (partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared) \
-        = (shared_memory_copy(i) for i in (partition, block_degrees, block_degrees_out, block_degrees_in, ))
-
-    M_shared = M.copy()
-
     for itr in range(max_num_nodal_itr):
         num_nodal_moves = 0
         itr_delta_entropy[itr] = 0
 
         if args.sort:
             #L = np.argsort(partition)
-            L = entropy_max_argsort(partition_shared)
+            L = entropy_max_argsort(partition)
         else:
             L = range(0, N)
 
         update_id_cnt = 0
 
         for i in L:
-            movement = propose_node_movement(i, partition_shared, out_neighbors, in_neighbors, M_shared, num_blocks,
-                                             block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared,
+            movement = propose_node_movement(i, partition, out_neighbors, in_neighbors, M, num_blocks,
+                                             block_degrees, block_degrees_out, block_degrees_in,
                                              vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args)
 
             (ni, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
@@ -524,9 +519,9 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
             if verbose > 3:
                 print("Move %5d from block %5d to block %5d." % (ni, r, s))
 
-            move_node(ni, r, s, partition_shared,
-                      out_neighbors, in_neighbors, self_edge_weights, M_shared,
-                      block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared)
+            move_node(ni, r, s, partition,
+                      out_neighbors, in_neighbors, self_edge_weights, M,
+                      block_degrees_out, block_degrees_in, block_degrees)
 
         if verbose:
             print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}".format(itr, num_nodal_moves,
@@ -541,13 +536,7 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
                     delta_entropy_threshold * overall_entropy_cur)):
                     break
 
-        partition[:] = partition_shared[:]
-        M = M_shared
-        block_degrees[:] = block_degrees_shared[:]
-        block_degrees_in[:] = block_degrees_in_shared[:]
-        block_degrees_out[:] = block_degrees_out_shared[:]
-                
-    return total_num_nodal_moves_itr, M
+    return total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees
 
 
 def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args):
@@ -571,8 +560,10 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
 
     if is_compressed(M):
         M_shared = M
+        M_next = M.copy()
     else:
         M_shared = shared_memory_copy(M)
+        M_next = shared_memory_copy(M)
 
     static_state = (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights)
 
@@ -589,7 +580,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     syms['results'] = (results_proposal, results_delta_entropy, results_accept)
     syms['locks'] = vertex_lock,block_lock
     syms['static_state'] = static_state
-    syms['nodal_move_state'] = (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared)
+    syms['nodal_move_state'] = (update_id_shared, M_shared, M_next, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared)
     syms['args'] = args
 
     pool = Pool(n_thread_move)
@@ -667,14 +658,15 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
 
     pool.close()
 
-    if 1:
+    if 0:
         partition[:] = partition_shared[:]
         M = M_shared
         block_degrees[:] = block_degrees_shared[:]
         block_degrees_in[:] = block_degrees_in_shared[:]
         block_degrees_out[:] = block_degrees_out_shared[:]
-    
-    return total_num_nodal_moves_itr,M
+        return total_num_nodal_moves_itr,partition_shared,M,block_degrees_out,block_degrees_in,block_degrees        
+    else:
+        return total_num_nodal_moves_itr,partition_shared,M_shared,block_degrees_out_shared,block_degrees_in_shared,block_degrees_shared
 
 
 def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_threshold, M, block_degrees, block_degrees_out, block_degrees_in, out_neighbors, in_neighbors, N, E, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, partition, args, verbose = False):
@@ -815,9 +807,9 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     batch_size = args.node_move_update_batch_size
 
     if n_thread_move > 0:
-        total_num_nodal_moves_itr,M = nodal_moves_parallel(n_thread_move, batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
+        total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees = nodal_moves_parallel(n_thread_move, batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
     else:
-        total_num_nodal_moves_itr,M = nodal_moves_sequential(batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
+        total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees = nodal_moves_sequential(batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
 
     # compute the global entropy for determining the optimal number of blocks
     overall_entropy = compute_overall_entropy(M, block_degrees_out, block_degrees_in, num_blocks, N, E)
