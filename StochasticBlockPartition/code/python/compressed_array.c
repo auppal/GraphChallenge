@@ -1562,7 +1562,7 @@ static PyObject* inplace_compute_new_rows_cols_interblock_edge_count_matrix(PyOb
 #else
   
   for (i=0; i<n_in; i++) {
-    /* M[b_in[i], s] -= count_in[i] */
+    /* M[b_in[i], r] -= count_in[i] */
     /* M[b_in[i], s] += count_in[i] */
     compressed_accum_single(M, b_in[i], r, -count_in[i] );
     compressed_accum_single(M, b_in[i], s, +count_in[i] );
@@ -1601,7 +1601,7 @@ static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
 
   const uint64_t *partition = (const uint64_t *) PyArray_DATA(ar_partition);
   const uint64_t *neighbors = (const uint64_t *) PyArray_DATA(ar_neighbors);  
-  const uint64_t *weights = (const int64_t *) PyArray_DATA(ar_weights);
+  const uint64_t *weights = (const uint64_t *) PyArray_DATA(ar_weights);
 
   long i;
   long n = (long) PyArray_DIM(ar_neighbors, 0);
@@ -1640,6 +1640,78 @@ static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
 }
 
 
+#include <stdatomic.h>
+
+/* 
+ * Args: M, r, s, b_out, count_out, b_in, count_in
+ * Version for an uncompressed array, using atomic operations.
+ */
+static PyObject* inplace_atomic_new_rows_cols_M(PyObject *self, PyObject *args)
+{
+  PyObject *obj_M, *obj_b_out, *obj_count_out, *obj_b_in, *obj_count_in;
+  uint64_t r, s;
+
+  if (!PyArg_ParseTuple(args, "OllOOOO", &obj_M, &r, &s, &obj_b_out, &obj_count_out, &obj_b_in, &obj_count_in)) {
+    return NULL;
+  }
+
+  const PyObject *M = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_b_out = PyArray_FROM_OTF(obj_b_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_count_out = PyArray_FROM_OTF(obj_count_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_b_in = PyArray_FROM_OTF(obj_b_in, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_count_in = PyArray_FROM_OTF(obj_count_in, NPY_LONG, NPY_IN_ARRAY);
+
+  const uint64_t *b_out = (const uint64_t *) PyArray_DATA(ar_b_out);
+  int64_t *count_out = (int64_t *) PyArray_DATA(ar_count_out);
+  const uint64_t *b_in = (const uint64_t *) PyArray_DATA(ar_b_in);
+  int64_t *count_in = (int64_t *) PyArray_DATA(ar_count_in);
+
+  long n_out= (long) PyArray_DIM(ar_b_out, 0);
+  long n_in = (long) PyArray_DIM(ar_b_in, 0);  
+  long i;
+
+  for (i=0; i<n_out; i++) {
+    /* M[r, b_out[i]] -= count_out[i] */
+    /* M[s, b_out[i]] += count_out[i] */
+#if 0
+    atomic_ulong *p;
+    p = PyArray_GETPTR2(M, r, b_out[i]);
+    *p -= count_out[i];
+    p = PyArray_GETPTR2(M, s, b_out[i]);
+    *p += count_out[i];
+#else
+    atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, r, b_out[i]), -count_out[i], memory_order_relaxed);
+    atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, s, b_out[i]), +count_out[i], memory_order_relaxed);
+#endif
+  }
+  
+  for (i=0; i<n_in; i++) {
+    /* M[b_in[i], r] -= count_in[i] */
+    /* M[b_in[i], s] += count_in[i] */
+#if 0
+    atomic_ulong *p;    
+    p = PyArray_GETPTR2(M, b_in[i], r);
+    *p -= count_in[i];
+    p = PyArray_GETPTR2(M, b_in[i], s);
+    *p += count_in[i];
+#else
+    atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, b_in[i], r), -count_in[i], memory_order_relaxed);
+    atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, b_in[i], s), +count_in[i], memory_order_relaxed);
+#endif
+    
+  }
+
+  Py_DECREF(M);
+  Py_DECREF(ar_b_out);
+  Py_DECREF(ar_count_out);
+  Py_DECREF(ar_b_in);
+  Py_DECREF(ar_count_in);
+
+  uint64_t M_r_row_sum = 0, M_r_col_sum = 0, M_s_row_sum = 0, M_s_col_sum = 0;
+  
+  PyObject *ret = Py_BuildValue("kkkk", M_r_row_sum, M_r_col_sum, M_s_row_sum, M_s_col_sum);
+  return ret;  
+}
 
 static PyMethodDef compressed_array_methods[] =
   {
@@ -1665,7 +1737,8 @@ static PyMethodDef compressed_array_methods[] =
    { "dict_entropy_row", dict_entropy_row, METH_VARARGS, "Compute part of delta entropy for a row entry." },
    { "dict_entropy_row_excl", dict_entropy_row_excl, METH_VARARGS, "Compute part of delta entropy for a row entry." },
    { "inplace_compute_new_rows_cols_interblock_edge_count_matrix", inplace_compute_new_rows_cols_interblock_edge_count_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
-   { "blocks_and_counts", blocks_and_counts, METH_VARARGS, "" },   
+   { "blocks_and_counts", blocks_and_counts, METH_VARARGS, "" },
+   { "inplace_atomic_new_rows_cols_M", inplace_atomic_new_rows_cols_M, METH_VARARGS, "" },
    {NULL, NULL, 0, NULL}
   };
 
