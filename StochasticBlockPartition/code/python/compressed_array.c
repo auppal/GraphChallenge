@@ -1470,116 +1470,32 @@ static PyObject* inplace_compute_new_rows_cols_interblock_edge_count_matrix(PyOb
   long n_out= (long) PyArray_DIM(ar_b_out, 0);
   long n_in = (long) PyArray_DIM(ar_b_in, 0);  
   long i;
-
-#if 0
-  uint64_t a = (r < s) ? r : s;
-  uint64_t b = (r < s) ? s : r;
-
-  long remain;
-  sem_wait(&M->sem_row[a]);
-  sem_wait(&M->sem_row[b]);
-
-  i = 0;
-  remain = n_out;
-  while (remain > 0) {
-    if (count_out[i] > 0) {
-      if (1 && sem_trywait(&M->sem_col[b_out[i]]) == 0) {
-	compressed_accum_single(M, r, b_out[i], -count_out[i]);
-	compressed_accum_single(M, s, b_out[i], +count_out[i]);
-	count_out[i] = 0;
-	remain--;
-	sem_post(&M->sem_col[b_out[i]]);
-      }
-      else {
-	fprintf(stderr, "child %d holding sem_row %ld and %ld wait for col %ld\n", getpid(), a, b, b_out[i]);
-      }
-    }
-
-    if (++i == n_out) {
-      sem_post(&M->sem_row[b]);
-      sem_post(&M->sem_row[a]);  
-      sem_wait(&M->sem_row[a]);
-      sem_wait(&M->sem_row[b]);
-      i = 0;
-    }
-  }
-
-  long M_r_row_sum = hash_sum(M->rows[r]);
-  long M_s_row_sum = hash_sum(M->rows[s]);
-
-  sem_post(&M->sem_row[b]);
-  sem_post(&M->sem_row[a]);  
-
-#else
-  // sem_wait(&M->sem_row[0]);
+  int64_t dM_r_row_sum = 0, dM_r_col_sum = 0, dM_s_row_sum = 0, dM_s_col_sum = 0;
   
   for (i=0; i<n_out; i++) {
     /* M[r, b_out[i]] -= count_out[i] */
     /* M[s, b_out[i]] += count_out[i] */
+    dM_r_row_sum -= count_out[i];
+    dM_s_row_sum += count_out[i];    
     compressed_accum_single(M, r, b_out[i], -count_out[i] );
     compressed_accum_single(M, s, b_out[i], +count_out[i] );
   }
-
-  long M_r_row_sum = hash_sum(M->rows[r]);
-  long M_s_row_sum = hash_sum(M->rows[s]);
-#endif
-
-#if 0
-  sem_wait(&M->sem_col[a]);
-  sem_wait(&M->sem_col[b]);
-
-  i = 0;
-  remain = n_in;
-  while (remain > 0) {
-    if (count_in[i] > 0) {
-      if (1 && sem_trywait(&M->sem_row[b_in[i]]) == 0) {
-	compressed_accum_single(M, b_in[i], r, -count_in[i] );
-	compressed_accum_single(M, b_in[i], s, +count_in[i] );
-	count_in[i] = 0;
-	remain--;
-	sem_post(&M->sem_row[b_in[i]]);    
-      }
-      else {
-	fprintf(stderr, "child %d holding sem_col %ld and %ld wait for row %ld\n", getpid(), a, b, b_in[i]);
-      }
-    }
-
-    if (++i == n_in) {
-      sem_post(&M->sem_col[b]);
-      sem_post(&M->sem_col[a]);  
-      sem_wait(&M->sem_col[a]);
-      sem_wait(&M->sem_col[b]);
-      i = 0;
-    }
-  }
-
-  long M_r_col_sum = hash_sum(M->cols[r]);
-  long M_s_col_sum = hash_sum(M->cols[s]);
-
-  sem_post(&M->sem_col[b]);
-  sem_post(&M->sem_col[a]);  
-
-#else
   
   for (i=0; i<n_in; i++) {
     /* M[b_in[i], r] -= count_in[i] */
     /* M[b_in[i], s] += count_in[i] */
+    dM_r_col_sum -= count_in[i];
+    dM_s_col_sum += count_in[i];    
     compressed_accum_single(M, b_in[i], r, -count_in[i] );
     compressed_accum_single(M, b_in[i], s, +count_in[i] );
   }
-
-  long M_r_col_sum = hash_sum(M->cols[r]);
-  long M_s_col_sum = hash_sum(M->cols[s]);
-
-  // sem_post(&M->sem_row[0]);
-#endif
 
   Py_DECREF(ar_b_out);
   Py_DECREF(ar_count_out);
   Py_DECREF(ar_b_in);
   Py_DECREF(ar_count_in);
 
-  PyObject *ret = Py_BuildValue("kkkk", M_r_row_sum, M_r_col_sum, M_s_row_sum, M_s_col_sum);
+  PyObject *ret = Py_BuildValue("llll", dM_r_row_sum, dM_r_col_sum, dM_s_row_sum, dM_s_col_sum);
   return ret;
 }
 
@@ -1670,6 +1586,8 @@ static PyObject* inplace_atomic_new_rows_cols_M(PyObject *self, PyObject *args)
   long n_in = (long) PyArray_DIM(ar_b_in, 0);  
   long i;
 
+  int64_t dM_r_row_sum = 0, dM_r_col_sum = 0, dM_s_row_sum = 0, dM_s_col_sum = 0;
+  
   for (i=0; i<n_out; i++) {
     /* M[r, b_out[i]] -= count_out[i] */
     /* M[s, b_out[i]] += count_out[i] */
@@ -1680,6 +1598,8 @@ static PyObject* inplace_atomic_new_rows_cols_M(PyObject *self, PyObject *args)
     p = PyArray_GETPTR2(M, s, b_out[i]);
     *p += count_out[i];
 #else
+    dM_r_row_sum -= count_out[i];
+    dM_s_row_sum += count_out[i];
     atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, r, b_out[i]), -count_out[i], memory_order_relaxed);
     atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, s, b_out[i]), +count_out[i], memory_order_relaxed);
 #endif
@@ -1695,6 +1615,8 @@ static PyObject* inplace_atomic_new_rows_cols_M(PyObject *self, PyObject *args)
     p = PyArray_GETPTR2(M, b_in[i], s);
     *p += count_in[i];
 #else
+    dM_r_col_sum -= count_in[i];
+    dM_s_col_sum += count_in[i];
     atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, b_in[i], r), -count_in[i], memory_order_relaxed);
     atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, b_in[i], s), +count_in[i], memory_order_relaxed);
 #endif
@@ -1707,9 +1629,7 @@ static PyObject* inplace_atomic_new_rows_cols_M(PyObject *self, PyObject *args)
   Py_DECREF(ar_b_in);
   Py_DECREF(ar_count_in);
 
-  uint64_t M_r_row_sum = 0, M_r_col_sum = 0, M_s_row_sum = 0, M_s_col_sum = 0;
-  
-  PyObject *ret = Py_BuildValue("kkkk", M_r_row_sum, M_r_col_sum, M_s_row_sum, M_s_col_sum);
+  PyObject *ret = Py_BuildValue("llll", dM_r_row_sum, dM_r_col_sum, dM_s_row_sum, dM_s_col_sum);
   return ret;  
 }
 
