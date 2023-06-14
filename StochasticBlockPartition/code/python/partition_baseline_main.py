@@ -219,22 +219,13 @@ def propose_node_movement_wrapper(tup):
 
     (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights) = syms['static_state']
 
-    (update_id_shared, M_shared, M_out, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared,) = syms['nodal_move_state']
+    (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared,) = syms['nodal_move_state']
 
-    if 1:
-        M = M_shared
-        block_degrees = block_degrees_shared
-        block_degrees_out = block_degrees_out_shared
-        block_degrees_in = block_degrees_in_shared
-        partition = partition_shared
-    else:
-        acquire_locks([vertex_lock])
-        M = M_shared
-        block_degrees = block_degrees_shared.copy()
-        block_degrees_out = block_degrees_out_shared.copy()
-        block_degrees_in = block_degrees_in_shared.copy()
-        partition = partition_shared.copy()
-        release_locks([vertex_lock])
+    M = M_shared
+    block_degrees = block_degrees_shared
+    block_degrees_out = block_degrees_out_shared
+    block_degrees_in = block_degrees_in_shared
+    partition = partition_shared
 
     if update_id != update_id_shared.value:
         if update_id == -1:
@@ -279,13 +270,9 @@ def propose_node_movement_wrapper(tup):
             # bl = [block_locks[min(r,s)], block_locks[max(r,s)]]
             # vl = [vertex_locks[i] for i in sorted(list(neighbors) + [ni])]
 
-            acquire_locks(locks)
-                
             move_node(ni, r, s, partition_shared,
                       out_neighbors, in_neighbors, self_edge_weights, M_shared,
-                      block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared)
-
-            release_locks(locks)
+                      block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks)
 
             if args.verbose > 3:
                 print("Rank %d pid %d done moving node %d from %d to %d" % (rank,mypid,ni,r,s))
@@ -403,22 +390,18 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
     return current_node, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new    
 
 def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights, M, block_degrees_out, block_degrees_in, block_degrees, vertex_locks = None, block_lock = None):
-    # acquire_locks([vertex_locks[0]])
 
-    if 0:
-        blocks_out, inverse_idx_out = np.unique(partition[out_neighbors[ni][:, 0]], return_inverse=True)
-        count_out = np.bincount(inverse_idx_out, weights=out_neighbors[ni][:, 1]).astype(int)
-        blocks_in, inverse_idx_in = np.unique(partition[in_neighbors[ni][:, 0]], return_inverse=True)
-        count_in = np.bincount(inverse_idx_in, weights=in_neighbors[ni][:, 1]).astype(int)
-    elif 0:
-        blocks_out,count_out = blocks_and_counts(partition, out_neighbors[ni])
-        blocks_in,count_in = blocks_and_counts(partition, in_neighbors[ni])
-    else:
-        blocks_out,count_out = compressed_array.blocks_and_counts(partition,
-                                                                  out_neighbors[ni][:, 0], out_neighbors[ni][:, 1])
-        blocks_in,count_in = compressed_array.blocks_and_counts(partition,
-                                                                in_neighbors[ni][:, 0], in_neighbors[ni][:, 1])
-        
+    acquire_locks([vertex_locks[0]])
+
+    blocks_out,count_out = compressed_array.blocks_and_counts(partition,
+                                                              out_neighbors[ni][:, 0], out_neighbors[ni][:, 1])
+    blocks_in,count_in = compressed_array.blocks_and_counts(partition,
+                                                            in_neighbors[ni][:, 0], in_neighbors[ni][:, 1])
+
+    partition[ni] = s
+
+    release_locks([vertex_locks[0]])
+
     if is_compressed(M):
         (M_r_row_sum, M_r_col_sum, M_s_row_sum, M_s_col_sum) = compressed_array.inplace_compute_new_rows_cols_interblock_edge_count_matrix(M.x, r, s, blocks_out, count_out, blocks_in, count_in)
 
@@ -429,7 +412,7 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
 
         block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
         block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
-    else:
+    elif 0:
         new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col = \
             compute_new_rows_cols_interblock_edge_count_matrix(
                 M, r, s,
@@ -448,9 +431,17 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
         M[:, r] = new_M_r_col
         M[s, :] = new_M_s_row
         M[:, s] = new_M_s_col
+    else:
+        compressed_array.inplace_atomic_new_rows_cols_M(M, r, s, blocks_out, count_out, blocks_in, count_in)
 
-    partition[ni] = s
-    # release_locks([vertex_locks[0]])
+        block_degrees_out[r] = M[r, :].sum()
+        block_degrees_out[s] = M[s, :].sum()
+        block_degrees_in[r] = M[:, r].sum()
+        block_degrees_in[s] = M[:, s].sum()
+
+        block_degrees[s] = block_degrees_out[s] + block_degrees_in[s]
+        block_degrees[r] = block_degrees_out[r] + block_degrees_in[r]
+
     return
 
 
@@ -550,10 +541,8 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
 
     if is_compressed(M):
         M_shared = M
-        M_next = M.copy()
     else:
         M_shared = shared_memory_copy(M)
-        M_next = shared_memory_copy(M)
 
     static_state = (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights)
 
@@ -570,7 +559,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     syms['results'] = (results_proposal, results_delta_entropy, results_accept)
     syms['locks'] = vertex_lock,block_lock
     syms['static_state'] = static_state
-    syms['nodal_move_state'] = (update_id_shared, M_shared, M_next, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared)
+    syms['nodal_move_state'] = (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared)
     syms['args'] = args
 
     pool = Pool(n_thread_move)
