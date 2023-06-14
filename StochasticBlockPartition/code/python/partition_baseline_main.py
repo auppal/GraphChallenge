@@ -252,7 +252,11 @@ def propose_node_movement_wrapper(tup):
     for current_node in range(start, stop, step):
 #        neighbors = vertex_neighbors[current_node][:, 0]
 #        vl = vertex_locks[neighbors])
-#        acquire_locks(vl)
+
+        # A single lock
+        locks = [vertex_locks[0]]
+
+        # acquire_locks(locks)
         
         movement = propose_node_movement(current_node, partition, out_neighbors, in_neighbors,
                                          M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
@@ -260,7 +264,7 @@ def propose_node_movement_wrapper(tup):
 
         (ni, current_block, proposal, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
 
-#        release_locks(vl)
+        # release_locks(locks)
 
         accept = (np.random.uniform() <= p_accept)
         ni = current_node
@@ -275,20 +279,6 @@ def propose_node_movement_wrapper(tup):
             # bl = [block_locks[min(r,s)], block_locks[max(r,s)]]
             # vl = [vertex_locks[i] for i in sorted(list(neighbors) + [ni])]
 
-            if is_compressed(M):
-                if 0:
-                    locks = vl + bl
-                elif 0:
-                    locks = bl
-                elif 0:
-                    locks = vl
-                elif 1:
-                    # single lock
-                    locks = [vertex_locks[0]]
-            else:
-                # single lock
-                locks = [vertex_locks[0]]
-
             acquire_locks(locks)
                 
             move_node(ni, r, s, partition_shared,
@@ -299,7 +289,7 @@ def propose_node_movement_wrapper(tup):
 
             if args.verbose > 3:
                 print("Rank %d pid %d done moving node %d from %d to %d" % (rank,mypid,ni,r,s))
-                      
+
         results_proposal[ni] = proposal
         results_delta_entropy[ni] = delta_entropy
         results_accept[ni] = accept
