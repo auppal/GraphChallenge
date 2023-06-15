@@ -392,4 +392,17 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
+    if args['threading']:
+        files = [N[500]]
+        var_args = (('input_filename', files),
+                    ('iteration', range(1000)),
+                    ('blocking', (1,)),
+                    ('finegrain', (0,)),
+                    ('critical', (0,)),                    
+                    ('sparse',(0,)),
+                    ('threads',(24,)))
+        result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
+        print_results(result)
+        results.update(result)
+
     pickle.dump(results, results_f)
