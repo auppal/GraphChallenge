@@ -261,6 +261,9 @@ def propose_node_movement_wrapper(tup):
     if args.blocking:
         for ni in range(start, stop, step):
             locks = get_locks(args.finegrain, vertex_locks, ni, vertex_neighbors)
+
+            args.critical == 0 and acquire_locks(locks)
+
             movement = propose_node_movement(ni, partition, out_neighbors, in_neighbors,
                                              M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
                                              vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges,
@@ -272,13 +275,24 @@ def propose_node_movement_wrapper(tup):
                 worker_delta_entropy += delta_entropy
                 worker_n_moves += 1
 
-                acquire_locks(locks)
-                move_node(ni, r, s, partition_shared,
-                          out_neighbors, in_neighbors, self_edge_weights, M_shared,
-                          block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks = None, blocking=True)
-                release_locks(locks)
+                if args.critical == 0:
+                    move_node(ni, r, s, partition_shared,
+                              out_neighbors, in_neighbors, self_edge_weights, M_shared,
+                              block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks = None, blocking=True)
+                elif args.critical == 1:
+                    acquire_locks(locks)
+                    move_node(ni, r, s, partition_shared,
+                              out_neighbors, in_neighbors, self_edge_weights, M_shared,
+                              block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks = None, blocking=True)
+                    release_locks(locks)
+                else:
+                    move_node(ni, r, s, partition_shared,
+                              out_neighbors, in_neighbors, self_edge_weights, M_shared,
+                              block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks = locks, blocking=True)
+
+            args.critical == 0 and release_locks(locks)
     else:
-        # Non-blocking
+        # Non-blocking locking implicitly only makes sense for critcal sections 1 or 2
         queue = collections.deque()
         for ni in range(start, stop, step):        
             movement = propose_node_movement(ni, partition, out_neighbors, in_neighbors,
@@ -295,11 +309,20 @@ def propose_node_movement_wrapper(tup):
         while queue:
             ni,r,s = queue.popleft()
             locks = get_locks(args.finegrain, vertex_locks, ni, vertex_neighbors)
-            if not move_node(ni, r, s, partition_shared,
-                             out_neighbors, in_neighbors, self_edge_weights, M_shared,
-                             block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks = locks, blocking=False):
-                queue.append((ni,r,s))
-                continue
+
+            if args.critical == 1:
+                if not acquire_locks_nowait(locks):
+                    continue
+                move_node(ni, r, s, partition_shared,
+                          out_neighbors, in_neighbors, self_edge_weights, M_shared,
+                          block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks=locks, blocking=args.blocking)
+                release_locks(locks)
+            else:
+                if not move_node(ni, r, s, partition_shared,
+                                 out_neighbors, in_neighbors, self_edge_weights, M_shared,
+                                 block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks=locks, blocking=args.blocking):
+                    queue.append((ni,r,s))
+                    continue
 
     return rank,mypid,update_id,start,stop,step,worker_n_moves,worker_delta_entropy
 
@@ -1559,11 +1582,11 @@ if __name__ == '__main__':
     parser.add_argument("--min-nodal-moves-ratio", type=float, required=False, default=0.0, help="Break nodal move loop early if the number of accepted moves is below this fraction of the number of nodes.")
     parser.add_argument("--skip-eval", type=int, required=False, default=0, help="Skip partition evaluation.")
     parser.add_argument("--max-num-nodal-itr", type=int, required=False, default=100, help="Maximum number of iterations during nodal moves.")
-    parser.add_argument("--compressed-nodal-moves", type=int, required=False, default=False, help="Whether to use compressed representation during nodal movements -- usually uncompressed is faster.")
 
     # Arguments for thread control
     parser.add_argument("--blocking", type=int, required=False, default=1, help="Whether to use blocking waits during nodal moves.")
     parser.add_argument("--finegrain", type=int, required=False, default=0, help="Try to use finegrain locks instead of a single lock.")
+    parser.add_argument("--critical", type=int, required=False, default=0, help="Which critical section to use. 0 is the widest, 2 is the narrowest.")
 
     args = parser.parse_args()
 

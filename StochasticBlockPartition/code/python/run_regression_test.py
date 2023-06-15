@@ -229,9 +229,10 @@ def print_results(results):
         print("%s %s" % (v[0],v[1:]))
 
 if __name__ == '__main__':
-    out_dir = time.strftime("out-%Y-%m-%d")
+    yyyymmdd = time.strftime("%Y-%m-%d")
+    out_dir = 'out-' + yyyymmdd
     try: os.mkdir(out_dir)
-    except: pass
+    except FileExistsError: pass
 
     input_files = ('../../data/static/simulated_blockmodel_graph_100_nodes',
                    '../../data/static/simulated_blockmodel_graph_500_nodes',
@@ -275,7 +276,7 @@ if __name__ == '__main__':
 
     results = {}
 
-    results_f = open('regression.pickle', 'wb')
+    results_f = open(out_dir + '/regression.pickle', 'wb')
 
     if args['regression']:
         print("Run sanity checks.")
