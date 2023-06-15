@@ -28,7 +28,7 @@ base_args = {'debug' : 0, 'decimation' : 0,
              'initial_block_reduction_rate' : 0.75,
              'merge_method' : 0, 'mpi' : 0, 'node_move_update_batch_size' : 1, 'node_propose_batch_size' : 4,
              'parts' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0,
-             'sparse' : 0, 'sparse_algorithm' : 0, 'sparse_data' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0, 't_merge' : 0, 't_move' : 0, 'skip_eval' : 0, 'max_num_nodal_itr' : 100, 'compressed_nodal_moves' : 0}
+             'sparse' : 0, 'sparse_algorithm' : 0, 'sparse_data' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0, 't_merge' : 0, 't_move' : 0, 'skip_eval' : 0, 'max_num_nodal_itr' : 100, 'compressed_nodal_moves' : 0, 'blocking' : 1, 'finegrain' : 0}
 
 class Bunch(object):
     def __init__(self, adict):
@@ -87,23 +87,23 @@ def child_func(queue, fout, func, args):
     rusage_self = None
     rusage_children = None
 
-    try:
-        t0 = timeit.default_timer()
+    t0 = timeit.default_timer()
 
+    try:
         with redirect_stdout(fout):
             func_result = func(args)
-
-        t1 = timeit.default_timer()
-        wall_time = t1 - t0
-        fout.flush()
-
-        rusage_self = resource.getrusage(resource.RUSAGE_SELF)
-        rusage_children = resource.getrusage(resource.RUSAGE_CHILDREN)
     except:
         traceback.print_exc()
         traceback.print_exc(file=fout)
+        func_result = None
         rc = 1
 
+    t1 = timeit.default_timer()
+    wall_time = t1 - t0
+    fout.flush()
+
+    rusage_self = resource.getrusage(resource.RUSAGE_SELF)
+    rusage_children = resource.getrusage(resource.RUSAGE_CHILDREN)
     queue.put((rc, wall_time, rusage_self, rusage_children, func_result))
     sys.exit(rc)
 

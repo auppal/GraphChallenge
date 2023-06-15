@@ -214,6 +214,15 @@ def propose_node_movement_profile_wrapper(tup):
     propose_node_movement_profile_stats.append(cProfile.runctx("rc.append(propose_node_movement_wrapper(tup))", globals(), locals(), filename="propose_node_movement-%d-%d.prof" % (mypid,cnt)))
     return rc[0]
 
+
+def get_locks(finegrain, vertex_locks, ni, vertex_neighbors):
+    if finegrain:
+        neighbors = sorted([i for i in vertex_neighbors[ni][:, 0]] + [ni])
+        locks = [vertex_locks[i] for i in neighbors]
+    else:
+        locks = [vertex_locks[0]]
+    return locks
+
 update_id = -1
 def propose_node_movement_wrapper(tup):
     global update_id, partition, M, block_degrees, block_degrees_out, block_degrees_in, mypid
@@ -248,51 +257,52 @@ def propose_node_movement_wrapper(tup):
     worker_delta_entropy = 0.0
     worker_n_moves = 0
 
-    use_finegrain = 0
-    use_blocking = 1
-    
-    queue = collections.deque()
-    
-    for ni in range(start, stop, step):        
-        movement = propose_node_movement(ni, partition, out_neighbors, in_neighbors,
-                                         M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
-                                         vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args, vertex_lock=None, block_lock=None)
+    # r is current_block, s is proposal
+    if args.blocking:
+        for ni in range(start, stop, step):
+            locks = get_locks(args.finegrain, vertex_locks, ni, vertex_neighbors)
+            movement = propose_node_movement(ni, partition, out_neighbors, in_neighbors,
+                                             M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
+                                             vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges,
+                                             vertex_neighbors, self_edge_weights, args, vertex_lock=None, block_lock=None)
+            (ni2, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
+            accept = (np.random.uniform() <= p_accept)
 
-        # r is current_block, s is proposal
-        (ni2, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
-        accept = (np.random.uniform() <= p_accept)
-        if accept:
-            worker_delta_entropy += delta_entropy
-            worker_n_moves += 1
-            queue.append((ni,r,s))
+            if accept:
+                worker_delta_entropy += delta_entropy
+                worker_n_moves += 1
 
-    while queue:
-        ni,r,s = queue.popleft()
+                acquire_locks(locks)
+                move_node(ni, r, s, partition_shared,
+                          out_neighbors, in_neighbors, self_edge_weights, M_shared,
+                          block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks = None, blocking=True)
+                release_locks(locks)
+    else:
+        # Non-blocking
+        queue = collections.deque()
+        for ni in range(start, stop, step):        
+            movement = propose_node_movement(ni, partition, out_neighbors, in_neighbors,
+                                             M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
+                                             vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges,
+                                             vertex_neighbors, self_edge_weights, args, vertex_lock=None, block_lock=None)
+            (ni2, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
+            accept = (np.random.uniform() <= p_accept)
+            if accept:
+                worker_delta_entropy += delta_entropy
+                worker_n_moves += 1
+                queue.append((ni,r,s))
 
-        if args.verbose > 3:
-            print("Rank %d pid %d moving node %d from %d to %d" % (rank,mypid,ni,r,s))
-
-        if use_finegrain:
-            neighbors = sorted([i for i in vertex_neighbors[ni][:, 0]] + [ni])
-            locks = [vertex_locks[i] for i in neighbors]
-        else:
-            locks = [vertex_locks[0]]
-        
-        if use_blocking:
+        while queue:
+            ni,r,s = queue.popleft()
+            locks = get_locks(args.finegrain, vertex_locks, ni, vertex_neighbors)
             if not move_node(ni, r, s, partition_shared,
-                      out_neighbors, in_neighbors, self_edge_weights, M_shared,
+                             out_neighbors, in_neighbors, self_edge_weights, M_shared,
                              block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks = locks, blocking=False):
                 queue.append((ni,r,s))
                 continue
-        else:
-            move_node(ni, r, s, partition_shared,
-                      out_neighbors, in_neighbors, self_edge_weights, M_shared,
-                      block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks = locks, blocking=True)
-
-        if args.verbose > 3:
-            print("Rank %d pid %d done moving node %d from %d to %d" % (rank,mypid,ni,r,s))
 
     return rank,mypid,update_id,start,stop,step,worker_n_moves,worker_delta_entropy
+
 
 
 def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, M, num_blocks,
@@ -454,7 +464,7 @@ def shared_memory_to_private(z):
 def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args):
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
-    
+
     for itr in range(max_num_nodal_itr):
         num_nodal_moves = 0
         itr_delta_entropy[itr] = 0
@@ -511,7 +521,11 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
 
     block_lock = None
-    vertex_lock = [mp.Lock() for i in range(N)]
+
+    if args.finegrain:
+        vertex_lock = [mp.Lock() for i in range(N)]
+    else:
+        vertex_lock = [mp.Lock()]
 
     modified = np.zeros(M.shape[0], dtype=bool)
     update_id_shared = Value('i', 0)
@@ -1546,6 +1560,10 @@ if __name__ == '__main__':
     parser.add_argument("--skip-eval", type=int, required=False, default=0, help="Skip partition evaluation.")
     parser.add_argument("--max-num-nodal-itr", type=int, required=False, default=100, help="Maximum number of iterations during nodal moves.")
     parser.add_argument("--compressed-nodal-moves", type=int, required=False, default=False, help="Whether to use compressed representation during nodal movements -- usually uncompressed is faster.")
+
+    # Arguments for thread control
+    parser.add_argument("--blocking", type=int, required=False, default=1, help="Whether to use blocking waits during nodal moves.")
+    parser.add_argument("--finegrain", type=int, required=False, default=0, help="Try to use finegrain locks instead of a single lock.")
 
     args = parser.parse_args()
 
