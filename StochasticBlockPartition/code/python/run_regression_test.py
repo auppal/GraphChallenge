@@ -269,6 +269,8 @@ if __name__ == '__main__':
         'big' : 0,
         'regression' : 0,
         'thread-sweep' : 0,
+        'threading' : 0,
+        'threading-performance' : 0
         }
 
     for i in sys.argv[1:]:
@@ -395,10 +397,23 @@ if __name__ == '__main__':
     if args['threading']:
         files = [N[500]]
         var_args = (('input_filename', files),
-                    ('iteration', range(1000)),
-                    ('blocking', (1,)),
-                    ('finegrain', (0,)),
-                    ('critical', (0,)),                    
+                    ('iteration', range(500)),
+                    ('blocking', (0,1,)),
+                    ('finegrain', (0,1)),
+                    ('critical', (0,1,2)),
+                    ('sparse',(0,)),
+                    ('threads',(24,)))
+        result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
+        print_results(result)
+        results.update(result)
+
+    if args['threading-performance']:
+        files = [N[20000]]
+        var_args = (('input_filename', files),
+                    ('iteration', range(5)),
+                    ('blocking', (0,1,)),
+                    ('finegrain', (0,1)),
+                    ('critical', (0,1,2)),
                     ('sparse',(0,)),
                     ('threads',(24,)))
         result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
