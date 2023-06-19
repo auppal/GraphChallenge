@@ -118,7 +118,6 @@ def compute_best_block_merge_wrapper(tup):
     block_degrees = syms['block_degrees']
     block_degrees_out = syms['block_degrees_out']
     block_degrees_in = syms['block_degrees_in']
-    partition = syms['partition']
     args = syms['args']
 
     return compute_best_block_merge(blocks, num_blocks, interblock_edge_count, block_partition, block_degrees, args.n_proposal, block_degrees_out, block_degrees_in, args)
@@ -462,7 +461,6 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
 
     return True
 
-
 dtype_to_ctype = {"float64" : ctypes.c_double, "float" : ctypes.c_double, "int64" : ctypes.c_int64, "int" : ctypes.c_int, "bool" : ctypes.c_bool, "int32" : ctypes.c_int32, "float32" : ctypes.c_int32}
 def shared_memory_copy(z):
     prod = reduce((lambda x,y : x*y), (i for i in z.shape))
@@ -553,15 +551,11 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     modified = np.zeros(M.shape[0], dtype=bool)
     update_id_shared = Value('i', 0)
 
-    last_purge = -1
-
-    (partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared) \
-        = (shared_memory_copy(i) for i in (partition, block_degrees, block_degrees_out, block_degrees_in, ))
-
-    if is_compressed(M):
-        M_shared = M
-    else:
-        M_shared = shared_memory_copy(M)
+    partition_shared = partition
+    block_degrees_shared = block_degrees
+    block_degrees_in_shared = block_degrees_in
+    block_degrees_out_shared = block_degrees_out
+    M_shared = M
 
     static_state = (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights)
 
@@ -658,7 +652,6 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         syms['block_degrees'] = block_degrees
         syms['block_degrees_out'] = block_degrees_out
         syms['block_degrees_in'] = block_degrees_in
-        syms['partition'] = partition
         syms['args'] = args
 
         L = range(num_blocks)
@@ -693,13 +686,14 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
 
     for i,t in enumerate(num_target_blocks):
         num_blocks_to_merge = num_blocks - t
-
         # carry out the best merges
-        (partition_t, num_blocks_t) = carry_out_best_merges(delta_entropy_for_each_block, best_merges, best_merge_for_each_block, partition,
+        (partition_t, num_blocks_t) = carry_out_best_merges(delta_entropy_for_each_block, best_merges,
+                                                            best_merge_for_each_block, partition,
                                                             num_blocks, num_blocks_to_merge)
+        # xxx brute force
+        partition_t = shared_memory_copy(partition_t)
 
         # re-initialize edge counts and block degrees
-
         if args.sparse == 2:
             if num_blocks >= compressed_threshold:
                 use_compressed = 1
@@ -952,7 +946,6 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
 
         if num_blocks <= min_number_blocks:
             break
-
 
     alg_state = (hist,num_blocks,overall_entropy,partition,interblock_edge_count,block_degrees_out,block_degrees_in,block_degrees,golden_ratio_bracket_established,delta_entropy_threshold,num_blocks_to_merge,optimal_num_blocks_found,n_proposals_evaluated,total_num_nodal_moves)
 

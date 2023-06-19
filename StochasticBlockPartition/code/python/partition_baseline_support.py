@@ -23,6 +23,8 @@ from collections import defaultdict
 
 import os
 from interblock_edge_count import fast_sparse_array, nonzero_slice, take_nonzero, is_compressed
+from partition_baseline_main import shared_memory_empty, shared_memory_copy
+
 mydtype=np.dtype('int64')
 
 try:
@@ -286,8 +288,14 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         print("Initialize edge counts for size %d with compression %d" % (B,sparse))
         t0 = time.time()
 
+    d_out = shared_memory_empty((B,))
+    d_in = shared_memory_empty((B,))
+    d = shared_memory_empty((B,))
+        
     if not sparse:
-        M = np.zeros((B,B), dtype=mydtype)
+        # M = np.zeros((B,B), dtype=mydtype)
+        M = shared_memory_empty((B,B), dtype=mydtype)
+
         # compute the initial interblock edge count
         for v in range(len(out_neighbors)):
             k1 = b[v]
@@ -301,9 +309,9 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
                 M[k1, k2] += count
 
         # compute initial block degrees
-        d_out = np.asarray(M.sum(axis=1)).ravel()
-        d_in = np.asarray(M.sum(axis=0)).ravel()
-        d = d_out + d_in
+        np.sum(M, axis=1, out=d_out)
+        np.sum(M, axis=0, out=d_in)
+        np.add(d_out, d_in, out=d)
 
         if verbose > 2:
             in_cnt = np.sum(M != 0, axis=0)
@@ -316,8 +324,6 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
             print("avg_in_cnt = %f" % np.mean(in_cnt))
             print("avg_out_cnt = %f" % np.mean(out_cnt))
     else:
-        d_out = np.zeros(B, dtype=mydtype)
-        d_in = np.zeros(B, dtype=mydtype)
         M_d = defaultdict(int)
         in_cnt = np.zeros(B, dtype=int)
         out_cnt = np.zeros(B, dtype=int)
@@ -358,7 +364,7 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
             M[i,j] = w
             d_in[j] += w
             d_out[i] += w
-        d = d_out + d_in
+        np.add(d_out, d_in, out=d)
 
     if verbose > 0:
         t1 = time.time()
