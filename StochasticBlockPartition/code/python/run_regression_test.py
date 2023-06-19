@@ -25,10 +25,10 @@ except:
 
 base_args = {'debug' : 0, 'decimation' : 0,
              'input_filename' : '../../data/static/simulated_blockmodel_graph_100_nodes',
-             'initial_block_reduction_rate' : 0.75,
+             'initial_block_reduction_rate' : 0.50,
              'merge_method' : 0, 'mpi' : 0, 'node_move_update_batch_size' : 1, 'node_propose_batch_size' : 4,
              'parts' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0,
-             'sparse' : 0, 'sparse_algorithm' : 0, 'sparse_data' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0, 't_merge' : 0, 't_move' : 0, 'skip_eval' : 0, 'max_num_nodal_itr' : 100, 'compressed_nodal_moves' : 0}
+             'sparse' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0, 't_merge' : 0, 't_move' : 0, 'skip_eval' : 0, 'max_num_nodal_itr' : 100, 'critical' : 0, 'blocking' : 1, 'finegrain' : 0}
 
 class Bunch(object):
     def __init__(self, adict):
@@ -87,23 +87,23 @@ def child_func(queue, fout, func, args):
     rusage_self = None
     rusage_children = None
 
-    try:
-        t0 = timeit.default_timer()
+    t0 = timeit.default_timer()
 
+    try:
         with redirect_stdout(fout):
             func_result = func(args)
-
-        t1 = timeit.default_timer()
-        wall_time = t1 - t0
-        fout.flush()
-
-        rusage_self = resource.getrusage(resource.RUSAGE_SELF)
-        rusage_children = resource.getrusage(resource.RUSAGE_CHILDREN)
     except:
         traceback.print_exc()
         traceback.print_exc(file=fout)
+        func_result = None
         rc = 1
 
+    t1 = timeit.default_timer()
+    wall_time = t1 - t0
+    fout.flush()
+
+    rusage_self = resource.getrusage(resource.RUSAGE_SELF)
+    rusage_children = resource.getrusage(resource.RUSAGE_CHILDREN)
     queue.put((rc, wall_time, rusage_self, rusage_children, func_result))
     sys.exit(rc)
 
@@ -229,9 +229,10 @@ def print_results(results):
         print("%s %s" % (v[0],v[1:]))
 
 if __name__ == '__main__':
-    out_dir = time.strftime("out-%Y-%m-%d")
+    yyyymmdd = time.strftime("%Y-%m-%d")
+    out_dir = 'out-' + yyyymmdd
     try: os.mkdir(out_dir)
-    except: pass
+    except FileExistsError: pass
 
     input_files = ('../../data/static/simulated_blockmodel_graph_100_nodes',
                    '../../data/static/simulated_blockmodel_graph_500_nodes',
@@ -268,6 +269,8 @@ if __name__ == '__main__':
         'big' : 0,
         'regression' : 0,
         'thread-sweep' : 0,
+        'threading' : 0,
+        'threading-performance' : 0
         }
 
     for i in sys.argv[1:]:
@@ -275,7 +278,7 @@ if __name__ == '__main__':
 
     results = {}
 
-    results_f = open('regression.pickle', 'wb')
+    results_f = open(out_dir + time.strftime("/results-%Y-%m-%d-%H%M%SZ.pickle", time.gmtime()), 'wb')
 
     if args['regression']:
         print("Run sanity checks.")
@@ -388,6 +391,32 @@ if __name__ == '__main__':
 
         var_args = (('input_filename', big_files[2:]), ('initial_block_reduction_rate',(0.50,0.75,0.90,0.95), ('sparse',(0,)), ('threads',(32,)), ('decimation',(4,))))
         result = run_var_test(out_dir, base_args, var_args)
+        print_results(result)
+        results.update(result)
+
+    if args['threading']:
+        files = [N[500]]
+        var_args = (('input_filename', files),
+                    ('iteration', range(500)),
+                    ('blocking', (0,1,)),
+                    ('finegrain', (0,1)),
+                    ('critical', (0,1,2)),
+                    ('sparse',(0,)),
+                    ('threads',(24,)))
+        result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
+        print_results(result)
+        results.update(result)
+
+    if args['threading-performance']:
+        files = [N[20000]]
+        var_args = (('input_filename', files),
+                    ('iteration', range(5)),
+                    ('blocking', (0,1,)),
+                    ('finegrain', (0,1)),
+                    ('critical', (0,1,2)),
+                    ('sparse',(0,)),
+                    ('threads',(24,)))
+        result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
         print_results(result)
         results.update(result)
 

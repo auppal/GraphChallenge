@@ -20,9 +20,12 @@ from collections import Iterable
 import timeit
 import compressed_array
 from collections import defaultdict
+from functools import reduce
 
 import os
 from interblock_edge_count import fast_sparse_array, nonzero_slice, take_nonzero, is_compressed
+
+
 mydtype=np.dtype('int64')
 
 try:
@@ -44,6 +47,27 @@ def random_permutation(iterable, r=None):
     pool = tuple(iterable)
     r = len(pool) if r is None else r
     return tuple(random.sample(pool, r))
+
+dtype_to_ctype = {"float64" : ctypes.c_double, "float" : ctypes.c_double, "int64" : ctypes.c_int64, "int" : ctypes.c_int, "bool" : ctypes.c_bool, "int32" : ctypes.c_int32, "float32" : ctypes.c_int32}
+def shared_memory_copy(z):
+    prod = reduce((lambda x,y : x*y), (i for i in z.shape))
+    ctype = dtype_to_ctype[str(z.dtype)]
+    raw = sharedctypes.RawArray(ctype, int(prod))
+    a = np.frombuffer(raw, dtype=z.dtype).reshape(z.shape)
+    a[:] = z
+    return a
+
+def shared_memory_empty(shape, dtype='int64'):
+    prod = reduce((lambda x,y : x*y), (i for i in shape))
+    ctype = dtype_to_ctype[str(dtype)]
+    raw = sharedctypes.RawArray(ctype, int(prod))
+    a = np.frombuffer(raw, dtype=dtype).reshape(shape)
+    return a
+
+def shared_memory_to_private(z):
+    x = np.empty(z.shape, dtype=z.dtype)
+    x[:] = z
+    return x
 
 def load_graph(input_filename, load_true_partition, strm_piece_num=None, out_neighbors=None, in_neighbors=None,alg_state=None):
     """Load the graph from a TSV file with standard format, and the truth partition if available
@@ -286,8 +310,14 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         print("Initialize edge counts for size %d with compression %d" % (B,sparse))
         t0 = time.time()
 
+    d_out = shared_memory_empty((B,))
+    d_in = shared_memory_empty((B,))
+    d = shared_memory_empty((B,))
+        
     if not sparse:
-        M = np.zeros((B,B), dtype=mydtype)
+        # M = np.zeros((B,B), dtype=mydtype)
+        M = shared_memory_empty((B,B), dtype=mydtype)
+
         # compute the initial interblock edge count
         for v in range(len(out_neighbors)):
             k1 = b[v]
@@ -301,9 +331,9 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
                 M[k1, k2] += count
 
         # compute initial block degrees
-        d_out = np.asarray(M.sum(axis=1)).ravel()
-        d_in = np.asarray(M.sum(axis=0)).ravel()
-        d = d_out + d_in
+        np.sum(M, axis=1, out=d_out)
+        np.sum(M, axis=0, out=d_in)
+        np.add(d_out, d_in, out=d)
 
         if verbose > 2:
             in_cnt = np.sum(M != 0, axis=0)
@@ -316,8 +346,6 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
             print("avg_in_cnt = %f" % np.mean(in_cnt))
             print("avg_out_cnt = %f" % np.mean(out_cnt))
     else:
-        d_out = np.zeros(B, dtype=mydtype)
-        d_in = np.zeros(B, dtype=mydtype)
         M_d = defaultdict(int)
         in_cnt = np.zeros(B, dtype=int)
         out_cnt = np.zeros(B, dtype=int)
@@ -358,7 +386,7 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
             M[i,j] = w
             d_in[j] += w
             d_out[i] += w
-        d = d_out + d_in
+        np.add(d_out, d_in, out=d)
 
     if verbose > 0:
         t1 = time.time()
