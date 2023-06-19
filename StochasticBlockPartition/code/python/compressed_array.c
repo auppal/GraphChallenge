@@ -128,7 +128,7 @@ void hash_print(struct hash *h);
 struct hash *hash_set_single(struct hash *h, uint64_t k, int64_t v);
 #define RESIZE_DEBUG (0)
 
-inline struct hash *hash_resize(struct hash *h)
+static inline struct hash *hash_resize(struct hash *h)
 {
   size_t i;
   struct hash *h2;
@@ -243,7 +243,7 @@ struct hash *hash_accum_single(struct hash *h, uint64_t k, int64_t c)
 }
 
 
-inline int hash_search(const struct hash *h, uint64_t k, int64_t *v)
+static inline int hash_search(const struct hash *h, uint64_t k, int64_t *v)
 {
   size_t i, width = h->width;
   uint64_t kh = hash(k);
@@ -263,7 +263,7 @@ inline int hash_search(const struct hash *h, uint64_t k, int64_t *v)
   return -1;
 }
 
-inline void hash_search_multi(const struct hash *h, const uint64_t *keys, int64_t *vals, size_t n)
+static inline void hash_search_multi(const struct hash *h, const uint64_t *keys, int64_t *vals, size_t n)
 {
   size_t i;
 
@@ -272,7 +272,7 @@ inline void hash_search_multi(const struct hash *h, const uint64_t *keys, int64_
   }
 }
 
-inline int64_t hash_sum(const struct hash *h)
+static inline int64_t hash_sum(const struct hash *h)
 {
   size_t i;
   int64_t s = 0;
@@ -287,7 +287,7 @@ inline int64_t hash_sum(const struct hash *h)
 }
 
 
-inline size_t hash_keys(const struct hash *h, uint64_t *keys, size_t max_cnt)
+static inline size_t hash_keys(const struct hash *h, uint64_t *keys, size_t max_cnt)
 {
   size_t i, width = h->width, cnt = 0;
 
@@ -304,7 +304,7 @@ inline size_t hash_keys(const struct hash *h, uint64_t *keys, size_t max_cnt)
   return cnt;
 }
 
-inline size_t hash_vals(const struct hash *h, int64_t *vals, size_t max_cnt)
+size_t hash_vals(const struct hash *h, int64_t *vals, size_t max_cnt)
 {
   size_t i, width = h->width, cnt = 0;
 
@@ -364,7 +364,7 @@ int hash_eq(const struct hash *h, const struct hash *h2)
   return 0;
 }
 
-inline void hash_accum_constant(const struct hash *h, size_t C)
+static inline void hash_accum_constant(const struct hash *h, size_t C)
 {
   size_t i, width = h->width;
 
@@ -375,7 +375,7 @@ inline void hash_accum_constant(const struct hash *h, size_t C)
   }
 }
 
-inline struct hash *hash_accum_multi(struct hash *h, const uint64_t *keys, const int64_t *vals, size_t n_keys)
+static inline struct hash *hash_accum_multi(struct hash *h, const uint64_t *keys, const int64_t *vals, size_t n_keys)
 {
   size_t j, i;
 
@@ -580,20 +580,20 @@ struct compressed_array *compressed_copy(const struct compressed_array *y)
   return x;
 }
 
-inline int compressed_get_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t *val)
+static inline int compressed_get_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t *val)
 {
   /* Just get from row[i][j] */
   return hash_search(x->rows[i], j, val);
 }
 
-inline void compressed_set_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t val)
+static inline void compressed_set_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t val)
 {
   /* XXX There is a bug in this logic if exactly one fails. */
   x->rows[i] = hash_set_single(x->rows[i], j, val);
   x->cols[j] = hash_set_single(x->cols[j], i, val);
 }
 
-inline void compressed_accum_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t C)
+static inline void compressed_accum_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t C)
 {
   /* XXX There is a bug in this logic if exactly one fails. */
   x->rows[i] = hash_accum_single(x->rows[i], j, C);
@@ -631,7 +631,7 @@ int compressed_take_keys_values(struct compressed_array *x, long idx, long axis,
   return 0;
 }
 
-inline struct hash *compressed_take(struct compressed_array *x, long idx, long axis)
+static inline struct hash *compressed_take(struct compressed_array *x, long idx, long axis)
 {
   return (axis == 0 ? x->rows[idx] : x->cols[idx]);
 }
@@ -659,7 +659,7 @@ static PyObject* create(PyObject *self, PyObject *args)
 }
 
 /* xxx should be shared or not? */
-inline struct hash **create_dict(struct hash *p)
+static inline struct hash **create_dict(struct hash *p)
 {
   struct hash **ph = malloc(sizeof(struct hash **));
   if (ph) {
