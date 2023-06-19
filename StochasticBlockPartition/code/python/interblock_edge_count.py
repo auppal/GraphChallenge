@@ -1,6 +1,5 @@
 import numpy as np
 import compressed_array
-from collections import Iterable
 from collections import defaultdict
 import os
 
