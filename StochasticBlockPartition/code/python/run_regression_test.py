@@ -278,7 +278,7 @@ if __name__ == '__main__':
 
     results = {}
 
-    results_f = open(out_dir + '/regression.pickle', 'wb')
+    results_f = open(out_dir + time.strftime("/results-%Y-%m-%d-%H%M%SZ.pickle", time.gmtime()), 'wb')
 
     if args['regression']:
         print("Run sanity checks.")

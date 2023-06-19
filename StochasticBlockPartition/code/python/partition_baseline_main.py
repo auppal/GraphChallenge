@@ -2,7 +2,6 @@ from partition_baseline_support import *
 import multiprocessing as mp
 import multiprocessing.pool
 from multiprocessing import Pool, Value, Semaphore, Manager, Queue, current_process
-from functools import reduce
 import pickle
 import timeit
 import os, sys, argparse
@@ -460,27 +459,6 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
     block_degrees[r] += dM_r_row_sum + dM_r_col_sum
 
     return True
-
-dtype_to_ctype = {"float64" : ctypes.c_double, "float" : ctypes.c_double, "int64" : ctypes.c_int64, "int" : ctypes.c_int, "bool" : ctypes.c_bool, "int32" : ctypes.c_int32, "float32" : ctypes.c_int32}
-def shared_memory_copy(z):
-    prod = reduce((lambda x,y : x*y), (i for i in z.shape))
-    ctype = dtype_to_ctype[str(z.dtype)]
-    raw = sharedctypes.RawArray(ctype, int(prod))
-    a = np.frombuffer(raw, dtype=z.dtype).reshape(z.shape)
-    a[:] = z
-    return a
-
-def shared_memory_empty(shape, dtype='int64'):
-    prod = reduce((lambda x,y : x*y), (i for i in shape))
-    ctype = dtype_to_ctype[str(dtype)]
-    raw = sharedctypes.RawArray(ctype, int(prod))
-    a = np.frombuffer(raw, dtype=dtype).reshape(shape)
-    return a
-
-def shared_memory_to_private(z):
-    x = np.empty(z.shape, dtype=z.dtype)
-    x[:] = z
-    return x
 
 def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args):
     total_num_nodal_moves_itr = 0
@@ -1559,7 +1537,6 @@ if __name__ == '__main__':
     parser.add_argument("--sparse", type=int, required=False, default=0)
     parser.add_argument("-s", "--sort", type=int, required=False, default=0)
     parser.add_argument("-S", "--seed", type=int, required=False, default=-1)
-    parser.add_argument("-m", "--merge-method", type=int, required=False, default=0)
     parser.add_argument("--mpi", action="store_true", default=False)
     parser.add_argument("input_filename", nargs="?", type=str, default="../../data/static/simulated_blockmodel_graph_500_nodes")
 

@@ -20,10 +20,11 @@ from collections import Iterable
 import timeit
 import compressed_array
 from collections import defaultdict
+from functools import reduce
 
 import os
 from interblock_edge_count import fast_sparse_array, nonzero_slice, take_nonzero, is_compressed
-from partition_baseline_main import shared_memory_empty, shared_memory_copy
+
 
 mydtype=np.dtype('int64')
 
@@ -46,6 +47,27 @@ def random_permutation(iterable, r=None):
     pool = tuple(iterable)
     r = len(pool) if r is None else r
     return tuple(random.sample(pool, r))
+
+dtype_to_ctype = {"float64" : ctypes.c_double, "float" : ctypes.c_double, "int64" : ctypes.c_int64, "int" : ctypes.c_int, "bool" : ctypes.c_bool, "int32" : ctypes.c_int32, "float32" : ctypes.c_int32}
+def shared_memory_copy(z):
+    prod = reduce((lambda x,y : x*y), (i for i in z.shape))
+    ctype = dtype_to_ctype[str(z.dtype)]
+    raw = sharedctypes.RawArray(ctype, int(prod))
+    a = np.frombuffer(raw, dtype=z.dtype).reshape(z.shape)
+    a[:] = z
+    return a
+
+def shared_memory_empty(shape, dtype='int64'):
+    prod = reduce((lambda x,y : x*y), (i for i in shape))
+    ctype = dtype_to_ctype[str(dtype)]
+    raw = sharedctypes.RawArray(ctype, int(prod))
+    a = np.frombuffer(raw, dtype=dtype).reshape(shape)
+    return a
+
+def shared_memory_to_private(z):
+    x = np.empty(z.shape, dtype=z.dtype)
+    x[:] = z
+    return x
 
 def load_graph(input_filename, load_true_partition, strm_piece_num=None, out_neighbors=None, in_neighbors=None,alg_state=None):
     """Load the graph from a TSV file with standard format, and the truth partition if available
