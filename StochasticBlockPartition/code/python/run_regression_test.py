@@ -2,6 +2,7 @@ import multiprocessing as mp
 from multiprocessing import Process
 import timeit, resource
 import sys, itertools, os, time, traceback
+from collections import defaultdict
 from partition_baseline_main import do_main
 import time
 try:
@@ -257,7 +258,8 @@ if __name__ == '__main__':
 
     iterations = range(1)
 
-    args = {
+    args = defaultdict(int)
+    args.update({
         'single-tiny' : 0,
         'single-small' : 0,
         'multi-small'  : 0,
@@ -271,7 +273,7 @@ if __name__ == '__main__':
         'thread-sweep' : 0,
         'threading' : 0,
         'threading-performance' : 0
-        }
+        })
 
     for i in sys.argv[1:]:
         args[i] = 1
@@ -429,7 +431,7 @@ if __name__ == '__main__':
                     ('finegrain', (0,1)),
                     ('critical', (0,1,2)),
                     ('sanity_check_m', (1,)),
-                    ('sparse',(0,1)),
+                    ('sparse',(0,)),
                     ('threads',(24,)))
         result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
         print_results(result)
