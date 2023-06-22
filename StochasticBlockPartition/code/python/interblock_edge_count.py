@@ -18,6 +18,14 @@ class fast_sparse_array(object):
         return compressed_array.getitem(self.x, idx[0], idx[1])
     def __setitem__(self, idx, val):
         compressed_array.setitem(self.x, idx[0], idx[1], val)
+    def __eq__(self, X):
+        if self.shape != X.shape:
+            return False
+        for i in range(self.shape[0]):
+            for j in range(self.shape[1]):
+                if compressed_array.getitem(self.x, i, j) != X[i,j]:
+                    return False
+        return True
     def set_axis_dict_old(self, idx, axis, d_new):
         try:
             compressed_array.setaxis(self.x, idx, axis, d_new.keys(), d_new.values())

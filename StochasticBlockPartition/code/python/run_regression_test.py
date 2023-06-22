@@ -28,7 +28,7 @@ base_args = {'debug' : 0, 'decimation' : 0,
              'initial_block_reduction_rate' : 0.50,
              'merge_method' : 0, 'mpi' : 0, 'node_move_update_batch_size' : 1, 'node_propose_batch_size' : 4,
              'parts' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0,
-             'sparse' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0, 't_merge' : 0, 't_move' : 0, 'skip_eval' : 0, 'max_num_nodal_itr' : 100, 'critical' : 0, 'blocking' : 1, 'finegrain' : 0}
+             'sparse' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0, 't_merge' : 0, 't_move' : 0, 'skip_eval' : 0, 'max_num_nodal_itr' : 100, 'critical' : 0, 'blocking' : 1, 'finegrain' : 0, 'sanity_check_m' : 0}
 
 class Bunch(object):
     def __init__(self, adict):
@@ -402,6 +402,34 @@ if __name__ == '__main__':
                     ('finegrain', (0,1)),
                     ('critical', (0,1,2)),
                     ('sparse',(0,)),
+                    ('threads',(24,)))
+        result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
+        print_results(result)
+        results.update(result)
+
+    if args['threading-sanity1']:
+        files = [N[500]]
+        var_args = (('input_filename', files),
+                    ('iteration', range(500)),
+                    ('blocking', (0,1,)),
+                    ('finegrain', (0,1)),
+                    ('critical', (0,1,2)),
+                    ('sanity_check_m', (1,)),
+                    ('sparse',(0,)),
+                    ('threads',(24,)))
+        result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
+        print_results(result)
+        results.update(result)
+
+    if args['threading-sanity2']:
+        files = [N[5000]]
+        var_args = (('input_filename', files),
+                    ('iteration', range(50)),
+                    ('blocking', (0,1,)),
+                    ('finegrain', (0,1)),
+                    ('critical', (0,1,2)),
+                    ('sanity_check_m', (1,)),
+                    ('sparse',(0,1)),
                     ('threads',(24,)))
         result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
         print_results(result)

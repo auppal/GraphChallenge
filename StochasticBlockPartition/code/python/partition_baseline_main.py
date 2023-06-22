@@ -513,6 +513,17 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
 
     return total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees
 
+def recompute_M(B, partition, out_neighbors):
+    M = np.zeros((B,B), dtype=int)
+    for v in range(len(out_neighbors)):
+        k1 = partition[v]
+        if len(out_neighbors[v]) > 0:
+            k2,count = compressed_array.blocks_and_counts(
+                partition, out_neighbors[v][:, 0], out_neighbors[v][:, 1])
+            M[k1, k2] += count
+    return M
+
+
 def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args):
     global syms
 
@@ -582,7 +593,18 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
             total_num_nodal_moves_itr += n_moves
             num_nodal_moves += n_moves
             itr_delta_entropy[itr] += delta_entropy
-    
+
+
+        # Sanity check M
+        if args.sanity_check_m:
+            M2 = recompute_M(M.shape[0], partition, out_neighbors)
+            if is_compressed(M):
+                if not (M == M2):
+                    raise Exception("Sanity check of interblock edge count matrix failed.")
+            else:
+                if not np.array_equal(M, M2):
+                    raise Exception("Sanity check of interblock edge count matrix failed.")
+
         if verbose:
             print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}".format(itr, num_nodal_moves,
                                                                                 itr_delta_entropy[itr] / float(
@@ -1552,6 +1574,7 @@ if __name__ == '__main__':
     parser.add_argument("--min-nodal-moves-ratio", type=float, required=False, default=0.0, help="Break nodal move loop early if the number of accepted moves is below this fraction of the number of nodes.")
     parser.add_argument("--skip-eval", type=int, required=False, default=0, help="Skip partition evaluation.")
     parser.add_argument("--max-num-nodal-itr", type=int, required=False, default=100, help="Maximum number of iterations during nodal moves.")
+    parser.add_argument("--sanity-check-m", type=int, required=False, default=0, help="Full recompute interblock edge counts and compare against differentially computed version.")
 
     # Arguments for thread control
     parser.add_argument("--blocking", type=int, required=False, default=1, help="Whether to use blocking waits during nodal moves.")
