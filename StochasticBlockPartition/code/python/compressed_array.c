@@ -1501,7 +1501,7 @@ static PyObject* inplace_compute_new_rows_cols_interblock_edge_count_matrix(PyOb
 
 
 /* 
- * Args: M, r, s, b_out, count_out, b_in, count_in
+ * Args: partition, neighbors, weights
  */
 static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
 {
@@ -1630,7 +1630,50 @@ static PyObject* inplace_atomic_new_rows_cols_M(PyObject *self, PyObject *args)
   Py_DECREF(ar_count_in);
 
   PyObject *ret = Py_BuildValue("llll", dM_r_row_sum, dM_r_col_sum, dM_s_row_sum, dM_s_col_sum);
-  return ret;  
+  return ret;
+}
+
+
+
+/* 
+ * Args: partition, vertex_id_start, vertex_id_end, neighbors[vid], weights[vid]
+ * Version for an uncompressed array, using atomic operations.
+ */
+static PyObject* rebuild_M(PyObject *self, PyObject *args)
+{
+
+  PyObject *obj_partition, *obj_neighbors, *obj_weights, *obj_M;
+  uint64_t vid_start, vid_end;
+
+  if (!PyArg_ParseTuple(args, "OllOOO", &obj_partition, &vid_start, &vid_end, &obj_neighbors, &obj_weights, &obj_M)) {
+    return NULL;
+  }
+
+  const PyObject *M = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);  
+  const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_weights = PyArray_FROM_OTF(obj_weights, NPY_LONG, NPY_IN_ARRAY);
+
+  const uint64_t *partition = (const uint64_t *) PyArray_DATA(ar_partition);
+  const uint64_t *neighbors = (const uint64_t *) PyArray_DATA(ar_neighbors);  
+  const uint64_t *weights = (const uint64_t *) PyArray_DATA(ar_weights);
+
+  long i;
+  long n = (long) PyArray_DIM(ar_neighbors, 0);
+
+  uint64_t k1 = partition[vid_start];
+  
+  for (i=0; i<n; i++) {
+    uint64_t k2 = partition[neighbors[i]];
+    uint64_t w = weights[i];
+    atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, k1, k2), w, memory_order_relaxed);
+  }
+
+  Py_DECREF(M);
+  Py_DECREF(ar_partition);
+  Py_DECREF(ar_neighbors);
+  Py_DECREF(ar_weights);
+  Py_RETURN_NONE;
 }
 
 static PyMethodDef compressed_array_methods[] =
@@ -1659,6 +1702,7 @@ static PyMethodDef compressed_array_methods[] =
    { "inplace_compute_new_rows_cols_interblock_edge_count_matrix", inplace_compute_new_rows_cols_interblock_edge_count_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
    { "blocks_and_counts", blocks_and_counts, METH_VARARGS, "" },
    { "inplace_atomic_new_rows_cols_M", inplace_atomic_new_rows_cols_M, METH_VARARGS, "" },
+   { "rebuild_M", rebuild_M, METH_VARARGS, "" },
    {NULL, NULL, 0, NULL}
   };
 
