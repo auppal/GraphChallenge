@@ -568,8 +568,12 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
             L = entropy_max_argsort(partition)
         else:
             L = range(0, N)
-            
-        group_size = args.node_propose_batch_size
+
+        if args.node_propose_batch_size == 0:
+            group_size = (N + n_thread_move - 1) // n_thread_move
+        else:
+            group_size = args.node_propose_batch_size
+
         chunks = [((i // group_size) % n_thread_move, i, min(i+group_size, N), 1) for i in range(0,N,group_size)]
 
         if args.profile > 1:
