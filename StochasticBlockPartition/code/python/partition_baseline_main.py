@@ -448,15 +448,7 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
     if is_compressed(M):
         (dM_r_row_sum, dM_r_col_sum, dM_s_row_sum, dM_s_col_sum) = compressed_array.inplace_compute_new_rows_cols_interblock_edge_count_matrix(M.x, r, s, blocks_out, count_out, blocks_in, count_in)
     else:
-        dM_r_row_sum,dM_r_col_sum,dM_s_row_sum,dM_s_col_sum = compressed_array.inplace_atomic_new_rows_cols_M(M, r, s, blocks_out, count_out, blocks_in, count_in)
-
-    block_degrees_out[r] += dM_r_row_sum
-    block_degrees_out[s] += dM_s_row_sum
-    block_degrees_in[r] += dM_r_col_sum
-    block_degrees_in[s] += dM_s_col_sum
-
-    block_degrees[s] += dM_s_row_sum + dM_s_col_sum
-    block_degrees[r] += dM_r_row_sum + dM_r_col_sum
+        dM_r_row_sum,dM_r_col_sum,dM_s_row_sum,dM_s_col_sum = compressed_array.inplace_atomic_new_rows_cols_M(M, r, s, blocks_out, count_out, blocks_in, count_in, block_degrees_out, block_degrees_in, block_degrees)
 
     return True
 
@@ -598,18 +590,27 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
         # Sanity check M
         if args.sanity_check_m:
             M2 = recompute_M(M.shape[0], partition, out_neighbors)
+            bd_out = np.sum(M2, axis=1)
+            bd_in = np.sum(M2, axis=0)
+            bd = np.add(bd_out, bd_in)
+
             if is_compressed(M):
                 if not (M == M2):
                     raise Exception("Sanity check of interblock edge count matrix failed.")
             else:
                 if not np.array_equal(M, M2):
                     raise Exception("Sanity check of interblock edge count matrix failed.")
+                if not np.array_equal(block_degrees_out_shared, bd_out):
+                    raise Exception("Sanity check of block_degrees_out failed.")
+                if not np.array_equal(block_degrees_in_shared, bd_in):
+                    raise Exception("Sanity check of block_degrees_in failed.")
+                if not np.array_equal(block_degrees_shared, bd):
+                    raise Exception("Sanity check of block_degrees failed.")
 
         if verbose:
             print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}".format(itr, num_nodal_moves,
                                                                                 itr_delta_entropy[itr] / float(
                                                                                     overall_entropy_cur)))
-
         if num_nodal_moves <= (N * args.min_nodal_moves_ratio):
             break
 
