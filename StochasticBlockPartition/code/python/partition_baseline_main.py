@@ -584,8 +584,8 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
             prev_report_cnt = 0
             t0 = timeit.default_timer()
 
-        if not args.blocking:
-            # Non-blocking locks do not need to call barrier and thus do not require n_thread_move numbers of threads for each invocation
+        if args.blocking:
+            # Blocking locks do not need to call barrier and thus do not require n_thread_move numbers of threads for each invocation
             chunks = [((i // group_size) % n_thread_move, i, min(i+group_size, N), 1) for i in range(0,N,group_size)]
             movements = pool.imap_unordered(propose_node_movement_wrapper, chunks)
             while proposal_cnt < N:
