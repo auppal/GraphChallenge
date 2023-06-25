@@ -266,6 +266,7 @@ def propose_node_movement_wrapper(tup):
                                              M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
                                              vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges,
                                              vertex_neighbors, self_edge_weights, args, vertex_lock=None, block_lock=None)
+
             (ni2, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
             accept = (np.random.uniform() <= p_accept)
 
@@ -330,11 +331,11 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
                           block_degrees, block_degrees_out, block_degrees_in,
                           vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args, vertex_lock=None, block_lock=None):
 
-    # SHR: read partition
+    # SHR: read partition[ni]
     r = partition[current_node]
 
     # SHR: read u = partition[rand_neighbor]
-    # SHR: read row M[u,0] col M[0,u]
+    # SHR: read row M[u,:] col M[:,u]
     
     s = propose_new_partition(
         r,
@@ -352,8 +353,8 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
     if s == r:
         (current_node, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = current_node, r, int(s), 0.0, False, None, None, None, None, None, None
     else:
-        # SHR: read partition[out_neighbors[current_node]
-        # SHR: read partition[in_neighbors[current_node]
+        # SHR: read partition[out_neighbors[current_node]]
+        # SHR: read partition[in_neighbors[current_node]]
         
         # compute block counts of in and out neighbors
         if 0:
