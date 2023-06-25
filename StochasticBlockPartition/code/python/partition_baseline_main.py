@@ -231,8 +231,8 @@ def propose_node_movement_wrapper(tup):
     vertex_locks,block_locks = syms['locks']
     
     (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights) = syms['static_state']
-
     (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared,) = syms['nodal_move_state']
+    barrier = syms['barrier']
 
     M = M_shared
     block_degrees = block_degrees_shared
@@ -304,6 +304,8 @@ def propose_node_movement_wrapper(tup):
                 worker_delta_entropy += delta_entropy
                 worker_n_moves += 1
                 queue.append((ni,r,s))
+
+        barrier.wait()
 
         while queue:
             ni,r,s = queue.popleft()
@@ -550,9 +552,12 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     syms['static_state'] = static_state
     syms['nodal_move_state'] = (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared)
     syms['args'] = args
+    barrier = mp.Barrier(n_thread_move)
+    syms['barrier'] = barrier
 
     pool = Pool(n_thread_move)
     update_id_cnt = 0
+    wrapper_fn = propose_node_movement_wrapper if args.profile == 0 else propose_node_movement_profile_wrapper
 
     for itr in range(max_num_nodal_itr):
         num_nodal_moves = 0
@@ -569,13 +574,6 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
         else:
             group_size = args.node_propose_batch_size
 
-        chunks = [((i // group_size) % n_thread_move, i, min(i+group_size, N), 1) for i in range(0,N,group_size)]
-
-        if args.profile > 1:
-            movements = pool.imap_unordered(propose_node_movement_profile_wrapper, chunks)
-        else:
-            movements = pool.imap_unordered(propose_node_movement_wrapper, chunks)
-
         proposal_cnt = 0
         next_batch_cnt = num_nodal_moves + batch_size
 
@@ -586,16 +584,28 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
             prev_report_cnt = 0
             t0 = timeit.default_timer()
 
-        while proposal_cnt < N:
-            rank,worker_pid,worker_update_id,start,stop,step,n_moves,delta_entropy = movements.next()
-            proposal_cnt += (stop - start) // step
-            total_num_nodal_moves_itr += n_moves
-            num_nodal_moves += n_moves
-            itr_delta_entropy[itr] += delta_entropy
-
+        if not args.blocking:
+            # Non-blocking locks do not need to call barrier and thus do not require n_thread_move numbers of threads for each invocation
+            chunks = [((i // group_size) % n_thread_move, i, min(i+group_size, N), 1) for i in range(0,N,group_size)]
+            movements = pool.imap_unordered(propose_node_movement_wrapper, chunks)
+            while proposal_cnt < N:
+                rank,worker_pid,worker_update_id,start,stop,step,n_moves,delta_entropy = movements.next()
+                proposal_cnt += (stop - start) // step
+                total_num_nodal_moves_itr += n_moves
+                num_nodal_moves += n_moves
+                itr_delta_entropy[itr] += delta_entropy
+        else:
+            for start in range(0, N, n_thread_move * group_size):
+                chunk = [(i, min(start + i * group_size, N), min(start + (i + 1) * group_size, N), 1) for i in range(n_thread_move)]
+                for movement in pool.imap_unordered(wrapper_fn, chunk):
+                        rank,worker_pid,worker_update_id,start,stop,step,n_moves,delta_entropy = movement
+                        total_num_nodal_moves_itr += n_moves
+                        num_nodal_moves += n_moves
+                        itr_delta_entropy[itr] += delta_entropy
+                barrier.reset()
 
         # Sanity check M
-        if args.sanity_check_m:
+        if args.sanity_check:
             M2 = recompute_M(M.shape[0], partition, out_neighbors)
             bd_out = np.sum(M2, axis=1)
             bd_in = np.sum(M2, axis=0)
@@ -1582,7 +1592,7 @@ if __name__ == '__main__':
     parser.add_argument("--min-nodal-moves-ratio", type=float, required=False, default=0.0, help="Break nodal move loop early if the number of accepted moves is below this fraction of the number of nodes.")
     parser.add_argument("--skip-eval", type=int, required=False, default=0, help="Skip partition evaluation.")
     parser.add_argument("--max-num-nodal-itr", type=int, required=False, default=100, help="Maximum number of iterations during nodal moves.")
-    parser.add_argument("--sanity-check-m", type=int, required=False, default=0, help="Full recompute interblock edge counts and compare against differentially computed version.")
+    parser.add_argument("--sanity-check", type=int, required=False, default=0, help="Full recompute interblock edge counts and block counts, and compare against differentially computed version.")
 
     # Arguments for thread control
     parser.add_argument("--blocking", type=int, required=False, default=1, help="Whether to use blocking waits during nodal moves.")
