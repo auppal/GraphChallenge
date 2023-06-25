@@ -1478,13 +1478,12 @@ static PyObject* inplace_compute_new_rows_cols_interblock_edge_count_matrix(PyOb
   long n_in = (long) PyArray_DIM(ar_b_in, 0);
 
   long i;
-  int64_t dM_r_row_sum = 0, dM_r_col_sum = 0, dM_s_row_sum = 0, dM_s_col_sum = 0;
+  int64_t dM_r_row_sum = 0, dM_r_col_sum = 0;
   
   for (i=0; i<n_out; i++) {
     /* M[r, b_out[i]] -= count_out[i] */
     /* M[s, b_out[i]] += count_out[i] */
     dM_r_row_sum -= count_out[i];
-    dM_s_row_sum += count_out[i];    
     compressed_accum_single(M, r, b_out[i], -count_out[i] );
     compressed_accum_single(M, s, b_out[i], +count_out[i] );
   }
@@ -1493,27 +1492,17 @@ static PyObject* inplace_compute_new_rows_cols_interblock_edge_count_matrix(PyOb
     /* M[b_in[i], r] -= count_in[i] */
     /* M[b_in[i], s] += count_in[i] */
     dM_r_col_sum -= count_in[i];
-    dM_s_col_sum += count_in[i];
     compressed_accum_single(M, b_in[i], r, -count_in[i] );
     compressed_accum_single(M, b_in[i], s, +count_in[i] );
   }
 
-  atomic_fetch_add_explicit(&d_out[r], dM_r_row_sum, memory_order_relaxed);
-  atomic_fetch_add_explicit(&d_out[s], dM_s_row_sum, memory_order_relaxed);
-  atomic_fetch_add_explicit(&d_in[r], dM_r_col_sum, memory_order_relaxed);
-  atomic_fetch_add_explicit(&d_in[s], dM_s_col_sum, memory_order_relaxed);
-  atomic_fetch_add_explicit(&d[r], dM_r_row_sum + dM_r_col_sum, memory_order_relaxed);
-  atomic_fetch_add_explicit(&d[s], dM_s_row_sum + dM_s_col_sum, memory_order_relaxed);
-  
-  /*
-  block_degrees_out[r] += dM_r_row_sum;
-  block_degrees_out[s] += dM_s_row_sum;
-  block_degrees_in[r] += dM_r_col_sum;
-  block_degrees_in[s] += dM_s_col_sum;
 
-  block_degrees[s] += dM_s_row_sum + dM_s_col_sum;
-  block_degrees[r] += dM_r_row_sum + dM_r_col_sum;
-  */
+  atomic_fetch_add_explicit(&d_out[r], dM_r_row_sum, memory_order_relaxed);
+  atomic_fetch_add_explicit(&d_out[s], -dM_r_row_sum, memory_order_relaxed);
+  atomic_fetch_add_explicit(&d_in[r], dM_r_col_sum, memory_order_relaxed);
+  atomic_fetch_add_explicit(&d_in[s], -dM_r_col_sum, memory_order_relaxed);
+  atomic_fetch_add_explicit(&d[r], dM_r_row_sum + dM_r_col_sum, memory_order_relaxed);
+  atomic_fetch_add_explicit(&d[s], -dM_r_row_sum - dM_r_col_sum, memory_order_relaxed);
   
   Py_DECREF(ar_b_out);
   Py_DECREF(ar_count_out);
@@ -1523,7 +1512,7 @@ static PyObject* inplace_compute_new_rows_cols_interblock_edge_count_matrix(PyOb
   Py_DECREF(ar_d_in);
   Py_DECREF(ar_d);
 
-  PyObject *ret = Py_BuildValue("llll", dM_r_row_sum, dM_r_col_sum, dM_s_row_sum, dM_s_col_sum);
+  PyObject *ret = Py_BuildValue("llll", dM_r_row_sum, dM_r_col_sum, -dM_r_row_sum, -dM_r_col_sum);
   return ret;
 }
 
@@ -1618,49 +1607,30 @@ static PyObject* inplace_atomic_new_rows_cols_M(PyObject *self, PyObject *args)
   long n_in = (long) PyArray_DIM(ar_b_in, 0);  
   long i;
 
-  int64_t dM_r_row_sum = 0, dM_r_col_sum = 0, dM_s_row_sum = 0, dM_s_col_sum = 0;
-  
+  int64_t dM_r_row_sum = 0, dM_r_col_sum = 0;
+
   for (i=0; i<n_out; i++) {
     /* M[r, b_out[i]] -= count_out[i] */
     /* M[s, b_out[i]] += count_out[i] */
-#if 0
-    atomic_ulong *p;
-    p = PyArray_GETPTR2(M, r, b_out[i]);
-    *p -= count_out[i];
-    p = PyArray_GETPTR2(M, s, b_out[i]);
-    *p += count_out[i];
-#else
     dM_r_row_sum -= count_out[i];
-    dM_s_row_sum += count_out[i];
     atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, r, b_out[i]), -count_out[i], memory_order_relaxed);
     atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, s, b_out[i]), +count_out[i], memory_order_relaxed);
-#endif
   }
   
   for (i=0; i<n_in; i++) {
     /* M[b_in[i], r] -= count_in[i] */
     /* M[b_in[i], s] += count_in[i] */
-#if 0
-    atomic_ulong *p;    
-    p = PyArray_GETPTR2(M, b_in[i], r);
-    *p -= count_in[i];
-    p = PyArray_GETPTR2(M, b_in[i], s);
-    *p += count_in[i];
-#else
     dM_r_col_sum -= count_in[i];
-    dM_s_col_sum += count_in[i];
     atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, b_in[i], r), -count_in[i], memory_order_relaxed);
     atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, b_in[i], s), +count_in[i], memory_order_relaxed);
-#endif
-    
   }
 
   atomic_fetch_add_explicit(&d_out[r], dM_r_row_sum, memory_order_relaxed);
-  atomic_fetch_add_explicit(&d_out[s], dM_s_row_sum, memory_order_relaxed);
+  atomic_fetch_add_explicit(&d_out[s], -dM_r_row_sum, memory_order_relaxed);
   atomic_fetch_add_explicit(&d_in[r], dM_r_col_sum, memory_order_relaxed);
-  atomic_fetch_add_explicit(&d_in[s], dM_s_col_sum, memory_order_relaxed);
+  atomic_fetch_add_explicit(&d_in[s], -dM_r_col_sum, memory_order_relaxed);
   atomic_fetch_add_explicit(&d[r], dM_r_row_sum + dM_r_col_sum, memory_order_relaxed);
-  atomic_fetch_add_explicit(&d[s], dM_s_row_sum + dM_s_col_sum, memory_order_relaxed);
+  atomic_fetch_add_explicit(&d[s], -dM_r_row_sum - dM_r_col_sum, memory_order_relaxed);
 
   Py_DECREF(M);
   Py_DECREF(ar_b_out);
@@ -1671,7 +1641,7 @@ static PyObject* inplace_atomic_new_rows_cols_M(PyObject *self, PyObject *args)
   Py_DECREF(ar_d_in);
   Py_DECREF(ar_d);  
 
-  PyObject *ret = Py_BuildValue("llll", dM_r_row_sum, dM_r_col_sum, dM_s_row_sum, dM_s_col_sum);
+  PyObject *ret = Py_BuildValue("llll", dM_r_row_sum, dM_r_col_sum, -dM_r_row_sum, -dM_r_col_sum);
   return ret;
 }
 

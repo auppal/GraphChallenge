@@ -446,9 +446,9 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
     release_locks(vertex_locks)
 
     if is_compressed(M):
-        (dM_r_row_sum, dM_r_col_sum, dM_s_row_sum, dM_s_col_sum) = compressed_array.inplace_compute_new_rows_cols_interblock_edge_count_matrix(M.x, r, s, blocks_out, count_out, blocks_in, count_in)
+        compressed_array.inplace_compute_new_rows_cols_interblock_edge_count_matrix(M.x, r, s, blocks_out, count_out, blocks_in, count_in, block_degrees_out, block_degrees_in, block_degrees)
     else:
-        dM_r_row_sum,dM_r_col_sum,dM_s_row_sum,dM_s_col_sum = compressed_array.inplace_atomic_new_rows_cols_M(M, r, s, blocks_out, count_out, blocks_in, count_in, block_degrees_out, block_degrees_in, block_degrees)
+        compressed_array.inplace_atomic_new_rows_cols_M(M, r, s, blocks_out, count_out, blocks_in, count_in, block_degrees_out, block_degrees_in, block_degrees)
 
     return True
 
