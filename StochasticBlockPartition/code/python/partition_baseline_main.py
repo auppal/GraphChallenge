@@ -311,10 +311,12 @@ def propose_node_movement_wrapper(tup):
 
             if args.critical == 1:
                 if not acquire_locks_nowait(locks):
+                    queue.append((ni,r,s))
                     continue
+
                 move_node(ni, r, s, partition_shared,
                           out_neighbors, in_neighbors, self_edge_weights, M_shared,
-                          block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks=locks, blocking=args.blocking)
+                          block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks=None)
                 release_locks(locks)
             else:
                 if not move_node(ni, r, s, partition_shared,
