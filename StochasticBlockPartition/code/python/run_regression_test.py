@@ -464,4 +464,18 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
+    if args['group-size']:
+        files = [N[20000]]
+        var_args = (('input_filename', files),
+                    ('iteration', range(20)),
+                    ('blocking', (1,)),
+                    ('finegrain', (0,)),
+                    ('critical', (2,)),
+                    ('sparse',(0,)),
+                    ('node_propose_batch_size', (0,4,8,16,32,64,128,256,512)),
+                    ('threads',(24,)))
+        result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
+        print_results(result)
+        results.update(result)
+
     pickle.dump(results, results_f)
