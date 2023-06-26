@@ -440,12 +440,12 @@ if __name__ == '__main__':
     if args['threading-sanity2']:
         files = [N[5000]]
         var_args = (('input_filename', files),
-                    ('iteration', range(50)),
-                    ('blocking', (0,1,)),
-                    ('finegrain', (0,1)),
-                    ('critical', (0,1,2)),
+                    ('iteration', range(1000)),
+                    ('blocking', (1,)),
+                    ('finegrain', (0,)),
+                    ('critical', (2,)),
                     ('sanity_check', (1,)),
-                    ('sparse',(0,)),
+                    ('sparse',(1,)),
                     ('threads',(24,)))
         result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
         print_results(result)
@@ -455,9 +455,9 @@ if __name__ == '__main__':
         files = [N[20000]]
         var_args = (('input_filename', files),
                     ('iteration', range(5)),
-                    ('blocking', (0,1,)),
-                    ('finegrain', (0,1)),
-                    ('critical', (0,1,2)),
+                    ('blocking', (0,)),
+                    ('finegrain', (1,)),
+                    ('critical', (2,)),
                     ('sparse',(0,)),
                     ('threads',(24,)))
         result = run_var_test(out_dir, base_args, var_args, max_jobs=1)

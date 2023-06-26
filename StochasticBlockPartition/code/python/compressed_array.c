@@ -73,7 +73,12 @@ struct hash *hash_create(size_t initial_size, int shared_mem)
   h->alloc_size = buf_size;
   h->fn_malloc = fn_malloc;
   h->fn_free = fn_free;
-  memset(h->keys, 0xff, h->width * sizeof(uint64_t));
+
+  size_t i;
+  for (i=0; i<h->width; i++) {
+    h->keys[i] = EMPTY_FLAG;
+    h->vals[i] = 0;
+  }
 
   return h;
 }
@@ -222,6 +227,7 @@ struct hash *hash_accum_single(struct hash *h, uint64_t k, int64_t c)
 
   for (i=0; i<width; i++) {
     size_t idx = (kh + i) % width;
+#if 0
     if (h->keys[idx] == k) {
       h->vals[idx] += c;
       break;      
@@ -232,6 +238,34 @@ struct hash *hash_accum_single(struct hash *h, uint64_t k, int64_t c)
       h->cnt++;
       break;
     }
+#elif 0
+    if (h->keys[idx] == k) {
+      atomic_fetch_add_explicit((atomic_ulong *) &h->vals[idx], c, memory_order_relaxed);
+      break;
+    }
+    else if (h->keys[idx] & EMPTY_FLAG) {
+      h->keys[idx] = k & ~EMPTY_FLAG;
+      h->vals[idx] = c;
+      h->cnt++;
+      break;
+    }
+#else
+    /* Try experimental lock-free approach */
+    atomic_long empty = EMPTY_FLAG;
+    _Bool rc = atomic_compare_exchange_strong((atomic_ulong *) &h->keys[idx], &empty, (atomic_ulong) k);
+
+    if (rc) {
+      /* Was empty, and new key inserted. It is safe to add instead of assign because vals were all initialized to zero.*/
+      atomic_fetch_add_explicit((atomic_ulong *) &h->vals[idx], c, memory_order_relaxed);
+      h->cnt++;
+      break;
+    }
+    else if (h->keys[idx] == k) {
+      /* Was not empty. Check the existing key. */
+      atomic_fetch_add_explicit((atomic_ulong *) &h->vals[idx], c, memory_order_relaxed);
+      break;
+    }
+#endif
   }
 
   h = hash_resize(h);
