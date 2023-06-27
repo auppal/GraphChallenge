@@ -13,11 +13,8 @@
 #include <stdatomic.h>
 #include "shared_mem.h"
 
-#define USE_SEM 0
-
 #define errExit(msg)    do { perror(msg); exit(EXIT_FAILURE);	\
   } while (0)
-
 
 
 /* From khash */
@@ -463,16 +460,11 @@ static inline struct hash *hash_accum_multi(struct hash *h, const uint64_t *keys
   return h;
 }
 
-
 struct compressed_array {
   size_t n_row, n_col;  
   struct hash **rows;
   struct hash **cols;
-#if USE_SEM  
-  sem_t *sem_row, *sem_col;
-#endif  
 };
-
 
 struct compressed_array *compressed_array_create(size_t n_nodes, size_t initial_width)
 {
@@ -483,22 +475,6 @@ struct compressed_array *compressed_array_create(size_t n_nodes, size_t initial_
     return NULL;
   }
   size_t i;
-
-#if USE_SEM
-  x->sem_row = shared_malloc(n_nodes * sizeof(sem_t));
-  x->sem_col = shared_malloc(n_nodes * sizeof(sem_t));
-  
-  for (i=0; i<n_nodes; i++) {
-    if (sem_init(&x->sem_row[i], 1, 1) < 0) {
-      free(x);
-      return NULL;      
-    }
-    if (sem_init(&x->sem_col[i], 1, 1) < 0) {
-      free(x);
-      return NULL;      
-    }    
-  }
-#endif
   
   x->n_row = n_nodes;
   x->n_col = n_nodes;
