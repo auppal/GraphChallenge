@@ -21,7 +21,7 @@ except:
 
 
 compressed_threshold = 5000
-timing_stats = defaultdict(float)
+timing_stats = defaultdict(int)
 
 log_timestamp_prev = 0
 def log_timestamp(msg):
@@ -235,6 +235,9 @@ def propose_node_movement_wrapper(tup):
     (update_id_shared, M, partition, block_degrees, block_degrees_out, block_degrees_in,) = syms['nodal_move_state']
     barrier = syms['barrier']
 
+    if args.sort:
+        reorder = syms['reorder']
+    
     if update_id != update_id_shared.value:
         if update_id == -1:
             # Ensure every worker has a different random seed.
@@ -249,10 +252,14 @@ def propose_node_movement_wrapper(tup):
 
     worker_delta_entropy = 0.0
     worker_n_moves = 0
+    pop_cnt = 0
 
     # r is current_block, s is proposal
     if args.blocking:
         for ni in range(start, stop, step):
+            if args.sort:
+                ni = reorder[ni]
+
             locks = get_locks(args.finegrain, vertex_locks, ni, vertex_neighbors)
 
             args.critical == 0 and acquire_locks(locks)
@@ -304,6 +311,7 @@ def propose_node_movement_wrapper(tup):
 
         while queue:
             ni,r,s = queue.popleft()
+            pop_cnt += 1
             locks = get_locks(args.finegrain, vertex_locks, ni, vertex_neighbors)
 
             if args.critical == 1:
@@ -322,7 +330,7 @@ def propose_node_movement_wrapper(tup):
                     queue.append((ni,r,s))
                     continue
 
-    return rank,mypid,update_id,start,stop,step,worker_n_moves,worker_delta_entropy
+    return rank,mypid,update_id,start,stop,step,worker_n_moves,worker_delta_entropy,pop_cnt
 
 
 
@@ -542,6 +550,10 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     barrier = mp.Barrier(n_thread_move)
     syms['barrier'] = barrier
 
+    if args.sort:
+        reorder = np.arange(N, dtype=int)
+        syms['reorder'] = reorder
+
     pool = Pool(n_thread_move)
     update_id_cnt = 0
     wrapper_fn = propose_node_movement_wrapper if args.profile == 0 else propose_node_movement_profile_wrapper
@@ -552,10 +564,16 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
         proposal_cnt = 0
 
         if args.sort:
-            #L = np.argsort(partition)
-            L = entropy_max_argsort(partition)
-        else:
-            L = range(0, N)
+            # Try to arrange the verticies such that each worker processes vertices that are far from each other.
+            s = np.argsort(partition)
+            k = (N + n_thread_move - 1) // n_thread_move
+            c = 0
+            for j in range(0,k):
+                for i in range(j,N,n_thread_move):
+                    if c == N:
+                        break
+                    reorder[c] = i
+                    c += 1
 
         if args.node_propose_batch_size == 0:
             group_size = (N + n_thread_move - 1) // n_thread_move
@@ -567,7 +585,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
             chunks = [((i // group_size) % n_thread_move, i, min(i+group_size, N), 1) for i in range(0,N,group_size)]
             movements = pool.imap_unordered(propose_node_movement_wrapper, chunks)
             while proposal_cnt < N:
-                rank,worker_pid,worker_update_id,start,stop,step,n_moves,delta_entropy = movements.next()
+                rank,worker_pid,worker_update_id,start,stop,step,n_moves,delta_entropy,pop_cnt = movements.next()
                 proposal_cnt += (stop - start) // step
                 total_num_nodal_moves_itr += n_moves
                 num_nodal_moves += n_moves
@@ -576,10 +594,12 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
             for start in range(0, N, n_thread_move * group_size):
                 chunk = [(i, min(start + i * group_size, N), min(start + (i + 1) * group_size, N), 1) for i in range(n_thread_move)]
                 for movement in pool.imap_unordered(wrapper_fn, chunk):
-                        rank,worker_pid,worker_update_id,start,stop,step,n_moves,delta_entropy = movement
+                        rank,worker_pid,worker_update_id,start,stop,step,n_moves,delta_entropy,pop_cnt = movement
                         total_num_nodal_moves_itr += n_moves
                         num_nodal_moves += n_moves
                         itr_delta_entropy[itr] += delta_entropy
+                        timing_stats['pop_cnt'] += pop_cnt
+                        timing_stats['nodal_moves'] += n_moves
                 barrier.reset()
 
         # Sanity check M
@@ -1526,6 +1546,8 @@ def partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, ar
     print('\nGraph partition took %.4f seconds' % (t_elapsed_partition))
 
     print('Timing stats:', [(k,v) for (k,v) in timing_stats.items()])
+    if 'pop_cnt' in timing_stats:
+        print("Pop / move ratio: %3.3f" % (timing_stats['pop_cnt'] / timing_stats['nodal_moves']))
 
     if stop_at_bracket:
         return t_elapsed_partition,partition,alg_state
