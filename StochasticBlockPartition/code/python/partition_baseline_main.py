@@ -21,6 +21,7 @@ except:
 
 
 compressed_threshold = 5000
+timing_stats = defaultdict(float)
 
 log_timestamp_prev = 0
 def log_timestamp(msg):
@@ -534,7 +535,6 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     else:
         vertex_lock = [mp.Lock()]
 
-    modified = np.zeros(M.shape[0], dtype=bool)
     update_id_shared = Value('i', 0)
 
     partition_shared = partition
@@ -562,6 +562,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     for itr in range(max_num_nodal_itr):
         num_nodal_moves = 0
         itr_delta_entropy[itr] = 0
+        proposal_cnt = 0
 
         if args.sort:
             #L = np.argsort(partition)
@@ -573,16 +574,6 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
             group_size = (N + n_thread_move - 1) // n_thread_move
         else:
             group_size = args.node_propose_batch_size
-
-        proposal_cnt = 0
-        next_batch_cnt = num_nodal_moves + batch_size
-
-        cnt_seq_workers = 0
-        cnt_non_seq_workers = 0
-
-        if args.verbose > 1:
-            prev_report_cnt = 0
-            t0 = timeit.default_timer()
 
         if args.blocking:
             # Blocking locks do not need to call barrier and thus do not require n_thread_move numbers of threads for each invocation
@@ -626,8 +617,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
 
         if verbose:
             print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}".format(itr, num_nodal_moves,
-                                                                                itr_delta_entropy[itr] / float(
-                                                                                    overall_entropy_cur)))
+                                                                            itr_delta_entropy[itr] / float(overall_entropy_cur)))
         if num_nodal_moves <= (N * args.min_nodal_moves_ratio):
             break
 
@@ -652,8 +642,8 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
 
     # begin agglomerative partition updates (i.e. block merging)
     if verbose:
-        move_start_time = timeit.default_timer()
-        print("\nMerging down blocks from {} to {} at time {:4.4f}".format(num_blocks, num_target_blocks, move_start_time - t_prog_start))
+        merge_start_time = timeit.default_timer()
+        print("\nMerging down blocks from {} to {} at time {:4.4f}".format(num_blocks, num_target_blocks, merge_start_time - t_prog_start))
 
 #    if verbose > 1:
 #        print("Density at block size {} is {:1.8f}".format(num_blocks, np.count_nonzero(M) / (num_blocks ** 2)))
@@ -772,6 +762,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     num_blocks = num_blocks_t
 
     if verbose:
+        merge_end_time = move_start_time = timeit.default_timer()
         print("Best num_blocks = %s" % num_blocks)
         print("blocks %s entropy %s" % (num_target_blocks, overall_entropy_per_num_blocks))
         print("Beginning nodal updates at ", timeit.default_timer() - t_prog_start)
@@ -788,9 +779,12 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
 
     if verbose:
         move_end_time = timeit.default_timer()
+        merge_time = merge_end_time - merge_start_time
         move_time = move_end_time - move_start_time
+        timing_stats['time_in_merge'] += merge_time
+        timing_stats['time_in_move'] += move_time
         move_rate = total_num_nodal_moves_itr / move_time
-        print("Total number of nodal moves: {:3d}, overall_entropy: {:0.2f}, move_time: {:0.3f} secs, moves_per_sec: {:4.3f}".format(total_num_nodal_moves_itr, overall_entropy, move_time, move_rate))
+        print("Total number of nodal moves: {:3d}, overall_entropy: {:0.2f}, merge_time: {:0.3f}, move_time: {:0.3f} secs, moves_per_sec: {:4.3f}".format(total_num_nodal_moves_itr, overall_entropy, merge_time, move_time, move_rate))
 
     if args.visualize_graph:
         graph_object = plot_graph_with_partition(out_neighbors, partition, graph_object)
@@ -1544,6 +1538,8 @@ def partition_static_graph(out_neighbors, in_neighbors, N, E, true_partition, ar
     t_elapsed_partition = t_prog_end - t_prog_start
     print('\nGraph partition took %.4f seconds' % (t_elapsed_partition))
 
+    print('Timing stats:', [(k,v) for (k,v) in timing_stats.items()])
+
     if stop_at_bracket:
         return t_elapsed_partition,partition,alg_state
     else:
@@ -1561,7 +1557,6 @@ def info(type, value, tb):
         traceback.print_exception(type, value, tb)
         # ...then start the debugger in post-mortem mode.
         pdb.post_mortem(tb)
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
