@@ -224,7 +224,7 @@ def get_locks(finegrain, vertex_locks, ni, vertex_neighbors):
 
 update_id = -1
 def propose_node_movement_wrapper(tup):
-    global update_id, partition, M, block_degrees, block_degrees_out, block_degrees_in, mypid
+    global update_id, mypid
 
     rank,start,stop,step = tup
 
@@ -232,14 +232,8 @@ def propose_node_movement_wrapper(tup):
     vertex_locks,block_locks = syms['locks']
     
     (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights) = syms['static_state']
-    (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared,) = syms['nodal_move_state']
+    (update_id_shared, M, partition, block_degrees, block_degrees_out, block_degrees_in,) = syms['nodal_move_state']
     barrier = syms['barrier']
-
-    M = M_shared
-    block_degrees = block_degrees_shared
-    block_degrees_out = block_degrees_out_shared
-    block_degrees_in = block_degrees_in_shared
-    partition = partition_shared
 
     if update_id != update_id_shared.value:
         if update_id == -1:
@@ -276,19 +270,19 @@ def propose_node_movement_wrapper(tup):
                 worker_n_moves += 1
 
                 if args.critical == 0:
-                    move_node(ni, r, s, partition_shared,
-                              out_neighbors, in_neighbors, self_edge_weights, M_shared,
-                              block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks = None, blocking=True)
+                    move_node(ni, r, s, partition,
+                              out_neighbors, in_neighbors, self_edge_weights, M,
+                              block_degrees_out, block_degrees_in, block_degrees, vertex_locks = None, blocking=True)
                 elif args.critical == 1:
                     acquire_locks(locks)
-                    move_node(ni, r, s, partition_shared,
-                              out_neighbors, in_neighbors, self_edge_weights, M_shared,
-                              block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks = None, blocking=True)
+                    move_node(ni, r, s, partition,
+                              out_neighbors, in_neighbors, self_edge_weights, M,
+                              block_degrees_out, block_degrees_in, block_degrees, vertex_locks = None, blocking=True)
                     release_locks(locks)
                 else:
-                    move_node(ni, r, s, partition_shared,
-                              out_neighbors, in_neighbors, self_edge_weights, M_shared,
-                              block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks = locks, blocking=True)
+                    move_node(ni, r, s, partition,
+                              out_neighbors, in_neighbors, self_edge_weights, M,
+                              block_degrees_out, block_degrees_in, block_degrees, vertex_locks = locks, blocking=True)
 
             args.critical == 0 and release_locks(locks)
     else:
@@ -317,14 +311,14 @@ def propose_node_movement_wrapper(tup):
                     queue.append((ni,r,s))
                     continue
 
-                move_node(ni, r, s, partition_shared,
-                          out_neighbors, in_neighbors, self_edge_weights, M_shared,
-                          block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks=None)
+                move_node(ni, r, s, partition,
+                          out_neighbors, in_neighbors, self_edge_weights, M,
+                          block_degrees_out, block_degrees_in, block_degrees, vertex_locks=None)
                 release_locks(locks)
             else:
-                if not move_node(ni, r, s, partition_shared,
-                                 out_neighbors, in_neighbors, self_edge_weights, M_shared,
-                                 block_degrees_out_shared, block_degrees_in_shared, block_degrees_shared, vertex_locks=locks, blocking=args.blocking):
+                if not move_node(ni, r, s, partition,
+                                 out_neighbors, in_neighbors, self_edge_weights, M,
+                                 block_degrees_out, block_degrees_in, block_degrees, vertex_locks=locks, blocking=args.blocking):
                     queue.append((ni,r,s))
                     continue
 
@@ -536,13 +530,6 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
         vertex_lock = [mp.Lock()]
 
     update_id_shared = Value('i', 0)
-
-    partition_shared = partition
-    block_degrees_shared = block_degrees
-    block_degrees_in_shared = block_degrees_in
-    block_degrees_out_shared = block_degrees_out
-    M_shared = M
-
     static_state = (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights)
 
     shape = partition.shape
@@ -550,7 +537,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     syms = {}
     syms['locks'] = vertex_lock,block_lock
     syms['static_state'] = static_state
-    syms['nodal_move_state'] = (update_id_shared, M_shared, partition_shared, block_degrees_shared, block_degrees_out_shared, block_degrees_in_shared)
+    syms['nodal_move_state'] = (update_id_shared, M, partition, block_degrees, block_degrees_out, block_degrees_in)
     syms['args'] = args
     barrier = mp.Barrier(n_thread_move)
     syms['barrier'] = barrier
@@ -608,11 +595,11 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
             else:
                 if not np.array_equal(M, M2):
                     raise Exception("Sanity check of interblock edge count matrix failed.")
-                if not np.array_equal(block_degrees_out_shared, bd_out):
+                if not np.array_equal(block_degrees_out, bd_out):
                     raise Exception("Sanity check of block_degrees_out failed.")
-                if not np.array_equal(block_degrees_in_shared, bd_in):
+                if not np.array_equal(block_degrees_in, bd_in):
                     raise Exception("Sanity check of block_degrees_in failed.")
-                if not np.array_equal(block_degrees_shared, bd):
+                if not np.array_equal(block_degrees, bd):
                     raise Exception("Sanity check of block_degrees failed.")
 
         if verbose:
@@ -628,7 +615,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
                     break
 
     pool.close()
-    return total_num_nodal_moves_itr,partition_shared,M_shared,block_degrees_out_shared,block_degrees_in_shared,block_degrees_shared
+    return total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees
 
 
 def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_threshold, M, block_degrees, block_degrees_out, block_degrees_in, out_neighbors, in_neighbors, N, E, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, partition, args, verbose = False):
