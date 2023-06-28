@@ -29,7 +29,12 @@ class fast_sparse_array(object):
     def set_axis_dict(self, idx, axis, d_new):
         compressed_array.setaxis_from_dict(self.x, idx, axis, d_new)
     def __str__(self):
-        return "Not implemented"
+        s = ""
+        for i in range(self.shape[0]):
+            for j in range(self.shape[1]):
+                s += " %2d " % compressed_array.getitem(self.x, i, j)
+            s += "\n"
+        return s
     def count_nonzero(self):
         return sum(len(d) for d in self.rows)
     # There is a complicated issue. If the graph is streamed in parts there may be a node without edges. In that case we should return an empty array.
