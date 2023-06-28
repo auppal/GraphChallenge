@@ -628,6 +628,10 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
                     break
 
     pool.close()
+
+    if args.verbose > 1:
+        compressed_array.memory_report()
+    
     return total_num_nodal_moves_itr,partition_shared,M_shared,block_degrees_out_shared,block_degrees_in_shared,block_degrees_shared
 
 

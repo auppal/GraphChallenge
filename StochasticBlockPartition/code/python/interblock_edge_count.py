@@ -8,7 +8,7 @@ def is_compressed(M):
 
 star = slice(None, None, None)
 class fast_sparse_array(object):
-    def __init__(self, tup, width, base_type=list, dtype=None):
+    def __init__(self, tup, width, dtype=None):
         if (tup[0] > 0):
             self.x = compressed_array.create(tup[0], width)
         self.width = width
@@ -26,22 +26,8 @@ class fast_sparse_array(object):
                 if compressed_array.getitem(self.x, i, j) != X[i,j]:
                     return False
         return True
-    def set_axis_dict_old(self, idx, axis, d_new):
-        try:
-            compressed_array.setaxis(self.x, idx, axis, d_new.keys(), d_new.values())
-        except AttributeError:
-            keys,values = compressed_array.keys_values_dict(d_new)
-            compressed_array.setaxis(self.x, idx, axis, keys, values)
     def set_axis_dict(self, idx, axis, d_new):
         compressed_array.setaxis_from_dict(self.x, idx, axis, d_new)
-    def set_axis_dict_old(self, idx, axis, d_new):
-        keys,values = compressed_array.keys_values_dict(d_new)
-        compressed_array.setaxis(self.x, idx, axis, keys, values)
-        # I am surprised this works.
-        # There should be entries in the old row that are not in the new one.
-        # But apparently:             assert(len(dict_keys_func(self.rows[idx]) - dict_keys_func(d_new)) == 0)
-        # and:                        assert(len(dict_keys_func(self.cols[idx]) - dict_keys_func(d_new)) == 0)
-        # This seems to be a consequence of moving nodes from one community to another and how this affects the edge counts.
     def __str__(self):
         return "Not implemented"
     def count_nonzero(self):
