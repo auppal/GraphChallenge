@@ -13,11 +13,8 @@
 #include <stdatomic.h>
 #include "shared_mem.h"
 
-#define USE_SEM 0
-
 #define errExit(msg)    do { perror(msg); exit(EXIT_FAILURE);	\
   } while (0)
-
 
 
 /* From khash */
@@ -463,16 +460,11 @@ static inline struct hash *hash_accum_multi(struct hash *h, const uint64_t *keys
   return h;
 }
 
-
 struct compressed_array {
   size_t n_row, n_col;  
   struct hash **rows;
   struct hash **cols;
-#if USE_SEM  
-  sem_t *sem_row, *sem_col;
-#endif  
 };
-
 
 struct compressed_array *compressed_array_create(size_t n_nodes, size_t initial_width)
 {
@@ -483,22 +475,6 @@ struct compressed_array *compressed_array_create(size_t n_nodes, size_t initial_
     return NULL;
   }
   size_t i;
-
-#if USE_SEM
-  x->sem_row = shared_malloc(n_nodes * sizeof(sem_t));
-  x->sem_col = shared_malloc(n_nodes * sizeof(sem_t));
-  
-  for (i=0; i<n_nodes; i++) {
-    if (sem_init(&x->sem_row[i], 1, 1) < 0) {
-      free(x);
-      return NULL;      
-    }
-    if (sem_init(&x->sem_col[i], 1, 1) < 0) {
-      free(x);
-      return NULL;      
-    }    
-  }
-#endif
   
   x->n_row = n_nodes;
   x->n_col = n_nodes;
@@ -628,11 +604,12 @@ static inline void compressed_set_single(struct compressed_array *x, uint64_t i,
   x->cols[j] = hash_set_single(x->cols[j], i, val);
 }
 
-static inline void compressed_accum_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t C)
+static inline int compressed_accum_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t C)
 {
   /* XXX There is a bug in this logic if exactly one fails. */
-  x->rows[i] = hash_accum_single(x->rows[i], j, C);
-  x->cols[j] = hash_accum_single(x->cols[j], i, C);
+  if (!(x->rows[i] = hash_accum_single(x->rows[i], j, C))) { return -1; }
+  if (!(x->cols[j] = hash_accum_single(x->cols[j], i, C))) { return -1; }
+  return 0;
 }
 
 /* Take values along a particular axis */
@@ -1518,18 +1495,17 @@ static PyObject* inplace_compute_new_rows_cols_interblock_edge_count_matrix(PyOb
     /* M[r, b_out[i]] -= count_out[i] */
     /* M[s, b_out[i]] += count_out[i] */
     dM_r_row_sum -= count_out[i];
-    compressed_accum_single(M, r, b_out[i], -count_out[i] );
-    compressed_accum_single(M, s, b_out[i], +count_out[i] );
+    if (compressed_accum_single(M, r, b_out[i], -count_out[i])) { goto bad; }
+    if (compressed_accum_single(M, s, b_out[i], +count_out[i])) { goto bad; }
   }
   
   for (i=0; i<n_in; i++) {
     /* M[b_in[i], r] -= count_in[i] */
     /* M[b_in[i], s] += count_in[i] */
     dM_r_col_sum -= count_in[i];
-    compressed_accum_single(M, b_in[i], r, -count_in[i] );
-    compressed_accum_single(M, b_in[i], s, +count_in[i] );
+    if (compressed_accum_single(M, b_in[i], r, -count_in[i])) { goto bad; }
+    if (compressed_accum_single(M, b_in[i], s, +count_in[i])) { goto bad; }
   }
-
 
   atomic_fetch_add_explicit(&d_out[r], dM_r_row_sum, memory_order_relaxed);
   atomic_fetch_add_explicit(&d_out[s], -dM_r_row_sum, memory_order_relaxed);
@@ -1548,6 +1524,10 @@ static PyObject* inplace_compute_new_rows_cols_interblock_edge_count_matrix(PyOb
 
   PyObject *ret = Py_BuildValue("llll", dM_r_row_sum, dM_r_col_sum, -dM_r_row_sum, -dM_r_col_sum);
   return ret;
+
+bad:
+  PyErr_SetString(PyExc_RuntimeError, "Update interblock edge count failed.");
+  return NULL;
 }
 
 
@@ -1722,6 +1702,12 @@ static PyObject* rebuild_M(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+static PyObject* memory_report(PyObject *self, PyObject *args)
+{
+	shared_print_report();
+	Py_RETURN_NONE;
+}
+
 static PyMethodDef compressed_array_methods[] =
   {
    { "create", create, METH_VARARGS, "Create a new object." },
@@ -1749,6 +1735,7 @@ static PyMethodDef compressed_array_methods[] =
    { "blocks_and_counts", blocks_and_counts, METH_VARARGS, "" },
    { "inplace_atomic_new_rows_cols_M", inplace_atomic_new_rows_cols_M, METH_VARARGS, "" },
    { "rebuild_M", rebuild_M, METH_VARARGS, "" },
+   { "memory_report", memory_report, METH_VARARGS, "" },
    {NULL, NULL, 0, NULL}
   };
 
