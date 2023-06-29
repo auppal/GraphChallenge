@@ -169,7 +169,6 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
                                                                    in_idx, in_weight,
                                                                    M[r, r],
                                                                    agg_move = 1)
-
             # compute change in entropy / posterior
             block_degrees_out_new, block_degrees_in_new, block_degrees_new \
                 = compute_new_block_degrees(r,
@@ -337,7 +336,6 @@ def propose_node_movement_wrapper(tup):
 def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, M, num_blocks,
                           block_degrees, block_degrees_out, block_degrees_in,
                           vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args, vertex_lock=None, block_lock=None):
-
     # SHR: read partition[ni]
     r = partition[current_node]
 
@@ -463,7 +461,10 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
 def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args):
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
-
+    
+    if args.sanity_check:
+        sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)
+    
     for itr in range(max_num_nodal_itr):
         num_nodal_moves = 0
         itr_delta_entropy[itr] = 0
@@ -475,11 +476,14 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
             L = range(0, N)
 
         update_id_cnt = 0
-
+        
         for i in L:
             movement = propose_node_movement(i, partition, out_neighbors, in_neighbors, M, num_blocks,
                                              block_degrees, block_degrees_out, block_degrees_in,
                                              vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args)
+
+            if args.sanity_check:
+                sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)
 
             (ni, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
             accept = (np.random.uniform() <= p_accept)
@@ -497,6 +501,9 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
             move_node(ni, r, s, partition,
                       out_neighbors, in_neighbors, self_edge_weights, M,
                       block_degrees_out, block_degrees_in, block_degrees)
+
+        if args.sanity_check:
+            sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)            
 
         if verbose:
             print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}".format(itr, num_nodal_moves,
@@ -523,6 +530,26 @@ def recompute_M(B, partition, out_neighbors):
             M[k1, k2] += count
     return M
 
+
+def sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees):
+    M2 = recompute_M(M.shape[0], partition, out_neighbors)
+    bd_out = np.sum(M2, axis=1)
+    bd_in = np.sum(M2, axis=0)
+    bd = np.add(bd_out, bd_in)
+    
+    if is_compressed(M):
+        if not (M == M2):
+            raise Exception("Sanity check of interblock edge count matrix failed.")
+    else:
+        if not np.array_equal(M, M2):
+            raise Exception("Sanity check of interblock edge count matrix failed.")
+        if not np.array_equal(block_degrees_out, bd_out):
+            raise Exception("Sanity check of block_degrees_out failed.")
+        if not np.array_equal(block_degrees_in, bd_in):
+            raise Exception("Sanity check of block_degrees_in failed.")
+        if not np.array_equal(block_degrees, bd):
+            raise Exception("Sanity check of block_degrees failed.")
+    
 
 def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args):
     global syms
@@ -602,25 +629,8 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
                         timing_stats['nodal_moves'] += n_moves
                 barrier.reset()
 
-        # Sanity check M
         if args.sanity_check:
-            M2 = recompute_M(M.shape[0], partition, out_neighbors)
-            bd_out = np.sum(M2, axis=1)
-            bd_in = np.sum(M2, axis=0)
-            bd = np.add(bd_out, bd_in)
-
-            if is_compressed(M):
-                if not (M == M2):
-                    raise Exception("Sanity check of interblock edge count matrix failed.")
-            else:
-                if not np.array_equal(M, M2):
-                    raise Exception("Sanity check of interblock edge count matrix failed.")
-                if not np.array_equal(block_degrees_out, bd_out):
-                    raise Exception("Sanity check of block_degrees_out failed.")
-                if not np.array_equal(block_degrees_in, bd_in):
-                    raise Exception("Sanity check of block_degrees_in failed.")
-                if not np.array_equal(block_degrees, bd):
-                    raise Exception("Sanity check of block_degrees failed.")
+            sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)            
 
         if verbose:
             print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}".format(itr, num_nodal_moves,
@@ -687,7 +697,6 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         current_blocks,best_merge,best_delta_entropy,fresh_proposals_evaluated \
             = compute_best_block_merge(range(num_blocks), num_blocks, M,
                                        block_partition, block_degrees, args.n_proposal, block_degrees_out, block_degrees_in, args)
-
         n_proposals_evaluated += fresh_proposals_evaluated
         for current_block_idx,current_block in enumerate(current_blocks):
             if current_block is not None:
@@ -780,6 +789,9 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
 
     batch_size = args.node_move_update_batch_size
 
+    if args.sanity_check:
+        sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)
+    
     if n_thread_move > 0:
         total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees = nodal_moves_parallel(n_thread_move, batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
     else:
@@ -885,6 +897,9 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
                                      num_blocks,
                                      partition,
                                      use_compressed, args.verbose)
+        if args.sanity_check:
+            sanity_check_state(partition, out_neighbors, interblock_edge_count, block_degrees_out, block_degrees_in, block_degrees)
+
         # initialize items before iterations to find the partition with the optimal number of blocks
         hist, graph_object = initialize_partition_variables()
 
