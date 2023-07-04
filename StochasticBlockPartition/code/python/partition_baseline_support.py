@@ -280,7 +280,7 @@ def initialize_partition_variables():
     return hist, graph_object
 
 
-def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
+def initialize_edge_counts(out_neighbors, B, b, sparse, args):
     """Initialize the edge count matrix and block degrees according to the current partition
 
         Parameters
@@ -308,7 +308,7 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         -----
         Compute the edge count matrix and the block degrees from scratch"""
 
-    if verbose > 0:
+    if args.verbose > 0:
         import time
         print("Initialize edge counts for size %d with compression %d" % (B,sparse))
         t0 = time.time()
@@ -338,7 +338,7 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         np.sum(M, axis=0, out=d_in)
         np.add(d_out, d_in, out=d)
 
-        if verbose > 2:
+        if args.verbose > 1:
             in_cnt = np.sum(M != 0, axis=0)
             out_cnt = np.sum(M != 0, axis=1)            
             max_in_cnt = np.max(in_cnt)
@@ -377,9 +377,12 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
         std_in_cnt = np.std(in_cnt)
         std_out_cnt = np.std(out_cnt)
 
-        width = max(max_in_cnt, max_out_cnt) # int(max(mean_in_cnt + 5 * std_in_cnt, mean_out_cnt + 5 * std_out_cnt))
+        if args.preallocate:
+            width = max(max_in_cnt, max_out_cnt)
+        else:
+            width = int(max(mean_in_cnt + 2 * std_in_cnt, mean_out_cnt + 2 * std_out_cnt))
         
-        if verbose > 1:
+        if args.verbose > 1:
             print("density(M[%d]) = %s" % (B, len(M_d) / (B ** 2.)))
             print("max_in_cnt = %d" % max_in_cnt)
             print("max_out_cnt = %d" % max_out_cnt)
@@ -393,16 +396,18 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, verbose=0):
 
         M = fast_sparse_array((B,B), width=width, dtype=mydtype)
 
+        compressed_array.shared_memory_report()
+        
         for (i,j),w in M_d.items():
             M[i,j] = w
             d_in[j] += w
             d_out[i] += w
         np.add(d_out, d_in, out=d)
 
-    if verbose > 0:
+    if args.verbose > 0:
         t1 = time.time()
         print("M initialization took %s" % (t1-t0))
-        compressed_array.memory_report()
+        compressed_array.shared_memory_report()
 
     return M, d_out, d_in, d
 

@@ -461,6 +461,18 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
 def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args):
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
+
+    if args.verbose > 1:
+        compressed_array.shared_memory_report()
+    
+    used,avail = compressed_array.shared_memory_query()
+    for i in range(len(used)):
+        if used[i] > 0 and (used[i] / (used[i] + avail[i])) < 1.0:
+            compressed_array.shared_memory_reserve(i, (used[i] + avail[i]) * 2)
+
+    if args.verbose > 1:
+        compressed_array.shared_memory_report()
+
     
     if args.sanity_check:
         sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)
@@ -553,6 +565,19 @@ def sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_deg
 
 def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args):
     global syms
+
+    print("\n\n\n")
+
+    if args.verbose > 1:
+        compressed_array.shared_memory_report()
+
+    used,avail = compressed_array.shared_memory_query()
+    for i in range(len(used)):
+        if used[i] > 0 and (used[i] / (used[i] + avail[i])) < 1.0:
+            compressed_array.shared_memory_reserve(i, (used[i] + avail[i]) * 2)
+
+    if args.verbose > 1:
+        compressed_array.shared_memory_report()
 
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
@@ -647,7 +672,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
     pool.close()
 
     if args.verbose > 1:
-        compressed_array.memory_report()
+        compressed_array.shared_memory_report()
 
     return total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees
 
@@ -736,7 +761,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
                 initialize_edge_counts(out_neighbors,
                                        num_blocks_t,
                                        partition_t,
-                                       use_compressed, args.verbose)
+                                       use_compressed, args)
 
         # compute the global entropy for MCMC convergence criterion
         overall_entropy = compute_overall_entropy(M_t, block_degrees_out_t, block_degrees_in_t, num_blocks_t, N,
@@ -896,7 +921,7 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
             = initialize_edge_counts(out_neighbors,
                                      num_blocks,
                                      partition,
-                                     use_compressed, args.verbose)
+                                     use_compressed, args)
         if args.sanity_check:
             sanity_check_state(partition, out_neighbors, interblock_edge_count, block_degrees_out, block_degrees_in, block_degrees)
 
@@ -922,7 +947,7 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
         use_compressed = (args.sparse != 0)
 
         interblock_edge_count, block_degrees_out, block_degrees_in, block_degrees \
-            = initialize_edge_counts(out_neighbors, num_blocks, partition, use_compressed, args.verbose)
+            = initialize_edge_counts(out_neighbors, num_blocks, partition, use_compressed, args)
 
         overall_entropy = compute_overall_entropy(interblock_edge_count, block_degrees_out, block_degrees_in, num_blocks, N, E)
         partition, interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in, num_blocks, num_blocks_to_merge, hist, optimal_num_blocks_found = \
@@ -1618,6 +1643,7 @@ if __name__ == '__main__':
     parser.add_argument("--sanity-check", type=int, required=False, default=0, help="Full recompute interblock edge counts and block counts, and compare against differentially computed version.")
 
     # Arguments for thread control
+    parser.add_argument("--preallocate", type=int, required=False, default=0, help="Whether to preallocate memory.")
     parser.add_argument("--blocking", type=int, required=False, default=1, help="Whether to use blocking waits during nodal moves.")
     parser.add_argument("--finegrain", type=int, required=False, default=0, help="Try to use finegrain locks instead of a single lock.")
     parser.add_argument("--critical", type=int, required=False, default=0, help="Which critical section to use. 0 is the widest, 2 is the narrowest.")

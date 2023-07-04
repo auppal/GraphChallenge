@@ -10,18 +10,12 @@ try:
 except:
     import pickle
 
-try:
-    from contextlib import redirect_stdout
-except:
-    # Back port for Python 2.7x
-    # See: https://stackoverflow.com/questions/44226221/contextlib-redirect-stdout-in-python2-7
-    import contextlib
-    @contextlib.contextmanager
-    def redirect_stdout(target):
-        original = sys.stdout
-        sys.stdout = target
-        yield
-        sys.stdout = original
+import contextlib
+@contextlib.contextmanager        
+def redirect_streams(target):
+    os.dup2(target.fileno(), sys.stdout.fileno())
+    os.dup2(target.fileno(), sys.stderr.fileno())
+    yield
 
 
 base_args = {'debug' : 0, 'decimation' : 0,
@@ -91,7 +85,7 @@ def child_func(queue, fout, func, args):
     t0 = timeit.default_timer()
 
     try:
-        with redirect_stdout(fout):
+        with redirect_streams(fout):
             func_result = func(args)
     except:
         traceback.print_exc()
@@ -145,6 +139,7 @@ def run_test(out_dir, base_args, input_files, iterations, threads, max_jobs = 1)
             print("Took %3.4f seconds and used %d k maxrss. Function result is %s" % (t_elp, mem_rss, str(func_result)))
             print("")
         else:
+            print(args)            
             print("Exception occured. Continuing.")
             print("")
 
@@ -451,6 +446,22 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
+    if args['memory-sanity']:
+        files = [N[500]]
+        var_args = (('input_filename', files),
+                    ('iteration', range(100)),
+                    ('blocking', (0,1,)),
+                    ('finegrain', (0,)),
+                    ('critical', (2,)),
+                    ('sanity_check', (0,1,)),
+                    ('sparse',(1,)),
+                    ('preallocate',(0,1,)),                    
+                    ('threads',(24,)))
+        result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
+        print_results(result)
+        results.update(result)
+
+        
     if args['threading-performance']:
         files = [N[20000]]
         var_args = (('input_filename', files),

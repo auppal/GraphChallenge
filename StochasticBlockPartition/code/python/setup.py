@@ -12,12 +12,16 @@ module1 = Extension('entropy_module',
 # To debug: undef_macros = [ "NDEBUG" ]
 module2 = Extension('compressed_array',
                     include_dirs=[np.get_include()],
-                    sources=['compressed_array.c', 'shared_mem.c', 'slab_alloc.c'],
-                    extra_compile_args=['-Og', '-march=native'],
+                    sources=['compressed_array.c', 'shared_mem.c'],
+                    extra_compile_args=['-g', '-Og', '-march=native'],
                     libraries = ['rt'],
                     library_dirs=['.'],
                     undef_macros = [ "NDEBUG" ]
 )
+
+module3 = Extension('shared_mem',
+                    sources=['shared_mem.c'],
+                    extra_compile_args=['-O3', '-march=native'])
 
 setup(name = 'PackageName',
       version = '1.0',

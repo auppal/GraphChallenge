@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdatomic.h>
+#include <stdbool.h>
 #include "shared_mem.h"
 
 #define errExit(msg)    do { perror(msg); exit(EXIT_FAILURE);	\
@@ -37,6 +38,22 @@ struct hash {
 static void private_free(void *p, size_t len)
 {
   free(p);
+}
+
+int hash_sanity_count(const char *msg, const struct hash *h)
+{
+  size_t i, sanity_cnt = 0;
+  for (i=0; i<h->width; i++) {
+    if ((h->keys[i] & EMPTY_FLAG) == 0) {
+      sanity_cnt++;
+    }
+  }
+  if (h->cnt != sanity_cnt) {
+    fprintf(stderr, "Sanity count at %s for hash %p failed: cnt %ld h->cnt %ld\n", msg, h, sanity_cnt, h->cnt);
+    return -1;
+  }
+
+  return 0;
 }
 
 struct hash *hash_create(size_t initial_size, int shared_mem)
@@ -84,7 +101,6 @@ void hash_destroy(struct hash *h)
 {
   if (h) {
     h->fn_free(h, h->alloc_size);
-    /* XXX free h->sems */
   }
 }
 
@@ -137,8 +153,11 @@ static inline struct hash *hash_resize(struct hash *h)
   struct hash *h2;
 
   if (h->cnt == h->limit) {
-    /* Resize */
+    /* Resize needed */
 
+    /* XXX Remove sanity check */
+    hash_sanity_count("hash_resize", h);
+    
 #if RESIZE_DEBUG
     fprintf(stderr, "Before resize cnt is %ld\n", h->cnt);
     hash_print(h);
@@ -148,7 +167,7 @@ static inline struct hash *hash_resize(struct hash *h)
     
     h2 = hash_create(h->width * 2, shared_mem);
     if (!h2) {
-      fprintf(stderr, "hash_resize: hash_create to size %ld from %ld failed\n", h->width * 2, h->limit);
+      fprintf(stderr, "hash_resize: hash_create to width %ld from %ld failed\n", h->width * 2, h->limit);
       return NULL;
     }
 #if RESIZE_DEBUG
@@ -170,8 +189,8 @@ static inline struct hash *hash_resize(struct hash *h)
 #endif        
 
     if (h->cnt != h2->cnt) {
-      fprintf(stderr, "Mismatch found abort\n");
-      abort();
+      fprintf(stderr, "Mismatch found in hash %p h1->cnt %ld h2->cnt %ld ins %ld\n", h, h->cnt, h2->cnt, ins);
+      return NULL;
     }
 
     hash_destroy(h);
@@ -214,7 +233,7 @@ struct hash *hash_set_single(struct hash *h, uint64_t k, int64_t v)
 }
 
 
-struct hash *hash_accum_single(struct hash *h, uint64_t k, int64_t c)
+int hash_accum_single(struct hash *h, uint64_t k, int64_t c)
 {
   /* To avoid a subtle logic bug, first check for existance. 
    * Beacuse not every insertion will cause an increase in cnt.
@@ -235,17 +254,6 @@ struct hash *hash_accum_single(struct hash *h, uint64_t k, int64_t c)
       h->cnt++;
       break;
     }
-#elif 0
-    if (h->keys[idx] == k) {
-      atomic_fetch_add_explicit((atomic_ulong *) &h->vals[idx], c, memory_order_relaxed);
-      break;
-    }
-    else if (h->keys[idx] & EMPTY_FLAG) {
-      h->keys[idx] = k & ~EMPTY_FLAG;
-      h->vals[idx] = c;
-      h->cnt++;
-      break;
-    }
 #else
     /* Try experimental lock-free approach */
     atomic_long empty = EMPTY_FLAG;
@@ -254,7 +262,8 @@ struct hash *hash_accum_single(struct hash *h, uint64_t k, int64_t c)
     if (rc) {
       /* Was empty, and new key inserted. It is safe to add instead of assign because vals were all initialized to zero.*/
       atomic_fetch_add_explicit((atomic_ulong *) &h->vals[idx], c, memory_order_relaxed);
-      h->cnt++;
+      /* And also do increase the count by 1. */
+      atomic_fetch_add_explicit((atomic_ulong *) &h->cnt, 1, memory_order_relaxed);
       break;
     }
     else if (h->keys[idx] == k) {
@@ -265,13 +274,13 @@ struct hash *hash_accum_single(struct hash *h, uint64_t k, int64_t c)
 #endif
   }
 
-  h = hash_resize(h);
 
-  if (!h) {
-    fprintf(stderr, "Warning in hash_accum_single: hash_resize failed\n");
+  if (h->cnt >= h->limit) {
+	  return 1; /* resize needed */
   }
-  
-  return h;
+  else {
+	  return 0;
+  }
 }
 
 
@@ -440,6 +449,7 @@ static inline struct hash *hash_accum_multi(struct hash *h, const uint64_t *keys
 
     if (!h) {
       fprintf(stderr, "Warning in hash_accum_multi: hash_resize failed\n");
+      return NULL;
     }
   }
 
@@ -577,10 +587,11 @@ struct compressed_array *compressed_copy(const struct compressed_array *y)
   }
 
   if (i != x->n_row) {
-    for (; i>=0; i--) {
+    do {
       hash_destroy(x->rows[i]);
       hash_destroy(x->cols[i]);
     }
+    while (i-- != 0);
 
     shared_free(x->rows, x->n_row * sizeof(struct hash *));
     shared_free(x->cols, x->n_col * sizeof(struct hash *));    
@@ -604,11 +615,114 @@ static inline void compressed_set_single(struct compressed_array *x, uint64_t i,
   x->cols[j] = hash_set_single(x->cols[j], i, val);
 }
 
+/* XXX TODO Merge old and new */
 static inline int compressed_accum_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t C)
 {
-  /* XXX There is a bug in this logic if exactly one fails. */
-  if (!(x->rows[i] = hash_accum_single(x->rows[i], j, C))) { return -1; }
-  if (!(x->cols[j] = hash_accum_single(x->cols[j], i, C))) { return -1; }
+#if 0
+  int rc;
+  rc = hash_accum_single(x->rows[i], j, C);
+  if (rc) {
+    if ((x->rows[i] = hash_resize(x->rows[i])) < 0) { return -1; }
+    fprintf(stderr, "Done row resize\n");
+  }
+  rc = hash_accum_single(x->cols[j], i, C);
+  if (rc) {
+    if ((x->cols[j] = hash_resize(x->cols[j])) < 0) { return -1; }
+    fprintf(stderr, "Done col resize\n");
+  }
+  return 0;
+#elif 0
+  int rc;
+  rc = hash_accum_single(x->rows[i], j, C);
+#if 0
+  static int cnt = 0;
+  if (cnt++ < 2) {
+    struct hash *old = x->rows[i];
+    struct hash *new = hash_copy(old, 1);
+    fprintf(stderr, "copied %p into row %ld!\n", new, i);
+    x->rows[i] = new;
+    hash_destroy(old);
+  }
+#endif
+		       
+  if (rc) {
+    if ((x->rows[i] = hash_resize(x->rows[i])) < 0) { return -1; }
+    fprintf(stderr, "Done row resize\n");
+    return -1;
+  }
+  rc = hash_accum_single(x->cols[j], i, C);
+  if (rc) {
+    if ((x->cols[j] = hash_resize(x->cols[j])) < 0) { return -1; }
+    fprintf(stderr, "Done col resize\n");
+    return -1;
+  }
+  return 0;	
+#else
+  size_t ii;
+  int rc;
+
+  struct hash *old_row = x->rows[i], *new_row;
+  rc = hash_accum_single(x->rows[i], j, C);
+
+  if (rc == 1) {
+    new_row = hash_create(old_row->width * 2, 1);
+
+    if (!new_row) {
+      fprintf(stderr, "compressed_accum_single: hash_create row failed\n");
+      return -1;
+    }
+
+    _Bool rc = false;
+    rc = atomic_compare_exchange_strong((atomic_uintptr_t *) &x->rows[i], &old_row, (atomic_uintptr_t) new_row);
+    if (!rc) { /* Someone else won the race */
+      hash_destroy(new_row);
+    }
+    else { /* We won the row race. */
+      fprintf(stderr, "We won the row race! Merge into hash %p from %p\n", new_row, old_row);
+      long ins = 0;
+      for (ii=0; ii<old_row->width; ii++) {
+	uint64_t k = atomic_load_explicit((atomic_ulong *) &old_row->keys[ii], memory_order_relaxed);
+	int64_t v = atomic_load_explicit((atomic_long *) &old_row->vals[ii], memory_order_relaxed);
+	if ((k != EMPTY_FLAG)) {
+	  hash_accum_single(new_row, k, v);					
+	  ins++;
+	}
+      }
+    }
+  }
+
+  struct hash *old_col = x->cols[j], *new_col;
+  rc = hash_accum_single(x->cols[j], i, C);
+
+  if (rc == 1) {
+    new_col = hash_create(old_col->width * 2, 1);
+
+    if (!new_col) {
+      fprintf(stderr, "compressed_accum_single: hash_create col failed\n");
+      //hash_destroy(new_row);
+      return -1;
+    }
+
+    _Bool rc = false;
+    rc = atomic_compare_exchange_strong((atomic_uintptr_t *) &x->cols[j], &old_col, (atomic_uintptr_t) new_col);
+    if (!rc) { /* Someone else won the race */
+      hash_destroy(new_col);
+    }
+    else { /* We won the race. */
+      fprintf(stderr, "We won the col race! Merge into hash %p from %p\n", new_col, old_col);
+      long ins = 0;
+      for (ii=0; ii<old_col->width; ii++) {
+	uint64_t k = atomic_load_explicit((atomic_ulong *) &old_col->keys[ii], memory_order_relaxed);
+	int64_t v = atomic_load_explicit((atomic_long *) &old_col->vals[ii], memory_order_relaxed);
+	if ((k != EMPTY_FLAG)) {
+	  hash_accum_single(new_col, k, v);					
+	  ins++;
+	}
+      }
+    }
+  }
+#endif
+
   return 0;
 }
 
@@ -765,7 +879,14 @@ static PyObject* accum_dict(PyObject *self, PyObject *args)
   const long *vals = (const long *) PyArray_DATA(obj_v);
   long N = (long) PyArray_DIM(obj_k, 0);
 
+  hash_sanity_count("accum_dict", h);
+  
   h = hash_accum_multi(h, keys, vals, N);
+
+  if (!h) {
+    PyErr_SetString(PyExc_RuntimeError, "hash_accum_multi failed");
+    return NULL;
+  }
 
   Py_DECREF(obj_k);
   Py_DECREF(obj_v);
@@ -813,6 +934,14 @@ static PyObject* take_dict(PyObject *self, PyObject *args)
   //hash_print(orig);
   struct hash *ent = hash_copy(orig, 0);
 
+  int ok1 = hash_sanity_count("take_dict orig", orig);
+  int ok2 = hash_sanity_count("take_dict ent", ent);
+
+  if (ok1 != ok2) {
+    fprintf(stderr, "take_dict found different sanity for orig (cnt %ld) and copy ent (cnt %ld). Major weirdness!\n", orig->cnt, ent->cnt);
+  }
+  
+  
   if (!ent) {
     PyErr_SetString(PyExc_RuntimeError, "take_dict: hash_copy failed");    
     return NULL;
@@ -913,6 +1042,12 @@ static PyObject* copy_dict(PyObject *self, PyObject *args)
   struct hash *h = *ph;
 
   struct hash *h2 = hash_copy(h, 0);
+
+  // fprintf(stderr, "    pid %d copied into hash %p h count %ld h2 count %ld\n", getpid(), h2, h->cnt, h2->cnt);
+
+  hash_sanity_count("copy_dict h", h);
+  hash_sanity_count("copy_dict h2", h2);
+  
   struct hash **ph2 = create_dict(h2);
 
   ret = PyCapsule_New(ph2, "compressed_array_dict", destroy_dict);
@@ -994,7 +1129,18 @@ static PyObject* copy(PyObject *self, PyObject *args)
   }
 
   struct compressed_array *y = PyCapsule_GetPointer(obj, "compressed_array");
+
+  if (!y) {
+    PyErr_SetString(PyExc_RuntimeError, "Invalid reference to compressed_array.");    
+    return NULL;
+  }
+
   struct compressed_array *x = compressed_copy(y);
+
+  if (!x) {
+    PyErr_SetString(PyExc_RuntimeError, "compresed array copy failed");
+    return NULL;
+  }
 
   ret = PyCapsule_New(x, "compressed_array", destroy);
   return ret;
@@ -1505,8 +1651,15 @@ static PyObject* inplace_compute_new_rows_cols_interblock_edge_count_matrix(PyOb
     dM_r_col_sum -= count_in[i];
     if (compressed_accum_single(M, b_in[i], r, -count_in[i])) { goto bad; }
     if (compressed_accum_single(M, b_in[i], s, +count_in[i])) { goto bad; }
-  }
 
+#if 0
+    /* XXX */
+    struct hash *hh = M->rows[b_in[i]];
+    M->rows[b_in[i]] = hash_copy(hh, 1);
+    hash_destroy(hh);
+#endif    
+  }
+  
   atomic_fetch_add_explicit(&d_out[r], dM_r_row_sum, memory_order_relaxed);
   atomic_fetch_add_explicit(&d_out[s], -dM_r_row_sum, memory_order_relaxed);
   atomic_fetch_add_explicit(&d_in[r], dM_r_col_sum, memory_order_relaxed);
@@ -1559,7 +1712,12 @@ static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
   for (i=0; i<n; i++) {
     uint64_t k = partition[neighbors[i]];
     uint64_t w = weights[i];
-    h = hash_accum_single(h, k, w);
+    if (hash_accum_single(h, k, w) == 1) {
+	    h = hash_resize(h);
+	    if (!h) {
+	      return NULL;
+	    }
+    }
   }
   
   Py_DECREF(ar_partition);
@@ -1702,10 +1860,46 @@ static PyObject* rebuild_M(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
-static PyObject* memory_report(PyObject *self, PyObject *args)
+static PyObject* shared_memory_report(PyObject *self, PyObject *args)
 {
-	shared_print_report();
-	Py_RETURN_NONE;
+  shared_print_report();
+  Py_RETURN_NONE;
+}
+
+static PyObject* shared_memory_query(PyObject *self, PyObject *args)
+{
+  long i;
+  size_t n_items;
+
+  long *used = calloc(SHARED_MAX_POOLS, sizeof(long));
+  long *avail = calloc(SHARED_MAX_POOLS, sizeof(long));
+
+  for (i=0; i<SHARED_MAX_POOLS; i++) {
+    shared_query(i, &used[i], &avail[i]);
+  }
+
+  npy_intp dims[] = {SHARED_MAX_POOLS};
+  PyObject *used_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, used);
+  PyObject *avail_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, avail);  
+
+  PyArray_ENABLEFLAGS((PyArrayObject*) used_obj, NPY_ARRAY_OWNDATA);
+  PyArray_ENABLEFLAGS((PyArrayObject*) avail_obj, NPY_ARRAY_OWNDATA);
+
+  PyObject *ret = Py_BuildValue("NN", used_obj, avail_obj);
+  return ret;
+}
+
+static PyObject* shared_memory_reserve(PyObject *self, PyObject *args)
+{
+  PyObject *ret;
+  long pool_id, n_items;
+
+  if (!PyArg_ParseTuple(args, "ll", &pool_id, &n_items)) {
+    return NULL;
+  }
+
+  shared_reserve(pool_id, n_items);
+  Py_RETURN_NONE;
 }
 
 static PyMethodDef compressed_array_methods[] =
@@ -1735,7 +1929,9 @@ static PyMethodDef compressed_array_methods[] =
    { "blocks_and_counts", blocks_and_counts, METH_VARARGS, "" },
    { "inplace_atomic_new_rows_cols_M", inplace_atomic_new_rows_cols_M, METH_VARARGS, "" },
    { "rebuild_M", rebuild_M, METH_VARARGS, "" },
-   { "memory_report", memory_report, METH_VARARGS, "" },
+   { "shared_memory_report", shared_memory_report, METH_VARARGS, "" },
+   { "shared_memory_query", shared_memory_query, METH_VARARGS, "" },   
+   { "shared_memory_reserve", shared_memory_reserve, METH_VARARGS, "" },
    {NULL, NULL, 0, NULL}
   };
 
