@@ -213,7 +213,6 @@ struct pool_info {
 
 struct huge_info {
 	size_t huge_size;
-	size_t huge_remain;
 	_Atomic(size_t) huge_offset;
 	char *huge_base;
 };
@@ -265,15 +264,20 @@ static void *shared_memory_get(size_t size_bytes)
 		return NULL;
 	}
 
-	size_t offset, new_offset;
+	size_t offset = huge->huge_offset, new_offset;
 	do {
-		offset = huge->huge_offset;
 		new_offset = offset + size_bytes;
+
+		if (new_offset >= huge->huge_size) {
+			fprintf(stderr, "shared_memory_get: Out of storage\n");
+			errno = ENOBUFS;
+			return NULL;
+		}
 	}
 	while (!atomic_compare_exchange_strong(&huge->huge_offset, &offset, new_offset));
 
 	char *p = huge->huge_base + offset;
-	fprintf(stderr, "shared_memory_get: huge_offset %ld huge_remain %ld\n", huge->huge_offset, huge->huge_remain);
+	fprintf(stderr, "shared_memory_get: huge_offset %ld huge_size %ld return %p\n", huge->huge_offset, huge->huge_size, p);
 	
 	return p;
 }
@@ -298,8 +302,7 @@ void shared_init()
 	huge = shared_memory_mmap(sizeof(struct huge_info));
 	
 	size_t page_size = 4096;
-	huge->huge_size = 1024 * 1000000;
-	huge->huge_remain = huge->huge_size;
+	huge->huge_size = 1024 * 10000000ul;
 	huge->huge_base = shared_memory_mmap(huge->huge_size);
 	huge->huge_offset = 0;
 
@@ -323,7 +326,7 @@ void *shared_malloc(size_t nbytes)
 	size_t page_size = 4096;
 	size_t initial_items = page_size / sizeof(void *) - 1;
 
-	fprintf(stderr, "shared_malloc %ld np2 %ld lg2 %ld\n", nbytes, np2, lg2);
+	fprintf(stderr, "shared_malloc nbytes %ld np2 %ld lg2 %ld\n", nbytes, np2, lg2);
 
 	shared_init();
 
