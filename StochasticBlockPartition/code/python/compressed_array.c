@@ -15,10 +15,6 @@
 #include <stdbool.h>
 #include "shared_mem.h"
 
-#define errExit(msg)    do { perror(msg); exit(EXIT_FAILURE);	\
-  } while (0)
-
-
 /* From khash */
 #define kh_int64_hash_func(key) (khint32_t)((key)>>33^(key)^(key)<<11)
 #define hash(x) (((x) >> 33 ^ (x) ^ (x) << 11))
@@ -711,11 +707,11 @@ int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
       hoa_new.h = newh;
       hoa_new.external_refcnt = 0;
 
-      fprintf(stderr, "Pid %d before CAS outer %p inner %p external_refcnt %ld (oldh %p)\n", getpid(), ho, cur.h, cur.external_refcnt, oldh);      
+      // fprintf(stderr, "Pid %d before CAS outer %p inner %p external_refcnt %ld (oldh %p)\n", getpid(), ho, cur.h, cur.external_refcnt, oldh);      
       rc = atomic_compare_exchange_strong((_Atomic(struct hash_outer) *) ho, &hoa_cur, hoa_new);
 
       cur = hoa_cur;
-      fprintf(stderr, "Pid %d after CAS outer %p inner %p external_refcnt %ld (rc %d oldh %p)\n", getpid(), ho, cur.h, cur.external_refcnt, rc, oldh);      
+      // fprintf(stderr, "Pid %d after CAS outer %p inner %p external_refcnt %ld (rc %d oldh %p)\n", getpid(), ho, cur.h, cur.external_refcnt, rc, oldh);      
     }
 
     if (!rc) {
@@ -757,28 +753,19 @@ int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
 	}
       }
 
-      fprintf(stderr, "    Moved %ld items\n", ins);
-      hash_sanity_count("hash_accum_resize", oldh);
-
-      /* XXX TODO remove */
-      for (size_t i=0; i<oldh->width; i++) {
-	oldh->keys[i] = EMPTY_FLAG;
-	oldh->vals[i] = 0xff;
-      }
       hash_destroy(oldh);
       return 0;
     }
   }
 
   //fprintf(stderr, "Release oldh %p %ld\n", oldh, oldh->internal_refcnt);
-  atomic_thread_fence(memory_order_seq_cst);
+  atomic_thread_fence(memory_order_release);
   oldh->internal_refcnt++;
 
   
   return 0;
 }
 
-/* XXX TODO Merge old and new */
 static inline int compressed_accum_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t C)
 {
   if (hash_accum_resize(&x->rows[i], j, C)) { return -1; }
@@ -1702,13 +1689,6 @@ static PyObject* inplace_compute_new_rows_cols_interblock_edge_count_matrix(PyOb
     dM_r_col_sum -= count_in[i];
     if (compressed_accum_single(M, b_in[i], r, -count_in[i])) { goto bad; }
     if (compressed_accum_single(M, b_in[i], s, +count_in[i])) { goto bad; }
-
-#if 0
-    /* XXX */
-    struct hash *hh = M->rows[b_in[i]];
-    M->rows[b_in[i]] = hash_copy(hh, 1);
-    hash_destroy(hh);
-#endif    
   }
   
   atomic_fetch_add_explicit(&d_out[r], dM_r_row_sum, memory_order_relaxed);

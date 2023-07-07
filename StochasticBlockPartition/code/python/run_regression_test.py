@@ -461,6 +461,20 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
+    if args['child-alloc']:
+        files = [N[5000]]
+        var_args = (('input_filename', files),
+                    ('iteration', range(50)),
+                    ('blocking', (0,)),
+                    ('finegrain', (0,)),
+                    ('critical', (2,)),
+                    ('sanity_check', (1,)),
+                    ('sparse',(1,)),
+                    ('preallocate',(0,)),                    
+                    ('threads',(12,)))
+        result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
+        print_results(result)
+        results.update(result)
         
     if args['threading-performance']:
         files = [N[20000]]

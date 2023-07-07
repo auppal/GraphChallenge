@@ -464,16 +464,7 @@ def nodal_moves_sequential(batch_size, max_num_nodal_itr, delta_entropy_moving_a
 
     if args.verbose > 1:
         compressed_array.shared_memory_report()
-    
-    used,avail = compressed_array.shared_memory_query()
-    for i in range(len(used)):
-        if used[i] > 0 and (used[i] / (used[i] + avail[i])) < 1.0:
-            compressed_array.shared_memory_reserve(i, (used[i] + avail[i]) * 2)
 
-    if args.verbose > 1:
-        compressed_array.shared_memory_report()
-
-    
     if args.sanity_check:
         sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)
     
@@ -567,15 +558,15 @@ def sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_deg
 def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args):
     global syms
 
-    print("\n\n\n")
+    # print("\n\n\n")
 
-    if args.verbose > 1:
-        compressed_array.shared_memory_report()
+    # if args.verbose > 1:
+    #     compressed_array.shared_memory_report()
 
-    used,avail = compressed_array.shared_memory_query()
-    for i in range(len(used)):
-        if used[i] > 0 and (used[i] / (used[i] + avail[i])) < 1.0:
-            compressed_array.shared_memory_reserve(i, (used[i] + avail[i]) * 2)
+    # used,avail = compressed_array.shared_memory_query()
+    # for i in range(len(used)):
+    #     if used[i] > 0 and (used[i] / (used[i] + avail[i])) < 1.0:
+    #         compressed_array.shared_memory_reserve(i, (used[i] + avail[i]) * 2)
 
     if args.verbose > 1:
         compressed_array.shared_memory_report()
