@@ -306,7 +306,6 @@ void shared_init()
 
 	huge = shared_memory_mmap(sizeof(struct huge_info));
 	
-	size_t page_size = 4096;
 	huge->huge_size = 1024 * 10000000ul;
 	huge->huge_base = shared_memory_mmap(huge->huge_size);
 	huge->huge_offset = 0;

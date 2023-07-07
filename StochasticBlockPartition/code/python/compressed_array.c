@@ -602,7 +602,6 @@ struct compressed_array *compressed_copy(const struct compressed_array *y)
   x->n_row = y->n_row;
   x->n_col = y->n_col;
 
-  int rc;
   size_t i;
 
   x->rows = shared_calloc(x->n_row, sizeof(x->rows[0]));
@@ -678,7 +677,6 @@ int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
 
   struct hash_outer hoa_cur;
   struct hash_outer hoa_new, cur;
-  long expected;
 
   /* Atomically both grab the pointer and increment the counter. */
   do {
@@ -702,8 +700,6 @@ int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
     }
 
     _Bool rc = false;
-    struct hash_outer saved;
-
     hoa_cur = *ho; /* Re-read because external_refcnt may have changed. */
     cur = hoa_cur;
     if (cur.h == oldh) {
@@ -736,7 +732,7 @@ int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
 				cur.external_refcnt - 1,
 				memory_order_seq_cst);
 #if DEBUG_RESIZE_RACE      
-      fprintf(stderr, "Pid %d We won the race (rc %d) for %p ! Subtract %ld from oldh %p (refcnt %ld) and wait (saved %ld).\n", getpid(), rc, ho, cur.external_refcnt, oldh, oldh->internal_refcnt, saved.external_refcnt);
+      fprintf(stderr, "Pid %d We won the race (rc %d) for %p ! Subtract %ld from oldh %p (refcnt %ld) and wait.\n", getpid(), rc, ho, cur.external_refcnt, oldh, oldh->internal_refcnt);
 #endif      
       
       /* Wait for other writers to finish. Minus 1 because WE are
@@ -1204,8 +1200,6 @@ static PyObject* copy(PyObject *self, PyObject *args)
     PyErr_SetString(PyExc_RuntimeError, "Invalid reference to compressed_array.");    
     return NULL;
   }
-  size_t i;
-
   
   struct compressed_array *x = compressed_copy(y);
 
@@ -1506,8 +1500,9 @@ static PyObject* sanity_check(PyObject *self, PyObject *args)
   for (i=0; i<x->n_row; i++) {
     if (hash_sanity_count("sanity_check", x->rows[i].h) < 0) {
       char *msg;
-      asprintf(&msg, "Invalid row count found at position %ld\n", i);
-      PyErr_SetString(PyExc_RuntimeError, msg);
+      if (asprintf(&msg, "Invalid row count found at position %ld\n", i) > 0) {
+	PyErr_SetString(PyExc_RuntimeError, msg);
+      }
       return NULL;      
     }
   }
@@ -1515,8 +1510,9 @@ static PyObject* sanity_check(PyObject *self, PyObject *args)
   for (i=0; i<x->n_row; i++) {
     if (hash_sanity_count("sanity_check", x->cols[i].h) < 0) {
       char *msg;
-      asprintf(&msg, "Invalid col count found at position %ld\n", i);
-      PyErr_SetString(PyExc_RuntimeError, msg);
+      if (asprintf(&msg, "Invalid col count found at position %ld\n", i) > 0) {
+	PyErr_SetString(PyExc_RuntimeError, msg);
+      }
       return NULL;
     }
   }
@@ -1526,8 +1522,9 @@ static PyObject* sanity_check(PyObject *self, PyObject *args)
       if (x->rows[i].h->keys[j] != EMPTY_FLAG) {
 	if (x->rows[i].h->keys[j] > 999999) {
 	  char *msg;
-	  asprintf(&msg, "Invalid key value %ld found in hash %p", x->rows[i].h->keys[j], x->rows[i].h);
-	  PyErr_SetString(PyExc_RuntimeError, msg);
+	  if (asprintf(&msg, "Invalid key value %ld found in hash %p", x->rows[i].h->keys[j], x->rows[i].h) > 0) {
+	    PyErr_SetString(PyExc_RuntimeError, msg);
+	  }
 	  return NULL;
 	}
       }
@@ -1922,8 +1919,6 @@ static PyObject* shared_memory_report(PyObject *self, PyObject *args)
 static PyObject* shared_memory_query(PyObject *self, PyObject *args)
 {
   long i;
-  size_t n_items;
-
   size_t *used = calloc(SHARED_MAX_POOLS, sizeof(size_t));
   size_t *avail = calloc(SHARED_MAX_POOLS, sizeof(size_t));
 
@@ -1944,7 +1939,6 @@ static PyObject* shared_memory_query(PyObject *self, PyObject *args)
 
 static PyObject* shared_memory_reserve(PyObject *self, PyObject *args)
 {
-  PyObject *ret;
   long pool_id, n_items;
 
   if (!PyArg_ParseTuple(args, "ll", &pool_id, &n_items)) {
@@ -1957,8 +1951,8 @@ static PyObject* shared_memory_reserve(PyObject *self, PyObject *args)
 
 static PyObject* hash_pointer(PyObject *self, PyObject *args)
 {
-  PyObject *obj, *obj_i, *obj_j, *py_arr;  
-  long i, j;
+  PyObject *obj, *obj_i, *obj_j;
+  long i;
 
   if (!PyArg_ParseTuple(args, "OOO", &obj, &obj_i, &obj_j)) {
     return NULL;
@@ -1967,7 +1961,6 @@ static PyObject* hash_pointer(PyObject *self, PyObject *args)
   struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
 
   i = PyLong_AsLongLong(obj_i);
-  j = PyLong_AsLongLong(obj_j);
 
   struct hash_outer *ho = &x->rows[i];
 
