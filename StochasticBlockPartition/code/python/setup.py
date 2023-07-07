@@ -1,7 +1,9 @@
 from distutils.core import setup, Extension
 import numpy as np
+import os
 
 # To build run: python setup.py build
+# To build with clang: CC="clang" python setup.py build
 #
 
 module1 = Extension('entropy_module',
@@ -10,11 +12,16 @@ module1 = Extension('entropy_module',
                     extra_compile_args=['-O3', '-march=native'])
 
 # To debug: undef_macros = [ "NDEBUG" ]
+
+compressed_array_libs = ['rt']
+if os.getenv("CC") != "clang":
+    compressed_array_libs += ['atomic']
+
 module2 = Extension('compressed_array',
                     include_dirs=[np.get_include()],
                     sources=['compressed_array.c', 'shared_mem.c'],
                     extra_compile_args=['-g', '-Og', '-march=native'],
-                    libraries = ['rt'],
+                    libraries = compressed_array_libs,
                     library_dirs=['.'],
                     undef_macros = [ "NDEBUG" ]
 )

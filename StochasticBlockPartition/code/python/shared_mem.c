@@ -349,7 +349,7 @@ void *shared_malloc(size_t nbytes)
 		circ_deq(&p->q, &addr);
 	}
 
-	fprintf(stderr, "shared_malloc pid %d return %p\n", getpid(), addr);
+	// fprintf(stderr, "shared_malloc pid %d from pool %ld return %p\n", getpid(), lg2, addr);
 	return addr;
 }
 

@@ -550,6 +550,7 @@ def sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_deg
     bd = np.add(bd_out, bd_in)
     
     if is_compressed(M):
+        compressed_array.sanity_check(M.x)
         if not (M == M2):
             raise Exception("Sanity check of interblock edge count matrix failed.")
     else:
@@ -655,7 +656,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, max_num_nodal_itr, delta_ent
                 barrier.reset()
 
         if args.sanity_check:
-            sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)            
+            sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)
 
         if verbose:
             print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}".format(itr, num_nodal_moves,
@@ -699,6 +700,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     block_partition = np.arange(num_blocks)
     n_merges += 1
 
+    
     if n_thread_merge > 0:
         syms = {}
         syms['interblock_edge_count'] = M

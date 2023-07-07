@@ -24,6 +24,8 @@ class fast_sparse_array(object):
         for i in range(self.shape[0]):
             for j in range(self.shape[1]):
                 if compressed_array.getitem(self.x, i, j) != X[i,j]:
+                    outer,inner = compressed_array.hash_pointer(self.x, i,j)
+                    print("    Mismatch at %d %d 0x%x 0x%x" % (i,j,outer,inner))
                     return False
         return True
     def set_axis_dict(self, idx, axis, d_new):
