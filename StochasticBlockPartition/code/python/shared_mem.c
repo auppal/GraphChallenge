@@ -19,6 +19,8 @@
 #include <stdatomic.h>
 #include <errno.h>
 
+#define DEBUG_PRINTF (0)
+
 static void *shared_memory_mmap(size_t size_bytes);
 static void *shared_memory_get(size_t size_bytes);
 static int shared_memory_use_mmap = 1;
@@ -42,8 +44,9 @@ static inline void circ_free(circ_buf_t *b);
 
 static inline int circ_init(circ_buf_t *b, size_t len, size_t size)
 {
+#if DEBUG_PRINTF
 	fprintf(stderr, "circ_init: len %ld size %ld\n", len, size);
-
+#endif
 	if (!b) {
 		fprintf(stderr, "circ_init: Invalid value b = %p\n", b);
 		return -1;
@@ -162,6 +165,7 @@ static inline void circ_free(circ_buf_t *b)
 #if 0
 static inline int circ_resize(circ_buf_t *b, size_t new_len)
 {
+	
 	fprintf(stderr, "Enter circ_resize: old_len %ld new_len %ld\n", b->buf_len - 1, new_len);
 	circ_buf_t q;
 	
@@ -245,12 +249,7 @@ static void *shared_memory_mmap(size_t size_bytes)
 
 static void *shared_memory_get(size_t size_bytes)
 {
-#if 0	
-	if (getpid() != parent_pid) {
-		fprintf(stderr, "shared_memory_get: Failed to allocate %ld bytes: child shared memory not supported!\n", size_bytes);
-		return NULL;
-	}
-#else
+#if DEBUG_PRINTF
 	if (getpid() != parent_pid) {	
 		fprintf(stderr, "shared_memory_get: Allocate %ld bytes in child %d!\n", size_bytes, getpid());
 	}
@@ -261,6 +260,7 @@ static void *shared_memory_get(size_t size_bytes)
 	
 	if (size_bytes & 0xfff) {
 		fprintf(stderr, "shared_memory_get: allocation %ld is not divisible by page size!\n", size_bytes);
+		errno = EINVAL;
 		return NULL;
 	}
 
@@ -277,7 +277,10 @@ static void *shared_memory_get(size_t size_bytes)
 	while (!atomic_compare_exchange_strong(&huge->huge_offset, &offset, new_offset));
 
 	char *p = huge->huge_base + offset;
+
+#if DEBUG_PRINTF
 	fprintf(stderr, "shared_memory_get: huge_offset %ld huge_size %ld return %p\n", huge->huge_offset, huge->huge_size, p);
+#endif	
 	
 	return p;
 }
@@ -292,7 +295,9 @@ void shared_init()
 	parent_pid = getpid();
 	p_pools = shared_memory_mmap(SHARED_MAX_POOLS * sizeof(struct pool_info *));
 
+#if DEBUG_PRINTF
 	fprintf(stderr, "Initialized p_pools to %p\n", p_pools);
+#endif	
 
 	if (getenv("USE_MMAP") && !strcmp(getenv("USE_MMAP"), "0")) {
 		shared_memory_use_mmap = 0;
@@ -305,18 +310,9 @@ void shared_init()
 	huge->huge_size = 1024 * 10000000ul;
 	huge->huge_base = shared_memory_mmap(huge->huge_size);
 	huge->huge_offset = 0;
-
-#if 0
-	for (size_t i=0; i<huge_size; i+= page_size) {
-		huge_start[i] = 1;
-	}
-
-	huge_start[huge_size - 1] = 1;
-#endif	
 }
 
 
-/* XXX TODO CAS the new allocation in */
 void *shared_malloc(size_t nbytes)
 {
 	size_t lg2 = int_log2(nbytes);
@@ -326,8 +322,9 @@ void *shared_malloc(size_t nbytes)
 	size_t page_size = 4096;
 	size_t initial_items = page_size / sizeof(void *) - 1;
 
+#if DEBUG_PRINTF	
 	fprintf(stderr, "shared_malloc nbytes %ld np2 %ld lg2 %ld\n", nbytes, np2, lg2);
-
+#endif
 	shared_init();
 
 	p = p_pools[lg2];
@@ -339,27 +336,30 @@ void *shared_malloc(size_t nbytes)
 		if (p) {
 			current_capacity = (p->q.buf_len - 1);			
 			alloc_items = 2 * current_capacity;
+#if DEBUG_PRINTF			
 			fprintf(stderr, "XXX current capacity is %ld\n", current_capacity);
+#endif			
 			fill_items = alloc_items - current_capacity;
 		}
 			
 		struct pool_info *next = shared_memory_get(((sizeof(struct pool_info) + 4095) / 4096) * 4096);
 
+#if DEBUG_PRINTF
 		fprintf(stderr, "shared_malloc: allocated pool %p\n", next);
 			
 		fprintf(stderr,
 			"PID %d: circ initialize next %p pool %ld with %ld entries of size %ld\n",
 			getpid(), next, lg2, alloc_items, np2);
-
+#endif	
 		if (circ_init(&next->q, alloc_items, sizeof(void *)) < 0) {
 			perror("circ_init");
 			return NULL;
 		}
 
+#if DEBUG_PRINTF
 		fprintf(stderr, "XXX next capacity is %ld\n", next->q.buf_len - 1);
-		
 		fprintf(stderr, "     pool %ld mmap %ld bytes\n", lg2, np2 * fill_items);
-
+#endif		
 		void *base = shared_memory_get(np2 * fill_items);
 
 		if (base == 0) {
@@ -367,7 +367,9 @@ void *shared_malloc(size_t nbytes)
 			return NULL;
 		}
 
+#if DEBUG_PRINTF
 		fprintf(stderr, "PID %d: shared_malloc: fill %ld items into next pool %ld\n", getpid(), fill_items, lg2);
+#endif		
 		
 		for (i=0; i<fill_items; i++) {
 			void *x = (void * ) ((uintptr_t) base + (i * np2));
@@ -382,7 +384,9 @@ void *shared_malloc(size_t nbytes)
 		p_pools[lg2] = next;
 	}
 
-	// fprintf(stderr, "shared_malloc pid %d from pool %ld return %p\n", getpid(), lg2, addr);
+#if DEBUG_PRINTF	
+	fprintf(stderr, "shared_malloc pid %d from pool %ld return %p\n", getpid(), lg2, addr);
+#endif	
 	return addr;
 }
 
@@ -401,8 +405,9 @@ void shared_free(void *addr, size_t nbytes)
 		fprintf(stderr, "Warning: Invalid pointer in shared_free!\n");
 		return;
 	}
-
-	// fprintf(stderr, "shared_free enqueue into pool %ld ptr %p\n", lg2, addr);
+#if DEBUG_PRINTF
+	fprintf(stderr, "shared_free enqueue into pool %ld ptr %p\n", lg2, addr);
+#endif	
 	struct pool_info *pool = p_pools[lg2];
 	circ_enq(&pool->q, &addr);
 }
@@ -426,8 +431,9 @@ int shared_reserve(size_t lg2, size_t n_items)
 	if (n_items <= capacity) {
 		return 0;
 	}
-	
+#if DEBUG_PRINTF	
 	fprintf(stderr, "shared_reserve: resize pool queue %ld from %ld to %ld items\n", lg2, capacity, n_items);
+#endif	
 	return -1;
 #if 0
 	/* XXX TODO Remove */
