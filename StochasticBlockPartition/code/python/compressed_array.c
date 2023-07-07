@@ -15,6 +15,9 @@
 #include <stdbool.h>
 #include "shared_mem.h"
 
+#define DEBUG_SANITY_COUNTS (0)
+#define DEBUG_RESIZE_RACE (0)
+
 /* From khash */
 #define kh_int64_hash_func(key) (khint32_t)((key)>>33^(key)^(key)<<11)
 #define hash(x) (((x) >> 33 ^ (x) ^ (x) << 11))
@@ -198,9 +201,6 @@ static inline struct hash *hash_resize(struct hash *h)
 
   if (h->cnt == h->limit) {
     /* Resize needed */
-
-    /* XXX Remove sanity check */
-    hash_sanity_count("hash_resize", h);
     
 #if RESIZE_DEBUG
     fprintf(stderr, "Before resize cnt is %ld\n", h->cnt);
@@ -688,7 +688,10 @@ int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
   } while(!atomic_compare_exchange_strong((_Atomic(struct hash_outer) *) ho, &hoa_cur, hoa_new));
 
   cur = hoa_cur;
-//  fprintf(stderr, "Outer %p inner %p %ld external_refcnt was %ld now %ld\n", ho, ho->h, ho->h->internal_refcnt, cur.external_refcnt, hoa_new.external_refcnt);
+
+#if DEBUG_RESIZE_RACE
+  fprintf(stderr, "Outer %p inner %p %ld external_refcnt was %ld now %ld\n", ho, ho->h, ho->h->internal_refcnt, cur.external_refcnt, hoa_new.external_refcnt);
+#endif  
 
   if (1 == hash_accum_single(oldh, k, C)) {
     newh = hash_create(oldh->width * 2, 1);
@@ -707,16 +710,23 @@ int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
       hoa_new.h = newh;
       hoa_new.external_refcnt = 0;
 
-      // fprintf(stderr, "Pid %d before CAS outer %p inner %p external_refcnt %ld (oldh %p)\n", getpid(), ho, cur.h, cur.external_refcnt, oldh);      
+#if DEBUG_RESIZE_RACE
+      fprintf(stderr, "Pid %d before CAS outer %p inner %p external_refcnt %ld (oldh %p)\n", getpid(), ho, cur.h, cur.external_refcnt, oldh);
+#endif
       rc = atomic_compare_exchange_strong((_Atomic(struct hash_outer) *) ho, &hoa_cur, hoa_new);
 
       cur = hoa_cur;
-      // fprintf(stderr, "Pid %d after CAS outer %p inner %p external_refcnt %ld (rc %d oldh %p)\n", getpid(), ho, cur.h, cur.external_refcnt, rc, oldh);      
+
+#if DEBUG_RESIZE_RACE      
+      fprintf(stderr, "Pid %d after CAS outer %p inner %p external_refcnt %ld (rc %d oldh %p)\n", getpid(), ho, cur.h, cur.external_refcnt, rc, oldh);
+#endif      
     }
 
     if (!rc) {
       /* Someone else won the race */
+#if DEBUG_RESIZE_RACE	    
       fprintf(stderr, "Pid %d Someone else won the race for %p.\n", getpid(), ho);
+#endif      
       hash_destroy(newh);      
     }
     else {
@@ -725,26 +735,32 @@ int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
       atomic_fetch_sub_explicit(&oldh->internal_refcnt,
 				cur.external_refcnt - 1,
 				memory_order_seq_cst);
-      
+#if DEBUG_RESIZE_RACE      
       fprintf(stderr, "Pid %d We won the race (rc %d) for %p ! Subtract %ld from oldh %p (refcnt %ld) and wait (saved %ld).\n", getpid(), rc, ho, cur.external_refcnt, oldh, oldh->internal_refcnt, saved.external_refcnt);
+#endif      
       
       /* Wait for other writers to finish. Minus 1 because WE are
        * still using it.
        */
       do {
-	//fprintf(stderr, "Pid %d Outer %p Wait for oldh %p oldh->internal_refcnt = %ld\n", getpid(), ho, oldh, oldh->internal_refcnt);
-	//usleep(100000);
+
+#if DEBUG_RESIZE_RACE	      
+	fprintf(stderr, "Pid %d Outer %p Wait for oldh %p oldh->internal_refcnt = %ld\n", getpid(), ho, oldh, oldh->internal_refcnt);
+	usleep(100000);
+#endif
       } while (oldh->internal_refcnt < 0);
 
       atomic_thread_fence(memory_order_acquire);
-      
+
+#if DEBUG_RESIZE_RACE      
       fprintf(stderr, "Pid %d Outer %p Done waiting for %p ! Merge %ld items into hash %p\n", getpid(), ho, oldh, oldh->cnt, newh);
+#endif      
       long ins = 0;
       size_t ii;
       for (ii=0; ii<oldh->width; ii++) {
 	uint64_t k = oldh->keys[ii];
 	int64_t v = oldh->vals[ii];
-	if ((k != EMPTY_FLAG)) {
+	if (k != EMPTY_FLAG) {
 	  if (1 == hash_accum_single(newh, k, v)) {
 	    fprintf(stderr, "Pid %d Error: Needed ANOTHER resize while resizing!\n", getpid());
 	    return -1;
@@ -758,7 +774,10 @@ int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
     }
   }
 
-  //fprintf(stderr, "Release oldh %p %ld\n", oldh, oldh->internal_refcnt);
+#if DEBUG_RESIZE_RACE
+  fprintf(stderr, "Release oldh %p %ld\n", oldh, oldh->internal_refcnt);
+#endif  
+
   atomic_thread_fence(memory_order_release);
   oldh->internal_refcnt++;
 
@@ -927,8 +946,6 @@ static PyObject* accum_dict(PyObject *self, PyObject *args)
   const long *vals = (const long *) PyArray_DATA(obj_v);
   long N = (long) PyArray_DIM(obj_k, 0);
 
-  hash_sanity_count("accum_dict", h);
-  
   h = hash_accum_multi(h, keys, vals, N);
 
   if (!h) {
@@ -974,14 +991,16 @@ static PyObject* take_dict(PyObject *self, PyObject *args)
 
   struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
 
-  /* Returns a copy, not a reference. */
 #if 0
+  /* Returns a reference. */
   struct hash *ent = compressed_take(x, idx, axis);
 #else
+  /* Returns a copy, not a reference. */
   struct hash *orig = compressed_take(x, idx, axis);
   //hash_print(orig);
   struct hash *ent = hash_copy(orig, 0);
 
+#if DEBUG_SANITY_COUNTS  
   int ok1 = hash_sanity_count("take_dict orig", orig);
 
   if (ok1 < 0) {
@@ -998,8 +1017,8 @@ static PyObject* take_dict(PyObject *self, PyObject *args)
   if (ok1 != ok2) {
     fprintf(stderr, "take_dict found different sanity for orig (cnt %ld) and copy ent (cnt %ld). Major weirdness!\n", orig->cnt, ent->cnt);
   }
-  
-  
+#endif  
+
   if (!ent) {
     PyErr_SetString(PyExc_RuntimeError, "take_dict: hash_copy failed");
     return NULL;
@@ -1094,8 +1113,10 @@ static PyObject* copy_dict(PyObject *self, PyObject *args)
 
   // fprintf(stderr, "    pid %d copied into hash %p h count %ld h2 count %ld\n", getpid(), h2, h->cnt, h2->cnt);
 
+#if DEBUG_SANITY_COUNTS
   hash_sanity_count("copy_dict h", h);
   hash_sanity_count("copy_dict h2", h2);
+#endif  
   
   struct hash **ph2 = create_dict(h2);
 
@@ -1453,6 +1474,8 @@ static PyObject* take(PyObject *self, PyObject *args)
 
 static PyObject* sanity_check(PyObject *self, PyObject *args)
 {
+	return NULL;
+	
   PyObject *obj;
 
   if (!PyArg_ParseTuple(args, "O", &obj)) {
