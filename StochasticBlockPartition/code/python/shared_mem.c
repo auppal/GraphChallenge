@@ -94,7 +94,7 @@ static inline int circ_enq(circ_buf_t *b, const void *elm)
 		size_t head = b->head;
 		size_t next = (tail + 1) % b->buf_len;
 
-		if (next == b->head) {
+		if (next == head) {
 			errno = ENOBUFS;
 			return -1;
 		}
