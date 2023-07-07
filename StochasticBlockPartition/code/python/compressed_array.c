@@ -1474,8 +1474,6 @@ static PyObject* take(PyObject *self, PyObject *args)
 
 static PyObject* sanity_check(PyObject *self, PyObject *args)
 {
-	return NULL;
-	
   PyObject *obj;
 
   if (!PyArg_ParseTuple(args, "O", &obj)) {
