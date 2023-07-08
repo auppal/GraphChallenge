@@ -1757,12 +1757,13 @@ static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
 
   /* Reserve at least 2x elements to avoid resizes. */
   struct hash *h = hash_create(2 * n, 0);
+  size_t resize_cnt = 0;
 
   for (i=0; i<n; i++) {
     uint64_t k = partition[neighbors[i]];
     uint64_t w = weights[i];
     if (hash_accum_single(h, k, w) == 1) {
-      fprintf(stderr, "blocks_and_counts needed resizing\n");
+	    fprintf(stderr, "PID: %d blocks_and_counts of %ld neighbors needed resizing (cnt %ld) from width %ld to width %ld\n", getpid(), n, resize_cnt, h->width, 2 * h->width);
 	    h = hash_resize(h);
 	    if (!h) {
 	      return NULL;

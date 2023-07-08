@@ -482,9 +482,13 @@ void shared_print_report()
 
 	fflush(stdout);
 
-	fprintf(stdout, "Bytes allocated: %ld\n", bytes_cnt);
+	size_t huge_used = huge->huge_offset;
+	size_t other_mmap = bytes_cnt - huge_used;
+	double huge_pct = 100.0 * huge_used / (double) (huge->huge_size);
 	
-	for (i=6; i<max_nonempty; i++) {
+	fprintf(stdout, "Bytes allocated: mmap-huge %ld (%3.3lf %%) mmap %ld total %ld\n", huge_used, huge_pct, other_mmap, huge_used + other_mmap);
+
+	for (i=12; i<max_nonempty; i++) {
 		ssize_t free, used;
 		void *buf;
 		if (p_pools[i]) {
