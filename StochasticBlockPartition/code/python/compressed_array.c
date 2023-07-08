@@ -1,5 +1,5 @@
 #define PY_SSIZE_T_CLEAN
-// #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+#define NPY_NO_DEPRECATED_API (1)
 #include <Python.h>
 #include <numpy/arrayobject.h>
 #include <math.h>
@@ -23,6 +23,8 @@
 #define hash(x) (((x) >> 33 ^ (x) ^ (x) << 11))
 #define EMPTY_FLAG (1UL << 63)
 
+static const double max_load_factor = 0.70;
+
 /* An array of hash tables. There are n_cols tables, each with an allocated size of n_rows. */
 struct hash {
   uint64_t *keys;
@@ -40,8 +42,6 @@ struct hash_outer {
 	long external_refcnt;
 	struct hash *h;
 };
-typedef _Atomic(struct hash_outer) atomic_hash_t;
-			   
 
 static void private_free(void *p, size_t len)
 {
@@ -102,7 +102,7 @@ struct hash *hash_create(size_t initial_size, int shared_mem)
   struct hash *h = (struct hash *) buf;
   h->width = initial_size;
   h->cnt = 0;
-  h->limit = h->width * 0.70;
+  h->limit = h->width * max_load_factor;
   h->keys = (uint64_t *) (buf + sizeof(struct hash) + 0 * h->width * sizeof(uint64_t));
   h->vals = (int64_t *) (buf + sizeof(struct hash) + 1 * h->width * sizeof(int64_t));
   h->alloc_size = buf_size;
@@ -1755,7 +1755,10 @@ static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
   long i;
   long n = (long) PyArray_DIM(ar_neighbors, 0);
 
-  /* Reserve at least 2x elements to avoid resizes. */
+  /* Reserve at least 2x elements, to avoid resizes due to 0.70 max
+   * load factor. But reserve at least 16.
+   */
+  size_t initial_width = (2 * n > 16) ? 2 * n : 16;
   struct hash *h = hash_create(2 * n, 0);
   size_t resize_cnt = 0;
 
@@ -1972,6 +1975,19 @@ static PyObject* hash_pointer(PyObject *self, PyObject *args)
   return ret;
 }
 
+static PyObject *info(PyObject *self, PyObject *args)
+{
+  _Atomic(struct hash_outer) h;
+  const char *atomic_msg = "false";
+  if (atomic_is_lock_free(&h)) {
+    atomic_msg = "true";
+  }
+
+  char *msg = "";
+  asprintf(&msg, "Compiler: %s atomic_is_lock_free(hash): %s", __VERSION__, atomic_msg);
+  PyObject *ret = Py_BuildValue("s", msg);
+  return ret;
+}
 
 static PyMethodDef compressed_array_methods[] =
   {
@@ -2002,7 +2018,8 @@ static PyMethodDef compressed_array_methods[] =
    { "shared_memory_report", shared_memory_report, METH_VARARGS, "" },
    { "shared_memory_query", shared_memory_query, METH_VARARGS, "" },
    { "shared_memory_reserve", shared_memory_reserve, METH_VARARGS, "" },
-   { "hash_pointer", hash_pointer, METH_VARARGS, "" },   
+   { "hash_pointer", hash_pointer, METH_VARARGS, "" },
+   { "info", info, METH_NOARGS, "Get implementation info." },
    {NULL, NULL, 0, NULL}
   };
 

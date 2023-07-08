@@ -1417,6 +1417,8 @@ def do_main(args):
     except AttributeError:
         pass
 
+    print("Module Info: " + compressed_array.info())
+    
     if args.parts <= 1:
         out_neighbors, in_neighbors, N, E, true_partition = load_graph_parts(input_filename, args)
 
