@@ -1,4 +1,5 @@
 #define PY_SSIZE_T_CLEAN
+#define NPY_NO_DEPRECATED_API (1)
 #include <Python.h>
 #include <numpy/arrayobject.h>
 #include <math.h>
