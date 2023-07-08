@@ -1978,17 +1978,26 @@ static PyObject* hash_pointer(PyObject *self, PyObject *args)
 static PyObject *info(PyObject *self, PyObject *args)
 {
   _Atomic(struct hash_outer) h;
-  const char *atomic_msg = "false";
+  atomic_ulong i;
+
+  const char *msg_atomic_hash = "false";
   if (atomic_is_lock_free(&h)) {
-    atomic_msg = "true";
+    msg_atomic_hash = "true";
   }
 
+  const char *msg_atomic_ulong = "false";
+  if (atomic_is_lock_free(&i)) {
+    msg_atomic_ulong = "true";
+  }
+
+  
   char *msg;
-  if (asprintf(&msg, "Compiler: %s atomic_is_lock_free(hash): %s",
-	       __VERSION__, atomic_msg) > 0){
-    msg = "";
+  if (asprintf(&msg, "Compiler: %s atomic_hash: %s atomic_ulong: %s",
+	       __VERSION__, msg_atomic_hash, msg_atomic_ulong) < 0) {
+    msg = NULL;
   }
   PyObject *ret = Py_BuildValue("s", msg);
+  free(msg);
   return ret;
 }
 
