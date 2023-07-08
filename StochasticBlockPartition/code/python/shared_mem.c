@@ -295,6 +295,30 @@ void shared_init()
 	parent_pid = getpid();
 	p_pools = shared_memory_mmap(SHARED_MAX_POOLS * sizeof(struct pool_info *));
 
+	FILE *fp = fopen("/proc/meminfo", "rb");
+	size_t mem_available_found = 0, mem_available = 10000000ul;;
+
+	if (!fp) {
+	  perror("shared_init: Failed to open /proc/meminfo. Using default mem_available.");
+	}
+	else {
+	  char buf[64];
+	  while (!feof(fp) && !ferror(fp)) {
+	    if (fgets(buf, sizeof(buf), fp)) {
+	      if (sscanf(buf, "MemAvailable: %ld kB\n", &mem_available) == 1) {
+		break;
+	      }
+	    }
+	  }
+	}
+	if (!mem_available_found) {
+	  fprintf(stderr, "Use default MemAvailable: %ld\n", mem_available);
+	}
+	else {
+	  fprintf(stderr, "Found MemAvailable: %ld\n", mem_available);
+	  mem_available *= 0.75;
+	}
+
 #if DEBUG_PRINTF
 	fprintf(stderr, "Initialized p_pools to %p\n", p_pools);
 #endif	
@@ -306,7 +330,7 @@ void shared_init()
 
 	huge = shared_memory_mmap(sizeof(struct huge_info));
 	
-	huge->huge_size = 1024 * 10000000ul;
+	huge->huge_size = 1024 * mem_available;
 	huge->huge_base = shared_memory_mmap(huge->huge_size);
 	huge->huge_offset = 0;
 }
