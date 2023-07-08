@@ -1759,7 +1759,7 @@ static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
    * load factor. But reserve at least 16.
    */
   size_t initial_width = (2 * n > 16) ? 2 * n : 16;
-  struct hash *h = hash_create(2 * n, 0);
+  struct hash *h = hash_create(initial_width, 0);
   size_t resize_cnt = 0;
 
   for (i=0; i<n; i++) {
@@ -1983,8 +1983,11 @@ static PyObject *info(PyObject *self, PyObject *args)
     atomic_msg = "true";
   }
 
-  char *msg = "";
-  asprintf(&msg, "Compiler: %s atomic_is_lock_free(hash): %s", __VERSION__, atomic_msg);
+  char *msg;
+  if (asprintf(&msg, "Compiler: %s atomic_is_lock_free(hash): %s",
+	       __VERSION__, atomic_msg) > 0){
+    msg = "";
+  }
   PyObject *ret = Py_BuildValue("s", msg);
   return ret;
 }
