@@ -451,16 +451,27 @@ def nodal_moves_sequential(batch_size, delta_entropy_threshold, overall_entropy_
 
     if args.sanity_check:
         sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)
-    
+
+    if args.mpi == 1:
+        comm = MPI.COMM_WORLD
+        mpi_chunk_size = N // comm.size
+        start_vert = comm.rank * mpi_chunk_size
+        stop_vert = min((comm.rank + 1) * mpi_chunk_size, N)
+        move_node_iterator = range(start_vert, stop_vert)
+    else:
+        start_vert = 0
+        stop_vert = N        
+        
     for itr in range(max_num_nodal_itr):
         num_nodal_moves = 0
         itr_delta_entropy[itr] = 0
+        proposal_cnt = 0
 
         if args.sort:
             #L = np.argsort(partition)
             L = entropy_max_argsort(partition)
         else:
-            L = range(0, N)
+            L = range(start_vert, stop_vert)
 
         update_id_cnt = 0
         
@@ -488,6 +499,33 @@ def nodal_moves_sequential(batch_size, delta_entropy_threshold, overall_entropy_
             move_node(ni, r, s, partition,
                       out_neighbors, in_neighbors, self_edge_weights, M,
                       block_degrees_out, block_degrees_in, block_degrees)
+
+        if args.mpi == 1:
+            partition_next = partition.copy()
+            # Synchronize with all other instances at the end of each iteration.
+            send_tuple = (comm.rank,
+                          move_node_iterator,
+                          num_nodal_moves,
+                          itr_delta_entropy[itr],
+                          proposal_cnt,
+                          partition[move_node_iterator])
+
+            mpi_result = comm.allgather(send_tuple)
+            num_nodal_moves = 0
+            itr_delta_entropy[itr] = 0
+            proposal_cnt = 0
+            for i in mpi_result:
+                ci,citr,num_nodal_moves_piece,itr_delta_entropy_piece,proposal_cnt_piece,partition_piece = i
+                num_nodal_moves += num_nodal_moves_piece
+                itr_delta_entropy[itr] += itr_delta_entropy_piece
+                proposal_cnt += proposal_cnt_piece
+                partition_next[citr] = partition_piece
+
+            # Carry out the movements from remote jobs
+            for ni in np.where(partition_next != partition)[0]:
+                move_node(ni, partition[ni], partition_next[ni], partition,
+                          out_neighbors, in_neighbors, self_edge_weights, M,
+                          block_degrees_out, block_degrees_in, block_degrees)
 
         if args.sanity_check:
             sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)            
