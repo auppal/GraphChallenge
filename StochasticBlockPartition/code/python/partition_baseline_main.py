@@ -417,6 +417,27 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
 
     return current_node, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new    
 
+
+def move_node_wrapper(tup):
+    global update_id, mypid
+
+    rank,start,stop,step = tup
+
+    args = syms['args']
+    vertex_locks,block_locks = syms['locks']
+    (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights) = syms['static_state']
+    (update_id_shared, M, partition, block_degrees, block_degrees_out, block_degrees_in,) = syms['nodal_move_state']
+    partition_next = syms['partition_next']
+
+    for ni in range(start, stop, step):
+        if partition[ni] == partition_next[ni]:
+            continue
+        move_node(ni, partition[ni], partition_next[ni], partition,
+                  out_neighbors, in_neighbors, self_edge_weights, M,
+                  block_degrees_out, block_degrees_in, block_degrees, vertex_locks=vertex_locks, blocking=True)
+    return True
+
+
 def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights, M, block_degrees_out, block_degrees_in, block_degrees, vertex_locks = None, blocking=True):
 
     if blocking:
@@ -522,7 +543,8 @@ def nodal_moves_sequential(batch_size, delta_entropy_threshold, overall_entropy_
                 partition_next[citr] = partition_piece
 
             # Carry out the movements from remote jobs
-            for ni in np.where(partition_next != partition)[0]:
+            w = np.where(partition_next != partition)[0]
+            for ni in w:
                 move_node(ni, partition[ni], partition_next[ni], partition,
                           out_neighbors, in_neighbors, self_edge_weights, M,
                           block_degrees_out, block_degrees_in, block_degrees)
@@ -613,7 +635,6 @@ def nodal_moves_parallel(n_thread_move, batch_size, delta_entropy_threshold, ove
         reorder = np.arange(N, dtype=int)
         syms['reorder'] = reorder
 
-    pool = Pool(n_thread_move)
     update_id_cnt = 0
     wrapper_fn = propose_node_movement_wrapper if args.profile == 0 else propose_node_movement_profile_wrapper
 
@@ -628,9 +649,15 @@ def nodal_moves_parallel(n_thread_move, batch_size, delta_entropy_threshold, ove
         start_vert = comm.rank * mpi_chunk_size
         stop_vert = min((comm.rank + 1) * mpi_chunk_size, N)
         move_node_iterator = range(start_vert, stop_vert)
+        partition_next = shared_memory_copy(partition)
+        syms['partition_next'] = partition_next
     else:
         start_vert = 0
         stop_vert = N        
+
+    pool = Pool(n_thread_move)
+    n_thread_movers = n_thread_move
+    pool_movers = Pool(n_thread_movers)
 
     for itr in range(max_num_nodal_itr):
         num_nodal_moves = 0
@@ -672,7 +699,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, delta_entropy_threshold, ove
                 barrier.reset()
 
         if args.mpi == 1:
-            partition_next = partition.copy()
+            partition_next[:] = partition[:]
             # Synchronize with all other instances at the end of each iteration.
             send_tuple = (comm.rank,
                           move_node_iterator,
@@ -693,10 +720,17 @@ def nodal_moves_parallel(n_thread_move, batch_size, delta_entropy_threshold, ove
                 partition_next[citr] = partition_piece
 
             # Carry out the movements from remote jobs
-            for ni in np.where(partition_next != partition)[0]:
-                move_node(ni, partition[ni], partition_next[ni], partition,
-                          out_neighbors, in_neighbors, self_edge_weights, M,
-                          block_degrees_out, block_degrees_in, block_degrees)
+            if 0:
+                w = np.where(partition_next != partition)[0]                
+                for ni in w:
+                    move_node(ni, partition[ni], partition_next[ni], partition,
+                              out_neighbors, in_neighbors, self_edge_weights, M,
+                              block_degrees_out, block_degrees_in, block_degrees)
+            else:
+                gs = (N + n_thread_movers - 1) // n_thread_movers
+                chunks = [(i, i*gs, min((i+1)*gs,N), 1) for i in range(n_thread_movers)]
+                for i in pool_movers.imap_unordered(move_node_wrapper, chunks):
+                    pass
 
         if args.sanity_check:
             sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)
@@ -714,6 +748,7 @@ def nodal_moves_parallel(n_thread_move, batch_size, delta_entropy_threshold, ove
                     break
 
     pool.close()
+    pool_movers.close()
 
     if args.verbose > 1:
         compressed_array.shared_memory_report()
