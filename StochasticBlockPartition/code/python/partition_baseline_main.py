@@ -461,7 +461,7 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
 
     return True
 
-def nodal_moves_sequential(batch_size, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args):
+def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args):
     max_num_nodal_itr = args.max_num_nodal_itr
     delta_entropy_moving_avg_window = args.delta_entropy_moving_avg_window    
     total_num_nodal_moves_itr = 0
@@ -599,7 +599,7 @@ def sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_deg
             raise Exception("Sanity check of block_degrees failed.")
     
 
-def nodal_moves_parallel(n_thread_move, batch_size, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args):
+def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args):
     global syms
 
     max_num_nodal_itr = args.max_num_nodal_itr
@@ -921,15 +921,13 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         print("blocks %s entropy %s" % (num_target_blocks, overall_entropy_per_num_blocks))
         print("Beginning nodal updates at ", timeit.default_timer() - t_prog_start)
 
-    batch_size = args.node_move_update_batch_size
-
     if args.sanity_check:
         sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)
     
     if n_thread_move > 0:
-        total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees = nodal_moves_parallel(n_thread_move, batch_size, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args)
+        total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees = nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args)
     else:
-        total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees = nodal_moves_sequential(batch_size, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args)
+        total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees = nodal_moves_sequential(delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args)
 
     # Enable to force a sync of algorithm state to debug
     if 0 and args.mpi == 1:
@@ -1436,7 +1434,6 @@ def incremental_streaming(args):
                 n_thread_merge = args.t_merge
                 n_thread_move = args.t_move
 
-                batch_size = args.node_move_update_batch_size
                 vertex_num_in_neighbor_edges = np.empty(N, dtype=int)
                 vertex_num_out_neighbor_edges = np.empty(N, dtype=int)
                 vertex_num_neighbor_edges = np.empty(N, dtype=int)
@@ -1463,7 +1460,7 @@ def incremental_streaming(args):
                     num_blocks = old_num_blocks[j]
                     overall_entropy = old_overall_entropy[j]
 
-                    total_num_nodal_moves_itr = nodal_moves_parallel(n_thread_move, batch_size, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
+                    total_num_nodal_moves_itr = nodal_moves_parallel(n_thread_move, args.max_num_nodal_itr, args.delta_entropy_moving_avg_window, delta_entropy_threshold, overall_entropy, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, verbose, args)
 
                 t1 = timeit.default_timer()
                 print("Intermediate nodal move time for part %d is %f" % (part,(t1-t0)))
@@ -1772,7 +1769,6 @@ if __name__ == '__main__':
     parser.add_argument("-p", "--parts", type=int, required=False, default=0)
     parser.add_argument("-d", "--decimation", type=int, required=False, default=0)
     parser.add_argument("-v", "--verbose", type=int, required=False, default=0, help="Verbosity level.")
-    parser.add_argument("-b", "--node-move-update-batch-size", type=int, required=False, default=1)
     parser.add_argument("-g", "--node-propose-batch-size", type=int, required=False, default=4)
     parser.add_argument("--sparse", type=int, required=False, default=0)
     parser.add_argument("-s", "--sort", type=int, required=False, default=0)
@@ -1798,7 +1794,7 @@ if __name__ == '__main__':
     parser.add_argument("--preallocate", type=int, required=False, default=0, help="Whether to preallocate memory.")
     parser.add_argument("--blocking", type=int, required=False, default=1, help="Whether to use blocking waits during nodal moves.")
     parser.add_argument("--finegrain", type=int, required=False, default=0, help="Try to use finegrain locks instead of a single lock.")
-    parser.add_argument("--critical", type=int, required=False, default=0, help="Which critical section to use. 0 is the widest, 2 is the narrowest.")
+    parser.add_argument("--critical", type=int, required=False, default=2, help="Which critical section to use. 0 is the widest, 2 is the narrowest.")
 
     args = parser.parse_args()
 
