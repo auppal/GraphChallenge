@@ -699,7 +699,6 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
         else:
             for start in range(start_vert, stop_vert, n_thread_move * group_size):
                 chunk = [(i, min(start + i * group_size, stop_vert), min(start + (i + 1) * group_size, stop_vert), 1) for i in range(n_thread_move)]
-                print(chunk)
                 # print("nodal_moves_parallel itr %d [%d %d] call imap len %d rank %d" % (itr, chunk[0][1],chunk[-1][2],len(chunk), mpi_rank), flush=True)
                 for movement in pool.imap_unordered(wrapper_fn, chunk):
                         rank,worker_pid,worker_update_id,start,stop,step,n_moves,delta_entropy,pop_cnt = movement
