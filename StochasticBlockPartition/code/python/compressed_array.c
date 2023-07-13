@@ -673,7 +673,7 @@ static inline void compressed_set_single(struct compressed_array *x, uint64_t i,
 
 int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
 {
-  struct hash *oldh = ho->h, *newh;
+  struct hash *oldh, *newh;
 
   struct hash_outer hoa_cur;
   struct hash_outer hoa_new, cur;
@@ -686,6 +686,7 @@ int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
   } while(!atomic_compare_exchange_strong((_Atomic(struct hash_outer) *) ho, &hoa_cur, hoa_new));
 
   cur = hoa_cur;
+  oldh = cur.h;
 
 #if DEBUG_RESIZE_RACE
   fprintf(stderr, "Outer %p inner %p %ld external_refcnt was %ld now %ld\n", ho, ho->h, ho->h->internal_refcnt, cur.external_refcnt, hoa_new.external_refcnt);
