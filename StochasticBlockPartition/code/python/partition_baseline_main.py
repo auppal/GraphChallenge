@@ -13,6 +13,7 @@ import random
 import shutil
 from interblock_edge_count import is_compressed
 import collections
+import resource
 
 try:
     from queue import Empty as queue_empty
@@ -1478,8 +1479,16 @@ def incremental_streaming(args):
 
 def do_main(args):
     global syms, t_prog_start
-
+    
     if args.threads > 0:
+        # Try to set resource limits to ensure enough descriptors for workers.
+        soft,hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        soft = hard
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE,(soft,hard))
+        except:
+            print("Failed to set resource limit. Continuing.")
+
         if args.t_merge == 0:
             args.t_merge = args.threads
         if args.t_move == 0:
