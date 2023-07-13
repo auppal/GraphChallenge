@@ -920,7 +920,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         timing_stats['time_in_merge'] += merge_time
         timing_stats['time_in_move'] += move_time
         move_rate = total_num_nodal_moves_itr / move_time
-        print("Total number of nodal moves: {:3d}, overall_entropy: {:0.2f}, merge_time: {:0.3f}, move_time: {:0.3f} secs, moves_per_sec: {:4.3f}".format(total_num_nodal_moves_itr, overall_entropy, merge_time, move_time, move_rate))
+        print("blocks_in_merge: {:3d} blocks_in_move: {:3d} n_nodal_moves: {:3d}, overall_entropy: {:0.2f}, merge_time: {:0.4f}, move_time: {:0.4f} secs, moves_per_sec: {:4.3f}".format(num_blocks + num_blocks_merged, num_blocks, total_num_nodal_moves_itr, overall_entropy, merge_time, move_time, move_rate))
 
     if args.visualize_graph:
         graph_object = plot_graph_with_partition(out_neighbors, partition, graph_object)
