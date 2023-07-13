@@ -396,8 +396,9 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, args):
 
         M = fast_sparse_array((B,B), width=width, dtype=mydtype)
 
-        compressed_array.shared_memory_report()
-        
+        if args.debug_memory > 0:
+            compressed_array.shared_memory_report()
+
         for (i,j),w in M_d.items():
             M[i,j] = w
             d_in[j] += w
@@ -407,6 +408,8 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, args):
     if args.verbose > 0:
         t1 = time.time()
         print("M initialization took %s" % (t1-t0))
+
+    if args.debug_memory > 0:
         compressed_array.shared_memory_report()
 
     return M, d_out, d_in, d

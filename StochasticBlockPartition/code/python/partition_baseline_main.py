@@ -249,7 +249,7 @@ def propose_node_movement_wrapper(tup):
     pop_cnt = 0
 
     # r is current_block, s is proposal
-    if args.blocking:
+    if args.blocking == 1:
         for ni in range(start, stop, step):
             if args.sort:
                 ni = reorder[ni]
@@ -288,6 +288,13 @@ def propose_node_movement_wrapper(tup):
             args.critical == 0 and release_locks(locks)
     else:
         # Non-blocking locking implicitly only makes sense for critcal sections 1 or 2
+        # args.blocking == 2 means split phase, but using still using blocking locks.
+
+        if args.blocking == 0:
+            blocking = 0
+        else:
+            blocking = 1
+
         queue = collections.deque()
         for ni in range(start, stop, step):        
             movement = propose_node_movement(ni, partition, out_neighbors, in_neighbors,
@@ -320,7 +327,7 @@ def propose_node_movement_wrapper(tup):
             else:
                 if not move_node(ni, r, s, partition,
                                  out_neighbors, in_neighbors, self_edge_weights, M,
-                                 block_degrees_out, block_degrees_in, block_degrees, vertex_locks=locks, blocking=args.blocking):
+                                 block_degrees_out, block_degrees_in, block_degrees, vertex_locks=locks, blocking=blocking):
                     queue.append((ni,r,s))
                     continue
 
@@ -467,7 +474,7 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
     
-    if args.verbose > 1:
+    if args.debug_memory > 0:
         compressed_array.shared_memory_report()
 
     if args.sanity_check:
@@ -481,7 +488,7 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
         move_node_iterator = range(start_vert, stop_vert)
     else:
         start_vert = 0
-        stop_vert = N        
+        stop_vert = N
         
     for itr in range(max_num_nodal_itr):
         num_nodal_moves = 0
@@ -605,7 +612,7 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
     max_num_nodal_itr = args.max_num_nodal_itr
     delta_entropy_moving_avg_window = args.delta_entropy_moving_avg_window
     
-    if args.verbose > 1:
+    if args.debug_memory > 0:
         compressed_array.shared_memory_report()
 
     total_num_nodal_moves_itr = 0
@@ -651,9 +658,11 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
         move_node_iterator = range(start_vert, stop_vert)
         partition_next = shared_memory_copy(partition)
         syms['partition_next'] = partition_next
+        mpi_rank = comm.rank
     else:
         start_vert = 0
-        stop_vert = N        
+        stop_vert = N
+        mpi_rank = 0
 
     pool = Pool(n_thread_move)
     n_thread_movers = n_thread_move
@@ -676,10 +685,11 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
                     reorder[c] = i
                     c += 1
 
-        if args.blocking:
+        if args.blocking == 1:
             # Blocking locks do not need to call barrier and thus do not require n_thread_move numbers of threads for each invocation
             chunks = [((i // group_size) % n_thread_move, i, min(i+group_size, stop_vert), 1) for i in range(start_vert,stop_vert,group_size)]
             movements = pool.imap_unordered(propose_node_movement_wrapper, chunks)
+            print("nodal_moves_parallel itr %d call imap len %d rank %d" % (itr, len(chunk), mpi_rank), flush=True)
             for movement in movements:
                 rank,worker_pid,worker_update_id,start,stop,step,n_moves,delta_entropy,pop_cnt = movement
                 proposal_cnt += (stop - start) // step
@@ -689,6 +699,8 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
         else:
             for start in range(start_vert, stop_vert, n_thread_move * group_size):
                 chunk = [(i, min(start + i * group_size, stop_vert), min(start + (i + 1) * group_size, stop_vert), 1) for i in range(n_thread_move)]
+                print(chunk)
+                # print("nodal_moves_parallel itr %d [%d %d] call imap len %d rank %d" % (itr, chunk[0][1],chunk[-1][2],len(chunk), mpi_rank), flush=True)
                 for movement in pool.imap_unordered(wrapper_fn, chunk):
                         rank,worker_pid,worker_update_id,start,stop,step,n_moves,delta_entropy,pop_cnt = movement
                         total_num_nodal_moves_itr += n_moves
@@ -697,6 +709,7 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
                         timing_stats['pop_cnt'] += pop_cnt
                         timing_stats['nodal_moves'] += n_moves
                 barrier.reset()
+                # print("nodal_moves_parallel itr %d [%d %d] done imap rank %d" % (itr,chunk[0][1],chunk[-1][2],mpi_rank), flush=True)
 
         if args.mpi == 1:
             partition_next[:] = partition[:]
@@ -707,8 +720,9 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
                           itr_delta_entropy[itr],
                           proposal_cnt,
                           partition[move_node_iterator])
-
+            print("nodal_moves_parallel itr %d allgather rank %d" % (itr,mpi_rank), flush=True)
             mpi_result = comm.allgather(send_tuple)
+            print("nodal_moves_parallel itr %d allgather rank %d done" % (itr,mpi_rank), flush=True)
             num_nodal_moves = 0
             itr_delta_entropy[itr] = 0
             proposal_cnt = 0
@@ -721,16 +735,19 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
 
             # Carry out the movements from remote jobs
             if 0:
-                w = np.where(partition_next != partition)[0]                
+                w = np.where(partition_next != partition)[0]
+                print("nodal_moves_parallel itr %d move %d rank %d" % (itr,len(w),mpi_rank,), flush=True)
                 for ni in w:
                     move_node(ni, partition[ni], partition_next[ni], partition,
                               out_neighbors, in_neighbors, self_edge_weights, M,
                               block_degrees_out, block_degrees_in, block_degrees)
             else:
+                print("nodal_moves_parallel itr %d move rank %d" % (itr,mpi_rank,), flush=True)
                 gs = (N + n_thread_movers - 1) // n_thread_movers
                 chunks = [(i, i*gs, min((i+1)*gs,N), 1) for i in range(n_thread_movers)]
                 for i in pool_movers.imap_unordered(move_node_wrapper, chunks):
                     pass
+            print("nodal_moves_parallel itr %d move done rank %d" % (itr,mpi_rank,), flush=True)
 
         if args.sanity_check:
             sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)
@@ -750,7 +767,7 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
     pool.close()
     pool_movers.close()
 
-    if args.verbose > 1:
+    if args.debug_memory > 0:        
         compressed_array.shared_memory_report()
 
     return total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees
@@ -762,7 +779,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     rank_str = ""
     if args.mpi == 1:
         comm = MPI.COMM_WORLD
-        rank_str = "in rank {}".format(comm.rank)
+        rank_str = " in rank {}".format(comm.rank)
 
     n_thread_merge = args.t_merge
     n_thread_move = args.t_move
@@ -1434,6 +1451,7 @@ def incremental_streaming(args):
                 n_thread_merge = args.t_merge
                 n_thread_move = args.t_move
 
+                batch_size = args.node_move_update_batch_size
                 vertex_num_in_neighbor_edges = np.empty(N, dtype=int)
                 vertex_num_out_neighbor_edges = np.empty(N, dtype=int)
                 vertex_num_neighbor_edges = np.empty(N, dtype=int)
@@ -1789,6 +1807,8 @@ if __name__ == '__main__':
     parser.add_argument("--skip-eval", type=int, required=False, default=0, help="Skip partition evaluation.")
     parser.add_argument("--max-num-nodal-itr", type=int, required=False, default=100, help="Maximum number of iterations during nodal moves.")
     parser.add_argument("--sanity-check", type=int, required=False, default=0, help="Full recompute interblock edge counts and block counts, and compare against differentially computed version.")
+    parser.add_argument("--debug-memory", type=int, required=False, default=0, help="Level of shared memory debug memory reporting.")
+    parser.add_argument("--debug-mpi", type=int, required=False, default=0, help="Level of MPI debug reporting.")  
 
     # Arguments for thread control
     parser.add_argument("--preallocate", type=int, required=False, default=0, help="Whether to preallocate memory.")
