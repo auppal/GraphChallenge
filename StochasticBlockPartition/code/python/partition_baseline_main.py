@@ -659,14 +659,14 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
         partition_next = shared_memory_copy(partition)
         syms['partition_next'] = partition_next
         mpi_rank = comm.rank
+        n_thread_movers = n_thread_move
+        pool_movers = Pool(n_thread_movers)
     else:
         start_vert = 0
         stop_vert = N
         mpi_rank = 0
 
     pool = Pool(n_thread_move)
-    n_thread_movers = n_thread_move
-    pool_movers = Pool(n_thread_movers)
 
     for itr in range(max_num_nodal_itr):
         num_nodal_moves = 0
@@ -764,7 +764,9 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
                     break
 
     pool.close()
-    pool_movers.close()
+
+    if args.mpi == 1:
+        pool_movers.close()
 
     if args.debug_memory > 0:        
         compressed_array.shared_memory_report()
