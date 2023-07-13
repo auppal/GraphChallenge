@@ -316,28 +316,16 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, args):
     d = shared_memory_empty((B,))
         
     if not sparse:
-        # M = np.zeros((B,B), dtype=mydtype)
         M = shared_memory_empty((B,B), dtype=mydtype)
-
-        # compute the initial interblock edge count
         for v in range(len(out_neighbors)):
-            k1 = b[v]
-            if len(out_neighbors[v]) > 0:
-                if 0:
-                    k2, inverse_idx = np.unique(b[out_neighbors[v][:, 0]], return_inverse=True)
-                    count = np.bincount(inverse_idx, weights=out_neighbors[v][:, 1]).astype(int)
-                else:
-                    k2,count = compressed_array.blocks_and_counts(
-                        b, out_neighbors[v][:, 0], out_neighbors[v][:, 1])
-                M[k1, k2] += count
+            compressed_array.rebuild_M(b, v, v, out_neighbors[v][:, 0], out_neighbors[v][:, 1], M)
 
-        # compute initial block degrees
         np.sum(M, axis=1, out=d_out)
         np.sum(M, axis=0, out=d_in)
         np.add(d_out, d_in, out=d)
 
-        density = len(M.nonzero()[0]) / (B ** 2.)
         if args.verbose > 2:
+            density = len(M.nonzero()[0]) / (B ** 2.)
             in_cnt = np.sum(M != 0, axis=0)
             out_cnt = np.sum(M != 0, axis=1)
             max_in_cnt = np.max(in_cnt)
@@ -347,69 +335,24 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, args):
             print("max_out_cnt = %d" % max_out_cnt)
             print("avg_in_cnt = %f" % np.mean(in_cnt))
             print("avg_out_cnt = %f" % np.mean(out_cnt))
-    else:
-        M_d = defaultdict(int)
-        in_cnt = np.zeros(B, dtype=int)
-        out_cnt = np.zeros(B, dtype=int)
-
-        for v in range(len(out_neighbors)):
-            k1 = b[v]
-            if len(out_neighbors[v]) > 0:
-                if 0:
-                    k2, inverse_idx = np.unique(b[out_neighbors[v][:, 0]], return_inverse=True)
-                    count = np.bincount(inverse_idx, weights=out_neighbors[v][:, 1]).astype(int)
-                else:
-                    k2,count = compressed_array.blocks_and_counts(
-                        b, out_neighbors[v][:, 0], out_neighbors[v][:, 1])
-                    
-                for k,c in zip(k2, count):
-                    M_d[(k1, k)] += c
-
-        for (i,j),w in M_d.items():
-            in_cnt[j] += 1
-            out_cnt[i] += 1
-
-        max_in_cnt = np.max(in_cnt)
-        max_out_cnt = np.max(out_cnt)
-        mean_in_cnt = np.mean(in_cnt)
-        mean_out_cnt = np.mean(out_cnt)
-        std_in_cnt = np.std(in_cnt)
-        std_out_cnt = np.std(out_cnt)
-
-        if args.preallocate:
-            width = max(max_in_cnt, max_out_cnt)
         else:
-            width = int(max(mean_in_cnt + 2 * std_in_cnt, mean_out_cnt + 2 * std_out_cnt))
-
-        density = len(M_d) / (B ** 2.)
-        if args.verbose > 2:
-            print("max_in_cnt = %d" % max_in_cnt)
-            print("max_out_cnt = %d" % max_out_cnt)
-            print("min_in_cnt = %d" % np.min(in_cnt))
-            print("min_out_cnt = %d" % np.min(out_cnt))
-            print("avg_in_cnt = %f" % mean_in_cnt)
-            print("avg_out_cnt = %f" % mean_out_cnt)
-            print("std_in_cnt = %f" % std_in_cnt)
-            print("std_out_cnt = %f" % std_out_cnt)
-            print("width = %d" % width)
-
+            density = 0.0
+    else:
+        # Emperically a small initial hash table size seems to be best to reduce both initial build time and nodal move time.
+        width=12
         M = fast_sparse_array((B,B), width=width, dtype=mydtype)
+        for v in range(len(out_neighbors)):
+            compressed_array.rebuild_M_compressed(b, v, v, out_neighbors[v][:, 0], out_neighbors[v][:, 1], M.x, d_out, d_in)
+        nz_count = compressed_array.nonzero_count(M.x)
+        np.add(d_out, d_in, out=d)
+        density = nz_count / (B ** 2.)
 
         if args.debug_memory > 0:
             compressed_array.shared_memory_report()
 
-        for (i,j),w in M_d.items():
-            M[i,j] = w
-            d_in[j] += w
-            d_out[i] += w
-        np.add(d_out, d_in, out=d)
-
     if args.verbose > 0:
         t1 = timeit.default_timer()
         print("Initialized edge counts for size %d density %f using compression %d in %f secs." % (B,density,sparse,t1-t0,))
-
-    if args.debug_memory > 0:
-        compressed_array.shared_memory_report()
 
     return M, d_out, d_in, d
 

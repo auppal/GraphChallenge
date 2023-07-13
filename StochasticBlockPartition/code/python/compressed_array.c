@@ -1466,6 +1466,31 @@ static PyObject* take(PyObject *self, PyObject *args)
   return ret;
 }
 
+static PyObject* nonzero_count(PyObject *self, PyObject *args)
+{
+  PyObject *obj;
+
+  if (!PyArg_ParseTuple(args, "O", &obj)) {
+    return NULL;
+  }
+
+  struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
+
+  if (!x) {
+    PyErr_SetString(PyExc_RuntimeError, "Bad pointer to compresed array");
+    return NULL;
+  }
+
+  size_t i;
+  long count = 0;
+  for (i=0; i<x->n_row; i++) {
+    count += x->rows[i].h->cnt;
+  }
+
+  PyObject *ret = Py_BuildValue("l", count);
+  return ret;  
+}
+
 static PyObject* sanity_check(PyObject *self, PyObject *args)
 {
   PyObject *obj;
@@ -1914,6 +1939,55 @@ static PyObject* rebuild_M(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+
+/* 
+ * Args: partition, vertex_id_start, vertex_id_end, neighbors[vid], weights[vid]
+ * Version for a compressed array.
+ */
+static PyObject* rebuild_M_compressed(PyObject *self, PyObject *args)
+{
+
+	PyObject *obj_partition, *obj_neighbors, *obj_weights, *obj_M, *obj_d_out, *obj_d_in;
+  uint64_t vid_start, vid_end;
+
+  if (!PyArg_ParseTuple(args, "OllOOOOO", &obj_partition, &vid_start, &vid_end, &obj_neighbors, &obj_weights, &obj_M, &obj_d_out, &obj_d_in)) {
+    return NULL;
+  }
+
+  struct compressed_array *x = PyCapsule_GetPointer(obj_M, "compressed_array");  
+  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);  
+  const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_weights = PyArray_FROM_OTF(obj_weights, NPY_LONG, NPY_IN_ARRAY);
+  PyObject *ar_d_in = PyArray_FROM_OTF(obj_d_in, NPY_LONG, NPY_IN_ARRAY);
+  PyObject *ar_d_out = PyArray_FROM_OTF(obj_d_out, NPY_LONG, NPY_IN_ARRAY);    
+
+  const uint64_t *partition = (const uint64_t *) PyArray_DATA(ar_partition);
+  const uint64_t *neighbors = (const uint64_t *) PyArray_DATA(ar_neighbors);
+  const uint64_t *weights = (const uint64_t *) PyArray_DATA(ar_weights);
+
+  int64_t *d_in = (int64_t *) PyArray_DATA(ar_d_in);
+  int64_t *d_out = (int64_t *) PyArray_DATA(ar_d_out);
+
+  long i;
+  long n = (long) PyArray_DIM(ar_neighbors, 0);
+
+  uint64_t k1 = partition[vid_start];
+  for (i=0; i<n; i++) {
+    uint64_t k2 = partition[neighbors[i]];
+    uint64_t w = weights[i];
+    compressed_accum_single(x, k1, k2, w);
+    d_in[k2] +=w;
+    d_out[k1] += w;
+  }
+
+  Py_DECREF(ar_partition);
+  Py_DECREF(ar_neighbors);
+  Py_DECREF(ar_weights);
+  Py_DECREF(ar_d_in);
+  Py_DECREF(ar_d_out);  
+  Py_RETURN_NONE;
+}
+
 static PyObject* shared_memory_report(PyObject *self, PyObject *args)
 {
   shared_print_report();
@@ -2027,6 +2101,8 @@ static PyMethodDef compressed_array_methods[] =
    { "blocks_and_counts", blocks_and_counts, METH_VARARGS, "" },
    { "inplace_atomic_new_rows_cols_M", inplace_atomic_new_rows_cols_M, METH_VARARGS, "" },
    { "rebuild_M", rebuild_M, METH_VARARGS, "" },
+   { "rebuild_M_compressed", rebuild_M_compressed, METH_VARARGS, "" },
+   { "nonzero_count", nonzero_count, METH_VARARGS, "" },
    { "shared_memory_report", shared_memory_report, METH_VARARGS, "" },
    { "shared_memory_query", shared_memory_query, METH_VARARGS, "" },
    { "shared_memory_reserve", shared_memory_reserve, METH_VARARGS, "" },
