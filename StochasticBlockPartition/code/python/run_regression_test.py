@@ -23,7 +23,7 @@ base_args = {'debug' : 0, 'decimation' : 0,
              'initial_block_reduction_rate' : 0.50,
              'merge_method' : 0, 'mpi' : 0, 'node_move_update_batch_size' : 1, 'node_propose_batch_size' : 4,
              'parts' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0,
-             'sparse' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0, 't_merge' : 0, 't_move' : 0, 'skip_eval' : 0, 'max_num_nodal_itr' : 100, 'critical' : 0, 'blocking' : 1, 'finegrain' : 0, 'sanity_check' : 0}
+             'sparse' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0, 't_merge' : 0, 't_move' : 0, 'skip_eval' : 0, 'max_num_nodal_itr' : 100, 'critical' : 0, 'blocking' : 1, 'finegrain' : 0, 'sanity_check' : 0, 'debug_memory' : 0, 'debug_mpi' : 0}
 
 class Bunch(object):
     def __init__(self, adict):
@@ -479,12 +479,13 @@ if __name__ == '__main__':
     if args['threading-performance']:
         files = [N[20000]]
         var_args = (('input_filename', files),
-                    ('iteration', range(5)),
+                    ('iteration', range(1)),
                     ('blocking', (0,)),
-                    ('finegrain', (1,)),
+                    ('finegrain', (0,)),
                     ('critical', (2,)),
-                    ('sparse',(0,)),
-                    ('threads',(24,)))
+                    ('sparse',(0,1)),
+                    ('node_propose_batch_size', (4,8,16,32,64,128,256,512)),                    
+                    ('threads',(12,24)))
         result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
         print_results(result)
         results.update(result)
@@ -492,13 +493,13 @@ if __name__ == '__main__':
     if args['group-size']:
         files = [N[20000]]
         var_args = (('input_filename', files),
-                    ('iteration', range(20)),
-                    ('blocking', (1,)),
+                    ('iteration', range(1)),
+                    ('blocking', (0,)),
                     ('finegrain', (0,)),
                     ('critical', (2,)),
-                    ('sparse',(0,)),
+                    ('sparse',(1,)),
                     ('node_propose_batch_size', (0,4,8,16,32,64,128,256,512)),
-                    ('threads',(24,)))
+                    ('threads',(12,24,48,96)))
         result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
         print_results(result)
         results.update(result)
