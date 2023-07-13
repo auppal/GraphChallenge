@@ -309,9 +309,7 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, args):
         Compute the edge count matrix and the block degrees from scratch"""
 
     if args.verbose > 0:
-        import time
-        print("Initialize edge counts for size %d with compression %d" % (B,sparse))
-        t0 = time.time()
+        t0 = timeit.default_timer()
 
     d_out = shared_memory_empty((B,))
     d_in = shared_memory_empty((B,))
@@ -338,12 +336,13 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, args):
         np.sum(M, axis=0, out=d_in)
         np.add(d_out, d_in, out=d)
 
-        if args.verbose > 1:
+        density = len(M.nonzero()[0]) / (B ** 2.)
+        if args.verbose > 2:
             in_cnt = np.sum(M != 0, axis=0)
-            out_cnt = np.sum(M != 0, axis=1)            
+            out_cnt = np.sum(M != 0, axis=1)
             max_in_cnt = np.max(in_cnt)
             max_out_cnt = np.max(out_cnt)
-            print("density(M) = %s" % (len(M.nonzero()[0]) / (B ** 2.)))
+            print("density(M) = %s" % (density,))
             print("max_in_cnt = %d" % max_in_cnt)
             print("max_out_cnt = %d" % max_out_cnt)
             print("avg_in_cnt = %f" % np.mean(in_cnt))
@@ -381,9 +380,9 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, args):
             width = max(max_in_cnt, max_out_cnt)
         else:
             width = int(max(mean_in_cnt + 2 * std_in_cnt, mean_out_cnt + 2 * std_out_cnt))
-        
-        if args.verbose > 1:
-            print("density(M[%d]) = %s" % (B, len(M_d) / (B ** 2.)))
+
+        density = len(M_d) / (B ** 2.)
+        if args.verbose > 2:
             print("max_in_cnt = %d" % max_in_cnt)
             print("max_out_cnt = %d" % max_out_cnt)
             print("min_in_cnt = %d" % np.min(in_cnt))
@@ -406,8 +405,8 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, args):
         np.add(d_out, d_in, out=d)
 
     if args.verbose > 0:
-        t1 = time.time()
-        print("M initialization took %s" % (t1-t0))
+        t1 = timeit.default_timer()
+        print("Initialized edge counts for size %d density %f using compression %d in %f secs." % (B,density,sparse,t1-t0,))
 
     if args.debug_memory > 0:
         compressed_array.shared_memory_report()

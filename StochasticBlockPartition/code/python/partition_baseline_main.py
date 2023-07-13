@@ -791,9 +791,6 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         merge_start_time = timeit.default_timer()
         print("\nMerging down blocks from {} to {} at time {:4.4f}{}".format(num_blocks, num_target_blocks, merge_start_time - t_prog_start, rank_str))
 
-#    if verbose > 1:
-#        print("Density at block size {} is {:1.8f}".format(num_blocks, np.count_nonzero(M) / (num_blocks ** 2)))
-
     best_merge_for_each_block = np.ones(num_blocks, dtype=int) * -1  # initialize to no merge
     delta_entropy_for_each_block = np.ones(num_blocks) * np.Inf  # initialize criterion
     block_partition = np.arange(num_blocks)
@@ -836,7 +833,6 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     # and delta_entropy_for_each_block will have been filled in.
     if args.mpi == 1:
         send_tuple = (comm.rank,
-                      1234,
                       merge_block_iterator,
                       n_proposals_evaluated,
                       best_merge_for_each_block[merge_block_iterator],
@@ -848,7 +844,6 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
             # print("    mpi_result ",comm.rank,len(mpi_result),len(mpi_result[0]), len(mpi_result[1]))
             # assert(len(i) == 6)
             ci,magic,itr,n_fresh_proposals,best_merge_piece,delta_entropy_piece = i
-            assert(magic == 1234)
             n_proposals_evaluated += n_fresh_proposals
             best_merge_for_each_block[itr] = best_merge_piece
             delta_entropy_for_each_block[itr] = delta_entropy_piece
@@ -856,85 +851,46 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     if (n_proposals_evaluated == 0):
         raise Exception("No proposals evaluated.")
 
-    overall_entropy_per_num_blocks = np.empty(len(num_target_blocks))
-    state_per_num_blocks = [None] * len(num_target_blocks)
 
     best_overall_entropy = np.Inf
     best_merges = delta_entropy_for_each_block.argsort()
 
-    for i,t in enumerate(num_target_blocks):
-        num_blocks_to_merge = num_blocks - t
-        # carry out the best merges
-        (partition_t, num_blocks_t) = carry_out_best_merges(delta_entropy_for_each_block, best_merges,
-                                                            best_merge_for_each_block, partition,
-                                                            num_blocks, num_blocks_to_merge)
-        # xxx brute force
-        partition_t = shared_memory_copy(partition_t)
+    num_blocks_to_merge = num_blocks - num_target_blocks
+    (partition_t, num_blocks_t) = carry_out_best_merges(delta_entropy_for_each_block, best_merges,
+                                                        best_merge_for_each_block, partition,
+                                                        num_blocks, num_blocks_to_merge)
+    # force the next partition to be shared
+    partition_t = shared_memory_copy(partition_t)
 
-        # re-initialize edge counts and block degrees
-        if args.sparse == 2:
-            if num_blocks >= compressed_threshold:
-                use_compressed = 1
-            else:
-                use_compressed = 0
+    # re-initialize edge counts and block degrees
+    if args.sparse == 2:
+        if num_blocks >= compressed_threshold:
+            use_compressed = 1
         else:
-            use_compressed = (args.sparse != 0)
-
-        # XXX This type of full re-initialization seems wasteful memory for large graphs.
-
-        M_t, block_degrees_out_t, block_degrees_in_t, block_degrees_t = \
-                initialize_edge_counts(out_neighbors,
-                                       num_blocks_t,
-                                       partition_t,
-                                       use_compressed, args)
-
-        # compute the global entropy for MCMC convergence criterion
-        overall_entropy = compute_overall_entropy(M_t, block_degrees_out_t, block_degrees_in_t, num_blocks_t, N,
-                                                  E)
-
-        overall_entropy_per_num_blocks[i] = overall_entropy
-        state_per_num_blocks[i] = (overall_entropy, partition_t, num_blocks_t, M_t, block_degrees_out_t, block_degrees_in_t, block_degrees_t)
-
-    derivative_based_stop = False
-
-    if len(num_target_blocks) > 1:
-        S = overall_entropy_per_num_blocks[::-1]
-        dS_dn = 0.5 * (S[2] - S[1]) + 0.5 * (S[1] - S[0])
-
-        if len(num_target_blocks) == 3 \
-           and overall_entropy_per_num_blocks[1] < overall_entropy_per_num_blocks[0] \
-           and overall_entropy_per_num_blocks[1] < overall_entropy_per_num_blocks[2]:
-            if verbose:
-                print("Optimal stopping criterion found at %d blocks derivative %s at time %4.4f." % (num_target_blocks[1], dS_dn, timeit.default_timer() - t_prog_start))
-
-            derivative_based_stop = True
-            best_idx = 1
-        else:
-            # Can be zero when there are some nodes with no edges and so reducing the block count
-            # does not change the entropy.
-            if (S[2] - S[1] - (S[1] - S[0])) != 0:
-                extrapolated_newton = num_target_blocks[1] - 0.5 * (S[2] - S[0]) / (S[2] - S[1] - (S[1] - S[0]))
-            else:
-                extrapolated_newton = 0.0
-
-            if verbose:
-                print("Stopping criterion not found at %s blocks extrapolate to %s blocks derivative %s at time %4.4f." % (num_target_blocks[1], extrapolated_newton, dS_dn, timeit.default_timer() - t_prog_start))
-
-            best_idx = np.argsort(overall_entropy)
-            best_idx = 1 # xxx
+            use_compressed = 0
     else:
-        dS_dn = 0
-        best_idx = 0
+        use_compressed = (args.sparse != 0)
 
-    (overall_entropy, partition, num_blocks_t, M, block_degrees_out, block_degrees_in, block_degrees) = state_per_num_blocks[best_idx]
+    # XXX This type of full re-initialization seems wasteful memory for large graphs.
+
+    M_t, block_degrees_out_t, block_degrees_in_t, block_degrees_t = \
+            initialize_edge_counts(out_neighbors,
+                                   num_blocks_t,
+                                   partition_t,
+                                   use_compressed, args)
+
+    # compute the global entropy for MCMC convergence criterion
+    overall_entropy = compute_overall_entropy(M_t, block_degrees_out_t, block_degrees_in_t, num_blocks_t, N,
+                                              E)
+
+    next_state = (overall_entropy, partition_t, num_blocks_t, M_t, block_degrees_out_t, block_degrees_in_t, block_degrees_t)
+    (overall_entropy, partition, num_blocks_t, M, block_degrees_out, block_degrees_in, block_degrees) = next_state
 
     num_blocks_merged = num_blocks - num_blocks_t
     num_blocks = num_blocks_t
 
     if verbose:
         merge_end_time = move_start_time = timeit.default_timer()
-        print("Best num_blocks = %s" % num_blocks)
-        print("blocks %s entropy %s" % (num_target_blocks, overall_entropy_per_num_blocks))
         print("Beginning nodal updates at ", timeit.default_timer() - t_prog_start)
 
     if args.sanity_check:
@@ -969,7 +925,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     if args.visualize_graph:
         graph_object = plot_graph_with_partition(out_neighbors, partition, graph_object)
 
-    return overall_entropy, n_proposals_evaluated, n_merges, total_num_nodal_moves_itr, M, block_degrees, block_degrees_out, block_degrees_in, num_blocks_merged, partition, derivative_based_stop, dS_dn
+    return overall_entropy, n_proposals_evaluated, n_merges, total_num_nodal_moves_itr, M, block_degrees, block_degrees_out, block_degrees_in, num_blocks_merged, partition
 
 
 def load_graph_parts(input_filename, args):
@@ -1096,19 +1052,17 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
         # Using multiple target_blocks can be useful if you want to estimate the derivative of entropy to try to more quickly find a convergence.
         # Must be in decreasing order because reducing by carrying out merges modifies state.
         # target_blocks = [num_blocks - num_blocks_to_merge + 1, num_blocks - num_blocks_to_merge, num_blocks - num_blocks_to_merge - 1]
-        target_blocks = [num_blocks - num_blocks_to_merge]
+        target_blocks = num_blocks - num_blocks_to_merge
 
         (overall_entropy,n_proposals_itr,n_merges_itr,total_num_nodal_moves_itr, \
-         interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in, num_blocks_merged, partition, derivative_based_stop, dS_dn) \
+         interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in, num_blocks_merged, partition) \
          = entropy_for_block_count(num_blocks, target_blocks,
                                    delta_entropy_threshold,
                                    interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in,
                                    out_neighbors, in_neighbors, N, E,
-                                   vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights,
+                                   vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges,
+                                   vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights,
                                    partition, args, verbose)
-
-        if verbose:
-            print("num_blocks = %s num_blocks_merged = %s M.shape = %s" % (num_blocks, num_blocks_merged, str(interblock_edge_count.shape)))
 
         num_blocks -= num_blocks_merged
         total_num_nodal_moves += total_num_nodal_moves_itr
