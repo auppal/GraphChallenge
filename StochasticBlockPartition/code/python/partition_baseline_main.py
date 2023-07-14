@@ -257,7 +257,7 @@ def propose_node_movement_defunct_wrapper(tup):
         else:
             w = np.where(block_modified_time_shared > update_id)[0]
 
-            if 0:
+            if not is_compressed(M):
                 M[w, :] = M_shared[w, :]
                 M[:, w] = M_shared[:, w]
             else:
