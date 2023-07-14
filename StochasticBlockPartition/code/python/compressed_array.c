@@ -1028,6 +1028,57 @@ static PyObject* take_dict(PyObject *self, PyObject *args)
   return ret;
 }
 
+static PyObject* take_dict_ref(PyObject *self, PyObject *args)
+{
+  PyObject *obj, *ret;
+  long idx, axis;
+
+  if (!PyArg_ParseTuple(args, "Oll", &obj, &idx, &axis))
+    return NULL;
+
+  struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
+
+#if 1
+  /* Returns a reference. */
+  struct hash *ent = compressed_take(x, idx, axis);
+#else
+  /* Returns a copy, not a reference. */
+  struct hash *orig = compressed_take(x, idx, axis);
+  //hash_print(orig);
+  struct hash *ent = hash_copy(orig, 0);
+
+#if DEBUG_SANITY_COUNTS  
+  int ok1 = hash_sanity_count("take_dict orig", orig);
+
+  if (ok1 < 0) {
+    char *msg;
+    asprintf(&msg, "take_dict orig failed at idx %ld axis %ld\n", idx, axis);
+    fputs(msg, stderr);
+    PyErr_SetString(PyExc_RuntimeError, msg);
+    free(msg);
+    return NULL;    
+  }
+  
+  int ok2 = hash_sanity_count("take_dict ent", ent);
+  
+  if (ok1 != ok2) {
+    fprintf(stderr, "take_dict found different sanity for orig (cnt %ld) and copy ent (cnt %ld). Major weirdness!\n", orig->cnt, ent->cnt);
+  }
+#endif  
+
+  if (!ent) {
+    PyErr_SetString(PyExc_RuntimeError, "take_dict: hash_copy failed");
+    return NULL;
+  }
+  
+#endif
+
+  struct hash **ph = create_dict(ent);
+  ret = PyCapsule_New(ph, "compressed_array_dict", destroy_dict);
+  return ret;
+}
+
+
 static PyObject* set_dict(PyObject *self, PyObject *args)
 {
   PyObject *obj, *obj_ent;
@@ -2086,6 +2137,7 @@ static PyMethodDef compressed_array_methods[] =
    { "getitem", getitem, METH_VARARGS, "Get an item." },
    { "take", take, METH_VARARGS, "Take items along an axis." },
    { "take_dict", take_dict, METH_VARARGS, "Take items along an axis in dict form." },
+   { "take_dict_ref", take_dict, METH_VARARGS, "Take items along an axis in dict form." },   
    { "accum_dict", accum_dict, METH_VARARGS, "Add to items in a dict slice." },
    { "keys_values_dict", keys_values_dict, METH_VARARGS, "Get keys and values from a dict slice." },      
    { "print_dict", print_dict, METH_VARARGS, "Print items along an axis in dict form." },
