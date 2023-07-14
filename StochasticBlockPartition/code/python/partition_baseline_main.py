@@ -690,7 +690,7 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
             # Blocking locks do not need to call barrier and thus do not require n_thread_move numbers of threads for each invocation
             chunks = [((i // group_size) % n_thread_move, i, min(i+group_size, stop_vert), 1) for i in range(start_vert,stop_vert,group_size)]
             movements = pool.imap_unordered(propose_node_movement_wrapper, chunks)
-            print("nodal_moves_parallel itr %d call imap len %d rank %d" % (itr, len(chunk), mpi_rank), flush=True)
+            # print("nodal_moves_parallel itr %d call imap len %d rank %d" % (itr, len(chunk), mpi_rank), flush=True)
             for movement in movements:
                 rank,worker_pid,worker_update_id,start,stop,step,n_moves,delta_entropy,pop_cnt = movement
                 proposal_cnt += (stop - start) // step
