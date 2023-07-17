@@ -26,7 +26,6 @@ except:
     MPI = None
 
 
-compressed_threshold = 5000
 timing_stats = defaultdict(int)
 
 log_timestamp_prev = 0
@@ -547,7 +546,7 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
 
 def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args):
     max_num_nodal_itr = args.max_num_nodal_itr
-    delta_entropy_moving_avg_window = args.delta_entropy_moving_avg_window
+    delta_entropy_moving_avg_window = args.delta_entropy_moving_avg_window    
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
     
@@ -1107,23 +1106,13 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
                                                         num_blocks, num_blocks_to_merge)
     # force the next partition to be shared
     partition_t = shared_memory_copy(partition_t)
-
+    
     # re-initialize edge counts and block degrees
-    if args.sparse == 2:
-        if num_blocks >= compressed_threshold:
-            use_compressed = 1
-        else:
-            use_compressed = 0
-    else:
-        use_compressed = (args.sparse != 0)
-
-    # XXX This type of full re-initialization seems wasteful memory for large graphs.
-
     M_t, block_degrees_out_t, block_degrees_in_t, block_degrees_t = \
             initialize_edge_counts(out_neighbors,
                                    num_blocks_t,
                                    partition_t,
-                                   use_compressed, args)
+                                   args)
 
     # compute the global entropy for MCMC convergence criterion
     overall_entropy = compute_overall_entropy(M_t, block_degrees_out_t, block_degrees_in_t, num_blocks_t, N,
@@ -1169,7 +1158,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         timing_stats['time_in_merge'] += merge_time
         timing_stats['time_in_move'] += move_time
         move_rate = total_num_nodal_moves_itr / move_time
-        print("N: {:3d} sp: {:3d} tmg: {:3d} tmv: {:3d} g: {:3d} blocks_in_merge: {:3d} blocks_in_move: {:3d} n_nodal_moves: {:3d}, overall_entropy: {:0.2f}, merge_time: {:0.4f}, move_time: {:0.4f} secs, moves_per_sec: {:4.3f}".format(N, use_compressed, args.t_merge, args.t_merge, args.node_propose_batch_size, num_blocks + num_blocks_merged, num_blocks, total_num_nodal_moves_itr, overall_entropy, merge_time, move_time, move_rate))
+        print("N: {:3d} sp: {:3d} tmg: {:3d} tmv: {:3d} g: {:3d} blocks_in_merge: {:3d} blocks_in_move: {:3d} n_nodal_moves: {:3d}, overall_entropy: {:0.2f}, merge_time: {:0.4f}, move_time: {:0.4f} secs, moves_per_sec: {:4.3f}".format(N, is_compressed(M), args.t_merge, args.t_merge, args.node_propose_batch_size, num_blocks + num_blocks_merged, num_blocks, total_num_nodal_moves_itr, overall_entropy, merge_time, move_time, move_rate))
 
     if args.visualize_graph:
         graph_object = plot_graph_with_partition(out_neighbors, partition, graph_object)
@@ -1245,20 +1234,12 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
         num_blocks = N
         partition = np.arange(num_blocks, dtype=int)
 
-        if args.sparse == 2:
-            if num_blocks >= compressed_threshold:
-                use_compressed = 1
-            else:
-                use_compressed = 0
-        else:
-            use_compressed = (args.sparse != 0)
-
         # initialize edge counts and block degrees
         interblock_edge_count, block_degrees_out, block_degrees_in, block_degrees \
             = initialize_edge_counts(out_neighbors,
                                      num_blocks,
                                      partition,
-                                     use_compressed, args)
+                                     args)
         if args.sanity_check:
             sanity_check_state(partition, out_neighbors, interblock_edge_count, block_degrees_out, block_degrees_in, block_degrees)
 
@@ -1273,6 +1254,9 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
         n_proposals_evaluated = 0
         total_num_nodal_moves = 0
     elif len(alg_state) == 1:
+        # XXX This whole section may be defunct. 
+        assert(0)
+
         hist, graph_object = initialize_partition_variables()
         partition = alg_state[0]
         num_blocks = 1 + np.max(partition)
@@ -1284,13 +1268,15 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
         use_compressed = (args.sparse != 0)
 
         interblock_edge_count, block_degrees_out, block_degrees_in, block_degrees \
-            = initialize_edge_counts(out_neighbors, num_blocks, partition, use_compressed, args)
+            = initialize_edge_counts(out_neighbors, num_blocks, partition, args)
 
         overall_entropy = compute_overall_entropy(interblock_edge_count, block_degrees_out, block_degrees_in, num_blocks, N, E)
         partition, interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in, num_blocks, num_blocks_to_merge, hist, optimal_num_blocks_found = \
                prepare_for_partition_on_next_num_blocks(overall_entropy, partition, interblock_edge_count, block_degrees,
                                                         block_degrees_out, block_degrees_in, num_blocks, hist,
-                                                        B_rate = num_block_reduction_rate )
+                                                        num_block_reduction_rate,
+                                                        out_neighbors,
+                                                        args)
     else:
         # resume search from a previous partition state
         (hist, num_blocks, overall_entropy, partition, interblock_edge_count,block_degrees_out,block_degrees_in,block_degrees,golden_ratio_bracket_established,delta_entropy_threshold,num_blocks_to_merge,optimal_num_blocks_found,n_proposals_evaluated,total_num_nodal_moves) = alg_state
@@ -1322,7 +1308,9 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
         partition, interblock_edge_count, block_degrees, block_degrees_out, block_degrees_in, num_blocks, num_blocks_to_merge, hist, optimal_num_blocks_found = \
             prepare_for_partition_on_next_num_blocks(overall_entropy, partition, interblock_edge_count, block_degrees,
                                                      block_degrees_out, block_degrees_in, num_blocks, hist,
-                                                     num_block_reduction_rate)
+                                                     num_block_reduction_rate,
+                                                     out_neighbors,
+                                                     args)
 
         (old_partition, old_interblock_edge_count, old_block_degrees, old_block_degrees_out, old_block_degrees_in, old_overall_entropy, old_num_blocks) = hist
 
@@ -1382,7 +1370,7 @@ def merge_partitions(partitions, stop_pieces, out_neighbors, verbose):
     """
 
     if args.sparse == 2:
-        if num_blocks >= compressed_threshold:
+        if num_blocks >= args.compressed_threshold:
             use_compressed = 1
         else:
             use_compressed = 0
@@ -1417,7 +1405,7 @@ def merge_partitions(partitions, stop_pieces, out_neighbors, verbose):
         # Instead of relying on initialize_edge_counts.
 
         M, block_degrees_out, block_degrees_in, block_degrees \
-            = initialize_edge_counts(out_neighbors, B, partition, use_compressed)
+            = initialize_edge_counts(out_neighbors, B, partition, args)
 
         if verbose > 2:
             print("M.shape = %s, M = \n%s" % (str(M.shape),M))
@@ -2005,6 +1993,7 @@ if __name__ == '__main__':
     parser.add_argument("input_filename", nargs="?", type=str, default="../../data/static/simulated_blockmodel_graph_500_nodes")
 
     # Debugging options
+    parser.add_argument("--compressed-threshold", type=int, required=False, default=5000, help="")
     parser.add_argument("--min-number-blocks", type=int, required=False, default=0, help="Force stop at this many blocks instead of searching for optimality.")
     parser.add_argument("--initial-block-reduction-rate", type=float, required=False, default=0.50)
     parser.add_argument("--profile", type=int, required=False, help="Profiling level 0=disabled, 1=main, 2=workers.", default=0)
@@ -2018,7 +2007,8 @@ if __name__ == '__main__':
     parser.add_argument("--max-num-nodal-itr", type=int, required=False, default=100, help="Maximum number of iterations during nodal moves.")
     parser.add_argument("--sanity-check", type=int, required=False, default=0, help="Full recompute interblock edge counts and block counts, and compare against differentially computed version.")
     parser.add_argument("--debug-memory", type=int, required=False, default=0, help="Level of shared memory debug memory reporting.")
-    parser.add_argument("--debug-mpi", type=int, required=False, default=0, help="Level of MPI debug reporting.")  
+    parser.add_argument("--debug-mpi", type=int, required=False, default=0, help="Level of MPI debug reporting.")
+    parser.add_argument("--diet", type=int, required=False, default=0, help="Do not store old state, regenerate as needed.")      
 
     # Arguments for thread control
     parser.add_argument("--preallocate", type=int, required=False, default=0, help="Whether to preallocate memory.")

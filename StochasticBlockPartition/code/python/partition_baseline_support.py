@@ -280,7 +280,7 @@ def initialize_partition_variables():
     return hist, graph_object
 
 
-def initialize_edge_counts(out_neighbors, B, b, sparse, args):
+def initialize_edge_counts(out_neighbors, B, b, args):
     """Initialize the edge count matrix and block degrees according to the current partition
 
         Parameters
@@ -311,11 +311,21 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, args):
     if args.verbose > 0:
         t0 = timeit.default_timer()
 
+    if args.sparse == 2:
+        if B >= args.compressed_threshold:
+            use_compressed = 1
+        else:
+            use_compressed = 0
+    else:
+        use_compressed = (args.sparse != 0)
+
     d_out = shared_memory_empty((B,))
     d_in = shared_memory_empty((B,))
     d = shared_memory_empty((B,))
-        
-    if not sparse:
+
+
+    
+    if not use_compressed:
         M = shared_memory_empty((B,B), dtype=mydtype)
         for v in range(len(out_neighbors)):
             compressed_array.rebuild_M(b, v, v, out_neighbors[v][:, 0], out_neighbors[v][:, 1], M)
@@ -352,7 +362,7 @@ def initialize_edge_counts(out_neighbors, B, b, sparse, args):
 
     if args.verbose > 0:
         t1 = timeit.default_timer()
-        print("Initialized edge counts for size %d density %f using compression %d in %f secs." % (B,density,sparse,t1-t0,))
+        print("Initialized edge counts for size %d density %f using compression %d in %f secs." % (B,density,use_compressed,t1-t0,))
 
     return M, d_out, d_in, d
 
@@ -846,8 +856,8 @@ def compute_overall_entropy(M, d_out, d_in, B, N, E):
 
     return S
 
-
-def prepare_for_partition_on_next_num_blocks(S, b, M, d, d_out, d_in, B, hist, B_rate):
+prepare_for_partition_on_next_num_blocks_cache = {}
+def prepare_for_partition_on_next_num_blocks(S, b, M, d, d_out, d_in, B, hist, B_rate, out_neighbors, args):
     """Checks to see whether the current partition has the optimal number of blocks. If not, the next number of blocks
        to try is determined and the intermediate variables prepared.
 
@@ -961,11 +971,15 @@ def prepare_for_partition_on_next_num_blocks(S, b, M, d, d_out, d_in, B, hist, B
         B_to_merge = int(B*B_rate)
         if (B_to_merge==0): # not enough number of blocks to merge so done
             optimal_B_found = True
+
         b = old_b[1].copy()
-        M = old_M[1].copy()
-        d = old_d[1].copy()
-        d_out = old_d_out[1].copy()
-        d_in = old_d_in[1].copy()
+        if args.diet == 1:
+            M,d_out,d_in,d = initialize_edge_counts(out_neighbors, B, b, args)            
+        else:
+            M = old_M[1].copy()
+            d = old_d[1].copy()
+            d_out = old_d_out[1].copy()
+            d_in = old_d_in[1].copy()
     else:  # golden ratio search bracket established
         if old_B[0] - old_B[2] == 2:  # we have found the partition with the optimal number of blocks
             optimal_B_found = True
@@ -980,10 +994,17 @@ def prepare_for_partition_on_next_num_blocks(S, b, M, d, d_out, d_in, B, hist, B
             B_to_merge = old_B[index] - next_B_to_try
             B = old_B[index]
             b = old_b[index].copy()
-            M = old_M[index].copy()
-            d = old_d[index].copy()
-            d_out = old_d_out[index].copy()
-            d_in = old_d_in[index].copy()
+
+            if args.diet == 1:
+                M,d_out,d_in,d = initialize_edge_counts(out_neighbors, B, b, args)
+#                Mx,d_out,d_in,d = prepare_for_partition_on_next_num_blocks_cache[B]
+#                M = fast_sparse_array((0,0),width=0)
+#                M.x = Mx
+            else:
+                M = old_M[index].copy()
+                d = old_d[index].copy()
+                d_out = old_d_out[index].copy()
+                d_in = old_d_in[index].copy()
 
     hist = old_b, old_M, old_d, old_d_out, old_d_in, old_S, old_B
     return b, M, d, d_out, d_in, B, B_to_merge, hist, optimal_B_found
