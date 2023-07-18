@@ -31,8 +31,8 @@ typedef int64_t hash_val_t;
 struct hash {
   uint32_t flags;
   uint32_t width;  /* width of each hash table */
-  atomic_ulong cnt;
-  atomic_long internal_refcnt;
+  _Atomic(uint32_t) cnt;
+  _Atomic(uint32_t) internal_refcnt;
 };
 
 static inline size_t hash_get_alloc_size(const struct hash *h)
@@ -79,7 +79,7 @@ int hash_sanity_count(const char *msg, const struct hash *h)
     }
   }
   if (h->cnt != sanity_cnt) {
-    fprintf(stderr, "Sanity count at %s for hash %p failed: cnt %ld h->cnt %ld\n", msg, h, sanity_cnt, h->cnt);
+    fprintf(stderr, "Sanity count at %s for hash %p failed: cnt %lu h->cnt %u\n", msg, h, sanity_cnt, h->cnt);
     return -1;
   }
 
@@ -249,7 +249,7 @@ static inline struct hash *hash_resize(struct hash *h)
 #endif        
 
     if (h->cnt != h2->cnt) {
-      fprintf(stderr, "Mismatch found in hash %p h1->cnt %ld h2->cnt %ld ins %ld\n", h, h->cnt, h2->cnt, ins);
+      fprintf(stderr, "Mismatch found in hash %p h1->cnt %u h2->cnt %u ins %ld\n", h, h->cnt, h2->cnt, ins);
       return NULL;
     }
 
@@ -331,7 +331,7 @@ int hash_accum_single(struct hash *h, uint64_t k, int64_t c)
        */
       atomic_fetch_add_explicit((atomic_ulong *) &vals[idx], c, memory_order_relaxed);
       /* And also do increase the count by 1. */
-      atomic_fetch_add_explicit((atomic_ulong *) &h->cnt, 1, memory_order_seq_cst);
+      atomic_fetch_add_explicit(&h->cnt, 1, memory_order_seq_cst);
       break;
     }
     else if (keys[idx] == k) {
@@ -437,7 +437,7 @@ void hash_print(struct hash *h)
   hash_key_t *keys = hash_get_keys(h);
   hash_val_t *vals = hash_get_vals(h);
 
-  fprintf(stderr, "Print dict %p with %ld items\n", h, h->cnt);
+  fprintf(stderr, "Print dict %p with %u items\n", h, h->cnt);
   fprintf(stderr, "{ ");
   for (i=0; i<width; i++) {
     if ((keys[i] & EMPTY_FLAG) == 0) {
@@ -538,12 +538,12 @@ static inline struct hash *hash_accum_multi(struct hash *h, const uint64_t *keys
   int flag = 0;
   size_t limit = hash_get_limit(h);  
   if (h->cnt == limit) {
-    fprintf(stderr, "Resize on accum before %ld %ld\n", h->cnt, limit);
+    fprintf(stderr, "Resize on accum before %u %ld\n", h->cnt, limit);
     flag = 1;
   }
 
   if (flag) {
-    fprintf(stderr, "Resize on accum after %ld %ld\n", h->cnt, limit);
+    fprintf(stderr, "Resize on accum after %u %ld\n", h->cnt, limit);
   }
 #endif
   
@@ -585,8 +585,8 @@ struct compressed_array *compressed_array_create(size_t n_nodes, size_t initial_
   }
   
   for (i=0; i<n_nodes; i++) {
-    int rc1 = atomic_hash_init(&x->rows[i], 2 * initial_width);
-    int rc2 = atomic_hash_init(&x->cols[i], 2 * initial_width);
+    int rc1 = atomic_hash_init(&x->rows[i], initial_width);
+    int rc2 = atomic_hash_init(&x->cols[i], initial_width);
 
     if (rc1 || rc2) {
       fprintf(stderr, "compressed_array_create: hash_create failed\n");
