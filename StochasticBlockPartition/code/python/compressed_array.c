@@ -1604,7 +1604,7 @@ static PyObject* sanity_check(PyObject *self, PyObject *args)
   size_t i, j;
 
   if (!x) {
-    PyErr_SetString(PyExc_RuntimeError, "NULL pointer to compresed array");
+    PyErr_SetString(PyExc_RuntimeError, "Bad pointer to compresed array");
     return NULL;
   }
 
@@ -1658,7 +1658,6 @@ static PyObject* sanity_check(PyObject *self, PyObject *args)
       }
     }
   }
-
   Py_RETURN_NONE;
 }
 
@@ -2147,6 +2146,11 @@ static PyObject* hash_pointer(PyObject *self, PyObject *args)
 
   struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
 
+  if (!x) {
+    PyErr_SetString(PyExc_RuntimeError, "Bad pointer to compresed array");
+    return NULL;
+  }
+
   i = PyLong_AsLongLong(obj_i);
 
   struct hash_outer *ho = &x->rows[i];
@@ -2154,7 +2158,7 @@ static PyObject* hash_pointer(PyObject *self, PyObject *args)
   long hash_outer_ptr = (long) ho;
   long hash_inner_ptr = (long) ho->h;
   
-  PyObject *ret = Py_BuildValue("NN", hash_outer_ptr, hash_inner_ptr);
+  PyObject *ret = Py_BuildValue("ll", hash_outer_ptr, hash_inner_ptr);
   return ret;
 }
 
