@@ -20,6 +20,7 @@
 #include <errno.h>
 
 #define DEBUG_PRINTF (0)
+#define CHECK_DOUBLE_FREE (0)
 
 static void *shared_memory_mmap(size_t size_bytes);
 static void *shared_memory_get(size_t size_bytes);
@@ -141,8 +142,7 @@ static inline int circ_deq(circ_buf_t *b, void *elm)
 	return 0;
 }
 
-#if 0
-/* Unused */
+#if CHECK_DOUBLE_FREE
 static inline const void *circ_peek(circ_buf_t *b, size_t index)
 {
 	if (index >= b->count)
@@ -402,7 +402,7 @@ void *shared_malloc(size_t nbytes)
 		
 		for (i=0; i<fill_items; i++) {
 			void *x = (void * ) ((uintptr_t) base + (i * np2));
-			// fprintf(stderr, "circ enq %ld %p\n", i, x);
+			fprintf(stderr, "circ enq %ld %p\n", i, x);
 			if (circ_enq(&next->q, &x) < 0) {
 				fprintf(stderr, "circ enq failed!\n");
 				return NULL;
@@ -436,8 +436,22 @@ void shared_free(void *addr, size_t nbytes)
 	}
 #if DEBUG_PRINTF
 	fprintf(stderr, "shared_free enqueue into pool %ld ptr %p\n", lg2, addr);
-#endif	
+#endif
+
 	struct pool_info *pool = p_pools[lg2];
+
+#if CHECK_DOUBLE_FREE
+	size_t i, n = circ_cnt(&pool->q);
+	void **p_exist;
+	for (i=0; i<n; i++) {
+	  p_exist = (void **) circ_peek(&pool->q, i);
+	  if (*p_exist == addr) {
+	    fprintf(stderr, "shared_free: double free detected at pool %ld ptr %p\n",
+		    lg2, addr);
+	    abort();
+	  }
+	}
+#endif
 	circ_enq(&pool->q, &addr);
 }
 
