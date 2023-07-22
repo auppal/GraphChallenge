@@ -32,7 +32,7 @@ struct hash {
   uint32_t flags;
   uint32_t width;  /* width of each hash table */
   _Atomic(uint32_t) cnt;
-  _Atomic(uint32_t) internal_refcnt;
+  _Atomic(int32_t) internal_refcnt;
 };
 
 static inline size_t hash_get_alloc_size(const struct hash *h)
