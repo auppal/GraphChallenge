@@ -17,15 +17,27 @@
 
 #define DEBUG_SANITY_COUNTS (0)
 #define DEBUG_RESIZE_RACE (0)
+#define HASH_FLAG_SHARED_MEM (1)
+#define USE_32_BITS (0)
 
+#if USE_32_BITS
+typedef uint32_t hash_key_t;
+typedef int32_t hash_val_t;
+#define EMPTY_FLAG (1 << 31)
+#define hash(x) ((((uint64_t) x) ^ ((uint64_t) x) << 11))
+
+#define PRI_HASH_KEY "%u"
+#define HASH_IMPL_DESCRIPTION "32 bit"
+#else
+typedef uint64_t hash_key_t;
+typedef int64_t hash_val_t;
+#define EMPTY_FLAG (1UL << 63)
 /* From khash */
 #define kh_int64_hash_func(key) (khint32_t)((key)>>33^(key)^(key)<<11)
 #define hash(x) (((x) >> 33 ^ (x) ^ (x) << 11))
-#define EMPTY_FLAG (1UL << 63)
-#define HASH_FLAG_SHARED_MEM (1)
-
-typedef uint64_t hash_key_t;
-typedef int64_t hash_val_t;
+#define PRI_HASH_KEY "%lu"
+#define HASH_IMPL_DESCRIPTION "64 bit"
+#endif
 
 /* An array of hash tables. There are n_cols tables, each with an allocated size of n_rows. */
 struct hash {
@@ -69,9 +81,7 @@ int hash_sanity_count(const char *msg, const struct hash *h)
 {
   size_t i, sanity_cnt = 0;
 
-  const char *buf = (const char *) h;
   const hash_key_t *keys = hash_get_keys((struct hash *) h);
-  const hash_val_t *vals = hash_get_vals((struct hash *) h);
 
   for (i=0; i<h->width; i++) {
     if ((keys[i] & EMPTY_FLAG) == 0) {
@@ -158,16 +168,13 @@ void hash_outer_destroy(struct hash_outer *ho)
 
 struct hash *hash_copy(const struct hash *y, int shared_mem)
 {
-  void (*fn_free)(void *, size_t);
   void *(*fn_malloc)(size_t);  
   
   if (shared_mem) {
     fn_malloc = shared_malloc;
-    fn_free = shared_free;
   }
   else {
     fn_malloc = malloc;
-    fn_free = private_free;
   }
   
   size_t buf_size = hash_get_alloc_size(y);
@@ -206,7 +213,7 @@ int hash_outer_copy(struct hash_outer *to, const struct hash_outer *from)
 }
 
 void hash_print(struct hash *h);
-int hash_set_single(struct hash *h, uint64_t k, int64_t v);
+int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v);
 #define RESIZE_DEBUG (0)
 
 static inline struct hash *hash_resize(struct hash *h)
@@ -267,13 +274,13 @@ static int hash_resize_needed(const struct hash *h)
   return h->cnt >= limit ? 1 : 0;
 }
 
-int hash_set_single(struct hash *h, uint64_t k, int64_t v)
+int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v)
 {
   /* To avoid a subtle logic bug, first check for existance. 
    * Beacuse not every insertion will cause an increase in cnt.
    */
   size_t i, width = h->width;
-  uint64_t kh = hash(k);
+  hash_key_t kh = hash(k);
   hash_key_t *keys = hash_get_keys(h);
   hash_val_t *vals = hash_get_vals(h);
 
@@ -295,13 +302,13 @@ int hash_set_single(struct hash *h, uint64_t k, int64_t v)
 }
 
 
-int hash_accum_single(struct hash *h, uint64_t k, int64_t c)
+int hash_accum_single(struct hash *h, hash_key_t k, hash_val_t c)
 {
   /* To avoid a subtle logic bug, first check for existance. 
    * Beacuse not every insertion will cause an increase in cnt.
    */
   size_t i, width = h->width;
-  uint64_t kh = hash(k);
+  hash_key_t kh = hash(k);
 
   hash_key_t *keys = hash_get_keys(h);
   hash_val_t *vals = hash_get_vals(h);
@@ -321,22 +328,22 @@ int hash_accum_single(struct hash *h, uint64_t k, int64_t c)
     }
 #else
     /* Try experimental lock-free approach */
-    uint64_t empty = EMPTY_FLAG;
-    _Bool rc = atomic_compare_exchange_strong((atomic_ulong *) &keys[idx], &empty, k);
+    hash_key_t empty = EMPTY_FLAG;
+    _Bool rc = atomic_compare_exchange_strong((_Atomic(hash_key_t) *) &keys[idx], &empty, k);
 
     if (rc) {
       /* Was empty, and new key inserted.
        * It is safe to add instead of assign because vals were all
        * initialized to zero.
        */
-      atomic_fetch_add_explicit((atomic_ulong *) &vals[idx], c, memory_order_relaxed);
+      atomic_fetch_add_explicit((_Atomic(hash_val_t) *) &vals[idx], c, memory_order_relaxed);
       /* And also do increase the count by 1. */
       atomic_fetch_add_explicit(&h->cnt, 1, memory_order_seq_cst);
       break;
     }
     else if (keys[idx] == k) {
       /* Was not empty. Check the existing key. */
-      atomic_fetch_add_explicit((atomic_ulong *) &vals[idx], c, memory_order_relaxed);
+      atomic_fetch_add_explicit((_Atomic(hash_val_t) *) &vals[idx], c, memory_order_relaxed);
       break;
     }
 #endif
@@ -346,10 +353,10 @@ int hash_accum_single(struct hash *h, uint64_t k, int64_t c)
 }
 
 
-static inline int hash_search(const struct hash *h, uint64_t k, int64_t *v)
+static inline int hash_search(const struct hash *h, hash_key_t k, hash_val_t *v)
 {
   size_t i, width = h->width;
-  uint64_t kh = hash(k);
+  hash_key_t kh = hash(k);
 
   const hash_key_t *keys = hash_get_keys((struct hash *) h);
   const hash_val_t *vals = hash_get_vals((struct hash *) h);
@@ -369,18 +376,24 @@ static inline int hash_search(const struct hash *h, uint64_t k, int64_t *v)
   return -1;
 }
 
-static inline void hash_search_multi(const struct hash *h, const uint64_t *keys, int64_t *vals, size_t n)
+static inline void hash_search_multi(const struct hash *h, const unsigned long *keys, long *vals, size_t n)
 {
   size_t i;
   for (i=0; i<n; i++) {
+#if USE_32_BITS
+    hash_val_t v;
+    hash_search(h, keys[i], &v);
+    vals[i] = v;
+#else    
     hash_search(h, keys[i], &vals[i]);
+#endif
   }
 }
 
-static inline int64_t hash_sum(const struct hash *h)
+static inline hash_val_t hash_sum(const struct hash *h)
 {
   size_t i;
-  int64_t s = 0;
+  hash_val_t s = 0;
   const hash_key_t *keys = hash_get_keys((struct hash *) h);
   const hash_val_t *vals = hash_get_vals((struct hash *) h);
 
@@ -394,7 +407,7 @@ static inline int64_t hash_sum(const struct hash *h)
 }
 
 
-static inline size_t hash_keys(const struct hash *h, uint64_t *keys, size_t max_cnt)
+static inline size_t hash_keys(const struct hash *h, unsigned long *keys, size_t max_cnt)
 {
   const hash_key_t *h_keys = hash_get_keys((struct hash *) h);
   size_t i, width = h->width, cnt = 0;
@@ -412,7 +425,7 @@ static inline size_t hash_keys(const struct hash *h, uint64_t *keys, size_t max_
   return cnt;
 }
 
-size_t hash_vals(const struct hash *h, int64_t *vals, size_t max_cnt)
+size_t hash_vals(const struct hash *h, long *vals, size_t max_cnt)
 {
   size_t i, width = h->width, cnt = 0;
   hash_key_t *h_keys = hash_get_keys((struct hash *) h);
@@ -455,7 +468,7 @@ int hash_eq(const struct hash *x, const struct hash *y)
   
   for (i=0; i<x->width; i++) {
     if ((x_keys[i] & EMPTY_FLAG) == 0) {
-      int64_t v2 = 0;
+      hash_val_t v2 = 0;
       hash_search(y, x_keys[i], &v2);
       if (v2 != x_vals[i]) {
 	fprintf(stderr, "Mismatch at key %lu\n", x_keys[i]);
@@ -469,7 +482,7 @@ int hash_eq(const struct hash *x, const struct hash *y)
   
   for (i=0; i<y->width; i++) {
     if ((y_keys[i] & EMPTY_FLAG) == 0) {
-      int64_t v = 0;
+      hash_val_t v = 0;
       hash_search(x, y_keys[i], &v);
       if (v != y_vals[i]) {
 	fprintf(stderr, "Mismatch at key %lu\n", y_keys[i]);
@@ -481,6 +494,8 @@ int hash_eq(const struct hash *x, const struct hash *y)
   return 0;
 }
 
+#if 0
+/* Unused */
 static inline void hash_accum_constant(const struct hash *h, size_t C)
 {
   size_t i, width = h->width;
@@ -493,8 +508,13 @@ static inline void hash_accum_constant(const struct hash *h, size_t C)
     }
   }
 }
+#endif
 
-static inline struct hash *hash_accum_multi(struct hash *h, const uint64_t *keys, const int64_t *vals, size_t n_keys)
+/*
+ * It is not strictly correct to use int64_t instead of hash_key_t.
+ * But it is done here for expedience.
+ */
+static inline struct hash *hash_accum_multi(struct hash *h, const unsigned long *keys, const long *vals, size_t n_keys)
 {
   size_t j, i;
 
@@ -507,7 +527,7 @@ static inline struct hash *hash_accum_multi(struct hash *h, const uint64_t *keys
     hash_key_t *h_keys = hash_get_keys(h);
     hash_val_t *h_vals = hash_get_vals(h);
 	  
-    uint64_t kh = hash(keys[j]);
+    hash_key_t kh = hash(keys[j]);
 #if 0
     fprintf(stderr, " Insert %ld +%ld\n", keys[j], vals[j]);
 #endif
@@ -691,7 +711,14 @@ struct compressed_array *compressed_copy(const struct compressed_array *y)
 static inline int compressed_get_single(struct compressed_array *x, uint64_t i, uint64_t j, int64_t *val)
 {
   /* Just get from row[i][j] */
+#if USE_32_BITS
+  hash_val_t v;
+  int rc = hash_search(x->rows[i].h, j, &v);
+  *val = v;
+  return rc;
+#else  
   return hash_search(x->rows[i].h, j, val);
+#endif
 }
 
 
@@ -711,7 +738,7 @@ static inline void compressed_set_single(struct compressed_array *x, uint64_t i,
   }
 }
 
-int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
+int hash_accum_resize(struct hash_outer *ho, hash_key_t k, hash_val_t C)
 {
   struct hash *oldh, *newh;
 
@@ -792,7 +819,7 @@ int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
 #if DEBUG_RESIZE_RACE      
       fprintf(stderr, "Pid %d Outer %p Done waiting for %p ! Merge %ld items into hash %p\n", getpid(), ho, oldh, oldh->cnt, newh);
 #endif      
-      long ins = 0;
+      // long ins = 0;
       size_t ii;
 
 
@@ -800,14 +827,14 @@ int hash_accum_resize(struct hash_outer *ho, uint64_t k, int64_t C)
       hash_val_t *vals = hash_get_vals(oldh);
       
       for (ii=0; ii<oldh->width; ii++) {
-	uint64_t k = keys[ii];
-	int64_t v = vals[ii];
+	hash_key_t k = keys[ii];
+	hash_val_t v = vals[ii];
 	if (k != EMPTY_FLAG) {
 	  if (1 == hash_accum_single(newh, k, v)) {
 	    fprintf(stderr, "Pid %d Error: Needed ANOTHER resize while resizing!\n", getpid());
 	    return -1;
 	  }
-	  ins++;
+	  // ins++;
 	}
       }
 
@@ -836,15 +863,15 @@ static inline int compressed_accum_single(struct compressed_array *x, uint64_t i
 }
 
 /* Take values along a particular axis */
-int compressed_take_keys_values(struct compressed_array *x, long idx, long axis, uint64_t **p_keys, int64_t **p_vals, long *p_cnt)
+int compressed_take_keys_values(struct compressed_array *x, long idx, long axis, unsigned long **p_keys, long **p_vals, long *p_cnt)
 {
   size_t cnt;
   struct hash *h = (axis == 0 ? x->rows[idx].h : x->cols[idx].h);
 
   cnt = h->cnt;
 
-  uint64_t *keys;
-  int64_t *vals;
+  unsigned long *keys;
+  long *vals;
 
   if (cnt == 0) {
     *p_keys = NULL;
@@ -853,8 +880,8 @@ int compressed_take_keys_values(struct compressed_array *x, long idx, long axis,
     return 0;
   }
   else {
-    keys = malloc(cnt * sizeof(uint64_t));
-    vals = malloc(cnt * sizeof(int64_t));
+    keys = malloc(cnt * sizeof(keys[0]));
+    vals = malloc(cnt * sizeof(vals[0]));
   }
 
   hash_keys(h, keys, cnt);
@@ -942,8 +969,8 @@ static PyObject* keys_values_dict(PyObject *self, PyObject *args)
 
 
   size_t cnt = h->cnt;
-  uint64_t *keys = malloc(cnt * sizeof(uint64_t));
-  int64_t *vals = malloc(cnt * sizeof(int64_t));
+  unsigned long *keys = malloc(cnt * sizeof(keys[0]));
+  long *vals = malloc(cnt * sizeof(vals[0]));
 
   hash_keys(h, keys, cnt);
   hash_vals(h, vals, cnt);
@@ -984,11 +1011,11 @@ static PyObject* accum_dict(PyObject *self, PyObject *args)
   obj_k = PyArray_FROM_OTF(obj_k, NPY_LONG, NPY_IN_ARRAY);
   obj_v = PyArray_FROM_OTF(obj_v, NPY_LONG, NPY_IN_ARRAY);
 
-  const uint64_t *keys = (const uint64_t *) PyArray_DATA(obj_k);
+  const long *keys = (const long *) PyArray_DATA(obj_k);
   const long *vals = (const long *) PyArray_DATA(obj_v);
   long N = (long) PyArray_DIM(obj_k, 0);
 
-  h = hash_accum_multi(h, keys, vals, N);
+  h = hash_accum_multi(h, (unsigned long *) keys, vals, N);
 
   if (!h) {
     PyErr_SetString(PyExc_RuntimeError, "hash_accum_multi failed");
@@ -1083,41 +1110,14 @@ static PyObject* take_dict_ref(PyObject *self, PyObject *args)
 
   struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
 
-#if 1
   /* Returns a reference. */
   struct hash *ent = compressed_take(x, idx, axis);
-#else
-  /* Returns a copy, not a reference. */
-  struct hash *orig = compressed_take(x, idx, axis);
-  //hash_print(orig);
-  struct hash *ent = hash_copy(orig, 0);
-
-#if DEBUG_SANITY_COUNTS  
-  int ok1 = hash_sanity_count("take_dict orig", orig);
-
-  if (ok1 < 0) {
-    char *msg;
-    asprintf(&msg, "take_dict orig failed at idx %ld axis %ld\n", idx, axis);
-    fputs(msg, stderr);
-    PyErr_SetString(PyExc_RuntimeError, msg);
-    free(msg);
-    return NULL;    
-  }
-  
-  int ok2 = hash_sanity_count("take_dict ent", ent);
-  
-  if (ok1 != ok2) {
-    fprintf(stderr, "take_dict found different sanity for orig (cnt %ld) and copy ent (cnt %ld). Major weirdness!\n", orig->cnt, ent->cnt);
-  }
-#endif  
 
   if (!ent) {
     PyErr_SetString(PyExc_RuntimeError, "take_dict: hash_copy failed");
     return NULL;
   }
   
-#endif
-
   struct hash **ph = create_dict(ent);
   ret = PyCapsule_New(ph, "compressed_array_dict", destroy_dict);
   return ret;
@@ -1231,7 +1231,7 @@ static PyObject* sum_dict(PyObject *self, PyObject *args)
     return NULL;
   }
 
-  uint64_t val = hash_sum(*ph);
+  hash_val_t val = hash_sum(*ph);
   PyObject *ret = Py_BuildValue("k", val);
   return ret;
 }
@@ -1257,7 +1257,7 @@ static PyObject* getitem_dict(PyObject *self, PyObject *args)
 
   if (k_int != -1) {
     /* Return a single item. */
-    int64_t val = 0;
+    hash_val_t val = 0;
     hash_search(h, k_int, &val);
     PyObject *ret = Py_BuildValue("k", val);
     return ret;
@@ -1266,12 +1266,12 @@ static PyObject* getitem_dict(PyObject *self, PyObject *args)
   PyErr_Restore(NULL, NULL, NULL); /* clear the exception */  
 
   obj_k = PyArray_FROM_OTF(obj_k, NPY_LONG, NPY_IN_ARRAY);
-  const uint64_t *keys = (const uint64_t *) PyArray_DATA(obj_k);
+  const long *keys = (const long *) PyArray_DATA(obj_k);
   long N = (long) PyArray_DIM(obj_k, 0);
 
-  int64_t *vals = malloc(N * sizeof(int64_t));
+  long *vals = malloc(N * sizeof(vals[0]));
 
-  hash_search_multi(h, keys, vals, N);
+  hash_search_multi(h, (const unsigned long *) keys, vals, N);
 
   npy_intp dims[] = {N};
   PyObject *vals_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, vals);
@@ -1604,7 +1604,7 @@ static PyObject* sanity_check(PyObject *self, PyObject *args)
   size_t i, j;
 
   if (!x) {
-    PyErr_SetString(PyExc_RuntimeError, "Bad pointer to compresed array");
+    PyErr_SetString(PyExc_RuntimeError, "NULL pointer to compresed array");
     return NULL;
   }
 
@@ -1645,12 +1645,10 @@ static PyObject* sanity_check(PyObject *self, PyObject *args)
   for (i=0; i<x->n_row; i++) {
     for (j=0; j<x->rows[i].h->width; j++) {
       hash_key_t *keys = hash_get_keys(x->rows[i].h);
-      hash_val_t *vals = hash_get_vals(x->rows[i].h);
-      
       if (keys[j] != EMPTY_FLAG) {
 	if (keys[j] > 999999) {
 	  char *msg;
-	  if (asprintf(&msg, "Invalid key value %ld found in hash %p", keys[j], x->rows[i].h) > 0) {
+	  if (asprintf(&msg, "Invalid key value "PRI_HASH_KEY" found in hash %p", keys[j], x->rows[i].h) > 0) {
 	    PyErr_SetString(PyExc_RuntimeError, msg);
 	  }
 	  return NULL;
@@ -1658,6 +1656,7 @@ static PyObject* sanity_check(PyObject *self, PyObject *args)
       }
     }
   }
+
   Py_RETURN_NONE;
 }
 
@@ -1743,7 +1742,7 @@ static inline double entropy_row_excl(struct hash *h, const int64_t *restrict de
   /* Iterate over keys and values */
   for (i=0; i<h->width; i++) {
     if ((keys[i] & EMPTY_FLAG) == 0 && keys[i] != r && keys[i] != s) {
-      int64_t xi = vals[i];
+      hash_val_t xi = vals[i];
       int64_t yi = deg[keys[i]];
       if (xi > 0 && yi > 0) {
 	sum += xi * (log(xi) - log(yi) - log_c);
@@ -2146,11 +2145,6 @@ static PyObject* hash_pointer(PyObject *self, PyObject *args)
 
   struct compressed_array *x = PyCapsule_GetPointer(obj, "compressed_array");
 
-  if (!x) {
-    PyErr_SetString(PyExc_RuntimeError, "Bad pointer to compresed array");
-    return NULL;
-  }
-
   i = PyLong_AsLongLong(obj_i);
 
   struct hash_outer *ho = &x->rows[i];
@@ -2179,8 +2173,8 @@ static PyObject *info(PyObject *self, PyObject *args)
 
   
   char *msg;
-  if (asprintf(&msg, "Compiler: %s atomic_hash: %s atomic_ulong: %s",
-	       __VERSION__, msg_atomic_hash, msg_atomic_ulong) < 0) {
+  if (asprintf(&msg, "Compiler: %s hash_entry_size: %s atomic_hash_struct: %s atomic_ulong: %s",
+	       __VERSION__, HASH_IMPL_DESCRIPTION, msg_atomic_hash, msg_atomic_ulong) < 0) {
     msg = NULL;
   }
   PyObject *ret = Py_BuildValue("s", msg);
@@ -2198,7 +2192,7 @@ static PyMethodDef compressed_array_methods[] =
    { "getitem", getitem, METH_VARARGS, "Get an item." },
    { "take", take, METH_VARARGS, "Take items along an axis." },
    { "take_dict", take_dict, METH_VARARGS, "Take items along an axis in dict form." },
-   { "take_dict_ref", take_dict, METH_VARARGS, "Take items along an axis in dict form." },   
+   { "take_dict_ref", take_dict_ref, METH_VARARGS, "Take items along an axis in dict form." },   
    { "accum_dict", accum_dict, METH_VARARGS, "Add to items in a dict slice." },
    { "keys_values_dict", keys_values_dict, METH_VARARGS, "Get keys and values from a dict slice." },      
    { "print_dict", print_dict, METH_VARARGS, "Print items along an axis in dict form." },
