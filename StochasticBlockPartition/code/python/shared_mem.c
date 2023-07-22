@@ -38,10 +38,7 @@ static const size_t page_size = 4096;
 static inline int circ_init(circ_buf_t *b, size_t len, size_t size);
 static inline int circ_enq(circ_buf_t *b, const void *elm);
 static inline int circ_deq(circ_buf_t *b, void *elm);
-static inline const void *circ_peek(circ_buf_t *b, size_t index);
 static inline size_t circ_cnt(circ_buf_t *b);
-static inline void circ_free(circ_buf_t *b);
-
 static inline int circ_init(circ_buf_t *b, size_t len, size_t size)
 {
 #if DEBUG_PRINTF
@@ -77,6 +74,8 @@ static inline int circ_init(circ_buf_t *b, size_t len, size_t size)
 	return 0;
 }
 
+#if 0
+/* Unused */
 static inline int circ_clear(circ_buf_t *b)
 {
 	b->tail = 0;
@@ -85,6 +84,7 @@ static inline int circ_clear(circ_buf_t *b)
 
 	return 0;
 }
+#endif
 
 static inline int circ_enq(circ_buf_t *b, const void *elm)
 {
@@ -141,6 +141,8 @@ static inline int circ_deq(circ_buf_t *b, void *elm)
 	return 0;
 }
 
+#if 0
+/* Unused */
 static inline const void *circ_peek(circ_buf_t *b, size_t index)
 {
 	if (index >= b->count)
@@ -149,18 +151,22 @@ static inline const void *circ_peek(circ_buf_t *b, size_t index)
 	ssize_t i = (b->head + index) % b->buf_len;
 	return &b->buf[i * b->size];
 }
+#endif
 
 static inline size_t circ_cnt(circ_buf_t *b)
 {
 	return b->count;
 }
 
+#if 0
+/* Unused */
 static inline void circ_free(circ_buf_t *b)
 {
 	if (b) {
 		free(b->buf);
 	}
 }
+#endif
 
 #if 0
 static inline int circ_resize(circ_buf_t *b, size_t new_len)
