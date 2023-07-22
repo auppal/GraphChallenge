@@ -299,7 +299,7 @@ def propose_node_movement_wrapper(tup):
     rank,start,stop,step = tup
 
     args = syms['args']
-    vertex_locks,block_locks = syms['locks']
+    vertex_locks = syms['locks']
     
     (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights) = syms['static_state']
     (update_id_shared, M, partition, block_degrees, block_degrees_out, block_degrees_in,) = syms['nodal_move_state']
@@ -337,7 +337,7 @@ def propose_node_movement_wrapper(tup):
             movement = propose_node_movement(ni, partition, out_neighbors, in_neighbors,
                                              M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
                                              vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges,
-                                             vertex_neighbors, self_edge_weights, args, vertex_lock=None, block_lock=None)
+                                             vertex_neighbors, self_edge_weights, args, vertex_lock=None)
 
             (ni2, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
             accept = (np.random.uniform() <= p_accept)
@@ -376,7 +376,7 @@ def propose_node_movement_wrapper(tup):
             movement = propose_node_movement(ni, partition, out_neighbors, in_neighbors,
                                              M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
                                              vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges,
-                                             vertex_neighbors, self_edge_weights, args, vertex_lock=None, block_lock=None)
+                                             vertex_neighbors, self_edge_weights, args, vertex_lock=None)
             (ni2, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
             accept = (np.random.uniform() <= p_accept)
             if accept:
@@ -413,7 +413,7 @@ def propose_node_movement_wrapper(tup):
 
 def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, M, num_blocks,
                           block_degrees, block_degrees_out, block_degrees_in,
-                          vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args, vertex_lock=None, block_lock=None):
+                          vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args, vertex_lock=None):
     # SHR: read partition[ni]
     r = partition[current_node]
 
@@ -426,7 +426,7 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         vertex_neighbors[current_node][:, 1],
         vertex_num_neighbor_edges[current_node],
         partition,
-        M, block_degrees, num_blocks, agg_move = 0, M_lock=block_lock)
+        M, block_degrees, num_blocks, agg_move = 0)
 
     num_out_neighbor_edges = vertex_num_out_neighbor_edges[current_node]
     num_in_neighbor_edges = vertex_num_in_neighbor_edges[current_node]
@@ -450,7 +450,7 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col = \
             compute_new_rows_cols_interblock_edge_count_matrix(M, r, s,
                                                                blocks_out, count_out, blocks_in, count_in,
-                                                               self_edge_weight, agg_move = 0, M_lock=block_lock)
+                                                               self_edge_weight, agg_move = 0)
 
         # SHR: read block_degrees_out[:], block_degrees_in[:], block_degrees[:]
         block_degrees_out_new = block_degrees_out.copy()
@@ -507,7 +507,7 @@ def move_node_wrapper(tup):
     rank,start,stop,step = tup
 
     args = syms['args']
-    vertex_locks,block_locks = syms['locks']
+    vertex_locks = syms['locks']
     (num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights) = syms['static_state']
     (update_id_shared, M, partition, block_degrees, block_degrees_out, block_degrees_in,) = syms['nodal_move_state']
     partition_next = syms['partition_next']
@@ -861,8 +861,6 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
     total_num_nodal_moves_itr = 0
     itr_delta_entropy = np.zeros(max_num_nodal_itr)
 
-    block_lock = None
-
     if args.finegrain:
         vertex_lock = [mp.Lock() for i in range(N)]
     else:
@@ -874,7 +872,7 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
     shape = partition.shape
 
     syms = {}
-    syms['locks'] = vertex_lock,block_lock
+    syms['locks'] = vertex_lock
     syms['static_state'] = static_state
     syms['nodal_move_state'] = (update_id_shared, M, partition, block_degrees, block_degrees_out, block_degrees_in)
     syms['args'] = args
@@ -1106,7 +1104,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
                                                         num_blocks, num_blocks_to_merge)
     # force the next partition to be shared
     partition_t = shared_memory_copy(partition_t)
-    
+
     # re-initialize edge counts and block degrees
     M_t, block_degrees_out_t, block_degrees_in_t, block_degrees_t = \
             initialize_edge_counts(out_neighbors,

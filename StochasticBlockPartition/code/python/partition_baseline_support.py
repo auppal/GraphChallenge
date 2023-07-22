@@ -26,7 +26,7 @@ from collections import defaultdict
 from functools import reduce
 
 import os
-from interblock_edge_count import fast_sparse_array, nonzero_slice, take_nonzero, is_compressed
+from interblock_edge_count import fast_sparse_array, take_nonzero, is_compressed
 
 
 mydtype=np.dtype('int64')
@@ -447,13 +447,10 @@ def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, 
         return s2
 
 
-def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move, M_lock=None):
+def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move):
     compressed = is_compressed(M)
 
     B = M.shape[0]
-
-    if M_lock:
-        M_lock.acquire()
 
     if not compressed:
         if agg_move:
@@ -473,9 +470,6 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         cur_M_r_col = compressed_array.take_dict(M.x, r, 1)
         cur_M_s_row = compressed_array.take_dict(M.x, s, 0)
         cur_M_s_col = compressed_array.take_dict(M.x, s, 1)
-
-    if M_lock:
-        M_lock.release()
     
     if not agg_move:  # the r row and column are simply empty after this merge move
         where_b_in_r = np.where(b_in == r)
