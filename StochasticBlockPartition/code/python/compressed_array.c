@@ -18,7 +18,7 @@
 #define DEBUG_SANITY_COUNTS (0)
 #define DEBUG_RESIZE_RACE (0)
 #define HASH_FLAG_SHARED_MEM (1)
-#define USE_32_BITS (0)
+#define USE_32_BITS (1)
 
 #if USE_32_BITS
 typedef uint32_t hash_key_t;
