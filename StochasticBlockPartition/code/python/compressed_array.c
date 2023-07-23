@@ -27,10 +27,11 @@ static int debug_resize_race_enabled = 0;
 #if USE_32_BITS
 typedef uint32_t hash_key_t;
 typedef int32_t hash_val_t;
-#define EMPTY_KEY (1 << 31)
+#define EMPTY_KEY (1U << 31)
 #define hash(x) ((((uint64_t) x) ^ ((uint64_t) x) << 11))
 
 #define PRI_HASH_KEY "%u"
+#define PRI_HASH_VAL "%d"
 #define HASH_IMPL_DESCRIPTION "32 bit"
 #else
 typedef uint64_t hash_key_t;
@@ -40,6 +41,7 @@ typedef int64_t hash_val_t;
 #define kh_int64_hash_func(key) (khint32_t)((key)>>33^(key)^(key)<<11)
 #define hash(x) (((x) >> 33 ^ (x) ^ (x) << 11))
 #define PRI_HASH_KEY "%lu"
+#define PRI_HASH_VAL "%ld"
 #define HASH_IMPL_DESCRIPTION "64 bit"
 #endif
 
@@ -458,7 +460,7 @@ void hash_print(struct hash *h)
   fprintf(stderr, "{ ");
   for (i=0; i<width; i++) {
     if (keys[i] != EMPTY_KEY) {
-      fprintf(stderr, "%ld:%ld ", keys[i], vals[i]);
+      fprintf(stderr, PRI_HASH_KEY ":" PRI_HASH_VAL " ", keys[i], vals[i]);
     }
   }
   fprintf(stderr, "}\n");
@@ -475,7 +477,7 @@ int hash_eq(const struct hash *x, const struct hash *y)
       hash_val_t v2 = 0;
       hash_search(y, x_keys[i], &v2);
       if (v2 != x_vals[i]) {
-	fprintf(stderr, "Mismatch at key %lu\n", x_keys[i]);
+	fprintf(stderr, "Mismatch at key " PRI_HASH_KEY "\n", x_keys[i]);
 	return 1;
       }
     }
@@ -489,7 +491,7 @@ int hash_eq(const struct hash *x, const struct hash *y)
       hash_val_t v = 0;
       hash_search(x, y_keys[i], &v);
       if (v != y_vals[i]) {
-	fprintf(stderr, "Mismatch at key %lu\n", y_keys[i]);
+	fprintf(stderr, "Mismatch at key " PRI_HASH_KEY "\n", y_keys[i]);
 	return 1;
       }
     }
