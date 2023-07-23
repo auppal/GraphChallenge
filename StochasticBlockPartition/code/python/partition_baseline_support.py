@@ -660,27 +660,21 @@ def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, cur_M_s_
     count = np.bincount(idx, weights=np.append(count_out, count_in)).astype(int)  # count edges to neighboring blocks
     B = float(B)
 
-    try:
+    if not is_compressed(cur_M_s_col):
         M_t_s = cur_M_s_col[t]
         M_s_t = cur_M_s_row[t]
-    except TypeError:
-        if isinstance(cur_M_s_col, tuple):
-            D = defaultdict(int, zip(cur_M_s_col[0], cur_M_s_col[1]))
-            M_t_s = np.array([D[i] for i in t])
-            D = defaultdict(int, zip(cur_M_s_row[0], cur_M_s_row[1]))
-            M_s_t = np.array([D[i] for i in t])
-        else:
-            M_t_s = compressed_array.getitem_dict(cur_M_s_col, t)
-            M_s_t = compressed_array.getitem_dict(cur_M_s_row, t)
+    else:
+        M_t_s = compressed_array.getitem_dict(cur_M_s_col, t)
+        M_s_t = compressed_array.getitem_dict(cur_M_s_row, t)
 
     p_forward = np.sum(count * (M_t_s + M_s_t + 1) / (d[t] + B))
     p_backward = 0.0
 
-    try:
+    if not is_compressed(M_r_row):
         c = count / (d_new[t] + B)
         p_backward += np.sum(c * M_r_row[t])
         p_backward += np.sum(c * (M_r_col[t] + 1))
-    except TypeError:
+    else:
         M_r_row_t = compressed_array.getitem_dict(M_r_row, t)
         M_r_col_t = compressed_array.getitem_dict(M_r_col, t)
 
