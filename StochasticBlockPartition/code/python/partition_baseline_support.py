@@ -411,7 +411,7 @@ def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, 
 
     if not agg_move:
         # For unit weight graphs all probabilities are 1.
-        rand_neighbor = np.random.choice(neighbors)
+        rand_neighbor = neighbors[np.random.randint(len(neighbors))]
     else:
         rand_neighbor = multinomial_choice_fast(neighbors, p=neighbor_weights)
 
