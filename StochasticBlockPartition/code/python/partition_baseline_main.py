@@ -122,6 +122,7 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
     best_overall_merge = [-1 for i in blocks]
     best_overall_delta_entropy = [np.Inf for i in blocks]
     n_proposals_evaluated = 0
+    n_proposal = 10
 
     for current_block_idx,r in enumerate(blocks):
         if r is None:
@@ -134,14 +135,11 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
         block_neighbors = np.concatenate((in_idx, out_idx))
         block_neighbor_weights = np.concatenate((in_weight, out_weight))
         
-        num_out_block_edges = sum(out_weight)
-        num_in_block_edges = sum(in_weight)
+        num_out_block_edges = out_weight.sum()
+        num_in_block_edges = in_weight.sum()
         num_block_edges = num_out_block_edges + num_in_block_edges
 
-        n_proposal = 10
         delta_entropy = np.empty(n_proposal)
-
-
         proposals = np.empty(n_proposal, dtype=int)
 
         # propose new blocks to merge with
