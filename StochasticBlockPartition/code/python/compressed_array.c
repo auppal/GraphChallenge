@@ -1907,7 +1907,7 @@ bad:
 
 
 /*
- * Args: partition, neighbors, weights
+ * Args: partition, neighbor nodes, weights
  */
 static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
 {
@@ -1921,9 +1921,9 @@ static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
   const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_weights = PyArray_FROM_OTF(obj_weights, NPY_LONG, NPY_IN_ARRAY);
 
-  const uint64_t *partition = (const uint64_t *) PyArray_DATA(ar_partition);
-  const uint64_t *neighbors = (const uint64_t *) PyArray_DATA(ar_neighbors);
-  const uint64_t *weights = (const uint64_t *) PyArray_DATA(ar_weights);
+  const long *partition = (const long *) PyArray_DATA(ar_partition);
+  const long *neighbors = (const long *) PyArray_DATA(ar_neighbors);
+  const long *weights = (const long *) PyArray_DATA(ar_weights);
 
   long i;
   long n = (long) PyArray_DIM(ar_neighbors, 0);
@@ -1933,17 +1933,18 @@ static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
    */
   size_t initial_width = (2 * n > 16) ? 2 * n : 16;
   struct hash *h = hash_create(initial_width, 0);
-  size_t resize_cnt = 0;
+  // size_t resize_cnt = 0;
 
   for (i=0; i<n; i++) {
     uint64_t k = partition[neighbors[i]];
     uint64_t w = weights[i];
     if (hash_accum_single(h, k, w) == 1) {
-	    fprintf(stderr, "PID: %d blocks_and_counts of %ld neighbors needed resizing (cnt %ld) from width %u to width %u\n", getpid(), n, resize_cnt, h->width, 2 * h->width);
-	    h = hash_resize(h);
-	    if (!h) {
-	      return NULL;
-	    }
+      // fprintf(stderr, "PID: %d blocks_and_counts of %ld neighbors needed resizing (cnt %ld) from width %u to width %u\n", getpid(), n, resize_cnt, h->width, 2 * h->width);
+      h = hash_resize(h);
+      if (!h) {
+	PyErr_SetString(PyExc_RuntimeError, "hash_resize failed");
+	return NULL;
+      }
     }
   }
 
@@ -1951,8 +1952,8 @@ static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
   Py_DECREF(ar_neighbors);
   Py_DECREF(ar_weights);
 
-  uint64_t *blocks = malloc(n * sizeof(uint64_t));
-  int64_t *counts = malloc(n * sizeof(int64_t));
+  unsigned long *blocks = malloc(n * sizeof(long));
+  long *counts = malloc(n * sizeof(long));
 
   long cnt;
   cnt = hash_keys(h, blocks, n);
@@ -1968,6 +1969,93 @@ static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
   PyArray_ENABLEFLAGS((PyArrayObject*) counts_obj, NPY_ARRAY_OWNDATA);
 
   PyObject *ret = Py_BuildValue("NN", blocks_obj, counts_obj);
+  return ret;
+}
+
+/* Given two sets of key-alue pairs, combine them and return the
+ * resulting key-value pairs.
+ */
+static PyObject* combine_key_value_pairs(PyObject *self, PyObject *args)
+{
+  PyObject *obj_k0, *obj_v0, *obj_k1, *obj_v1;
+
+  if (!PyArg_ParseTuple(args, "OOOO", &obj_k0, &obj_v0, &obj_k1, &obj_v1)) {
+    return NULL;
+  }
+
+  const PyObject *ar_k0 = PyArray_FROM_OTF(obj_k0, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_v0 = PyArray_FROM_OTF(obj_v0, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_k1 = PyArray_FROM_OTF(obj_k1, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_v1 = PyArray_FROM_OTF(obj_v1, NPY_LONG, NPY_IN_ARRAY);  
+
+  const long *k0 = (const long *) PyArray_DATA(ar_k0);
+  const long *v0 = (const long *) PyArray_DATA(ar_v0);
+  const long *k1 = (const long *) PyArray_DATA(ar_k1);
+  const long *v1 = (const long *) PyArray_DATA(ar_v1);  
+
+  long i;
+  long n0 = (long) PyArray_DIM(ar_k0, 0);
+  long n1 = (long) PyArray_DIM(ar_k1, 0);
+
+  if (n0 != (long) PyArray_DIM(ar_v0, 0)) {
+    PyErr_SetString(PyExc_RuntimeError, "Key-Value pair 0 dimension mismatch");
+    return NULL;
+  }
+
+  if (n1 != (long) PyArray_DIM(ar_v1, 0)) {
+    PyErr_SetString(PyExc_RuntimeError, "Key-Value pair 1 dimension mismatch");
+    return NULL;
+  }
+
+  
+  /* Reserve at least 2x elements, to avoid resizes due to 0.70 max
+   * load factor. But reserve at least 16.
+   */
+  size_t initial_width = (2 * (n0 + n1) > 16) ? 2 * (n0 + n1) : 16;
+
+  struct hash *h = hash_create(initial_width, 0);
+
+  for (i=0; i<n0; i++) {
+    if (hash_accum_single(h, k0[i], v0[i]) == 1) {
+      h = hash_resize(h);
+      if (!h) {
+	PyErr_SetString(PyExc_RuntimeError, "hash_resize failed");	
+	return NULL;
+      }
+    }
+  }
+
+  for (i=0; i<n1; i++) {
+    if (hash_accum_single(h, k1[i], v1[i]) == 1) {
+      h = hash_resize(h);
+      if (!h) {
+	PyErr_SetString(PyExc_RuntimeError, "hash_resize failed");
+	return NULL;
+      }
+    }
+  }
+
+  Py_DECREF(ar_k0);
+  Py_DECREF(ar_v0);
+  Py_DECREF(ar_k1);
+  Py_DECREF(ar_v1);  
+
+  long cnt = h->cnt;
+  unsigned long *k2 = malloc(cnt * sizeof(long));
+  long *v2 = malloc(cnt * sizeof(long));
+
+  hash_keys(h, k2, cnt);
+  hash_vals(h, v2, cnt);
+  hash_destroy(h);
+
+  npy_intp dims[] = {cnt};
+  PyObject *keys_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, k2);
+  PyObject *vals_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, v2);
+
+  PyArray_ENABLEFLAGS((PyArrayObject*) keys_obj, NPY_ARRAY_OWNDATA);
+  PyArray_ENABLEFLAGS((PyArrayObject*) vals_obj, NPY_ARRAY_OWNDATA);
+
+  PyObject *ret = Py_BuildValue("NN", keys_obj, vals_obj);
   return ret;
 }
 
@@ -2250,6 +2338,7 @@ static PyMethodDef compressed_array_methods[] =
    { "dict_entropy_row_excl", dict_entropy_row_excl, METH_VARARGS, "Compute part of delta entropy for a row entry." },
    { "inplace_compute_new_rows_cols_interblock_edge_count_matrix", inplace_compute_new_rows_cols_interblock_edge_count_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
    { "blocks_and_counts", blocks_and_counts, METH_VARARGS, "" },
+   { "combine_key_value_pairs", combine_key_value_pairs, METH_VARARGS, "" },
    { "inplace_atomic_new_rows_cols_M", inplace_atomic_new_rows_cols_M, METH_VARARGS, "" },
    { "rebuild_M", rebuild_M, METH_VARARGS, "" },
    { "rebuild_M_compressed", rebuild_M_compressed, METH_VARARGS, "" },

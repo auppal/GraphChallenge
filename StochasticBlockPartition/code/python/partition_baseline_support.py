@@ -653,8 +653,7 @@ def compute_Hastings_correction(b_out, count_out, b_in, count_in, r, s, cur_M_s_
 
         summed over all the neighboring blocks t"""
 
-    t, idx = np.unique(np.append(b_out, b_in), return_inverse=True)  # find all the neighboring blocks
-    count = np.bincount(idx, weights=np.append(count_out, count_in)).astype(int)  # count edges to neighboring blocks
+    t,count = compressed_array.combine_key_value_pairs(b_out, count_out, b_in, count_in)
     B = float(B)
 
     if not is_compressed(cur_M_s_col):
