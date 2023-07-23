@@ -21,6 +21,7 @@
 
 #define DEBUG_PRINTF (0)
 #define CHECK_DOUBLE_FREE (0)
+#define POISON_ON_FREE (0)
 
 static void *shared_memory_mmap(size_t size_bytes);
 static void *shared_memory_get(size_t size_bytes);
@@ -275,8 +276,8 @@ static void *shared_memory_get(size_t size_bytes)
 		new_offset = offset + size_bytes;
 
 		if (new_offset >= huge->huge_size) {
-			fprintf(stderr, "shared_memory_get: Out of storage\n");
-			errno = ENOBUFS;
+			fprintf(stderr, "shared_memory_get: Out of memory\n");
+			errno = ENOMEM;
 			return NULL;
 		}
 	}
@@ -402,7 +403,7 @@ void *shared_malloc(size_t nbytes)
 		
 		for (i=0; i<fill_items; i++) {
 			void *x = (void * ) ((uintptr_t) base + (i * np2));
-			fprintf(stderr, "circ enq %ld %p\n", i, x);
+			// fprintf(stderr, "circ enq %ld %p\n", i, x);
 			if (circ_enq(&next->q, &x) < 0) {
 				fprintf(stderr, "circ enq failed!\n");
 				return NULL;
@@ -451,6 +452,10 @@ void shared_free(void *addr, size_t nbytes)
 	    abort();
 	  }
 	}
+#endif
+
+#if POISON_ON_FREE
+	memset(addr, 0xa5, nbytes);
 #endif
 	circ_enq(&pool->q, &addr);
 }
