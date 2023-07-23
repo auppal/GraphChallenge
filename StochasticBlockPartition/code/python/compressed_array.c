@@ -1710,25 +1710,26 @@ static PyObject* sanity_check(PyObject *self, PyObject *args)
 
 static inline double entropy_row(struct hash *h, const int64_t *restrict deg, long N, int64_t c)
 {
-  double sum = 0, log_c;
+  double sum = 0.0;
+  float log_c;
   size_t i;
 
   if (c == 0) {
     return 0.0;
   }
 
-  log_c = log(c);
+  log_c = logf(c);
 
   /* Iterate over keys and values */
-  hash_key_t *keys = hash_get_keys(h);
-  hash_val_t *vals = hash_get_vals(h);
+  const hash_key_t *restrict keys = hash_get_keys(h);
+  const hash_val_t *restrict vals = hash_get_vals(h);
 
   for (i=0; i<h->width; i++) {
     if (keys[i] != EMPTY_KEY) {
       int64_t xi = vals[i];
       int64_t yi = deg[keys[i]];
       if (xi > 0 && yi > 0) {
-	sum += xi * (log(xi) - log(yi) - log_c);
+	sum += xi * (logf((float) xi / yi) - log_c);
       }
     }
   }
@@ -1768,17 +1769,18 @@ static PyObject* dict_entropy_row(PyObject *self, PyObject *args)
 
 static inline double entropy_row_excl(struct hash *h, const int64_t *restrict deg, long N, int64_t c, uint64_t r, uint64_t s)
 {
-  double sum = 0, log_c;
+  double sum = 0.0;
+  float log_c;
   size_t i;
 
   if (c == 0) {
     return 0.0;
   }
 
-  log_c = log(c);
+  log_c = logf(c);
 
-  hash_key_t *keys = hash_get_keys(h);
-  hash_val_t *vals = hash_get_vals(h);
+  const hash_key_t *restrict keys = hash_get_keys(h);
+  const hash_val_t *restrict vals = hash_get_vals(h);
 
   /* Iterate over keys and values */
   for (i=0; i<h->width; i++) {
@@ -1786,7 +1788,7 @@ static inline double entropy_row_excl(struct hash *h, const int64_t *restrict de
       hash_val_t xi = vals[i];
       int64_t yi = deg[keys[i]];
       if (xi > 0 && yi > 0) {
-	sum += xi * (log(xi) - log(yi) - log_c);
+	sum += xi * (logf((float) xi / yi) - log_c);
       }
     }
   }
