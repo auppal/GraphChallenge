@@ -374,7 +374,7 @@ def multinomial_choice_fast(a, p):
     s = np.searchsorted(c, u, side='left')
     return a[s]
 
-def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, B, agg_move, M_lock=None):
+def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, B, agg_move):
     """Propose a new block assignment for the current node or block
 
         Parameters
@@ -426,14 +426,11 @@ def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, 
         return s1
     else:
         # proposals by random draw from neighbors of block partition[rand_neighbor]
-        if M_lock:
-            M_lock.acquire()
         Mu_row_i, Mu_row = take_nonzero(M, u, 0, sort = False)
         Mu_col_i, Mu_col = take_nonzero(M, u, 1, sort = False)
         multinomial_choices = np.concatenate((Mu_row_i, Mu_col_i))
         multinomial_probs = np.concatenate((Mu_row, Mu_col)).astype(float)
-        if M_lock:
-            M_lock.release()
+
         if agg_move: # force proposal to be different from current block
             multinomial_probs[ (multinomial_choices == r) ] = 0.0
             sum_multinomial_probs = multinomial_probs.sum()
