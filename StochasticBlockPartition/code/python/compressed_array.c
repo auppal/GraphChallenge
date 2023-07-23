@@ -27,7 +27,7 @@ static int debug_resize_race_enabled = 0;
 #if USE_32_BITS
 typedef uint32_t hash_key_t;
 typedef int32_t hash_val_t;
-#define EMPTY_FLAG (1 << 31)
+#define EMPTY_KEY (1 << 31)
 #define hash(x) ((((uint64_t) x) ^ ((uint64_t) x) << 11))
 
 #define PRI_HASH_KEY "%u"
@@ -35,7 +35,7 @@ typedef int32_t hash_val_t;
 #else
 typedef uint64_t hash_key_t;
 typedef int64_t hash_val_t;
-#define EMPTY_FLAG (1UL << 63)
+#define EMPTY_KEY (1UL << 63)
 /* From khash */
 #define kh_int64_hash_func(key) (khint32_t)((key)>>33^(key)^(key)<<11)
 #define hash(x) (((x) >> 33 ^ (x) ^ (x) << 11))
@@ -88,7 +88,7 @@ int hash_sanity_count(const char *msg, const struct hash *h)
   const hash_key_t *keys = hash_get_keys((struct hash *) h);
 
   for (i=0; i<h->width; i++) {
-    if ((keys[i] & EMPTY_FLAG) == 0) {
+    if (keys[i] != EMPTY_KEY) {
       sanity_cnt++;
     }
   }
@@ -131,7 +131,7 @@ struct hash *hash_create(size_t initial_size, int shared_mem)
   hash_key_t *keys = hash_get_keys(h);
   hash_val_t *vals = hash_get_vals(h);
   for (i=0; i<h->width; i++) {
-    keys[i] = EMPTY_FLAG;
+    keys[i] = EMPTY_KEY;
     vals[i] = 0;
   }
 
@@ -247,7 +247,7 @@ static inline struct hash *hash_resize(struct hash *h)
     hash_key_t *keys = hash_get_keys((struct hash *) h);
     hash_val_t *vals = hash_get_vals((struct hash *) h);
     for (i=0; i<h->width; i++) {
-      if ((keys[i] & EMPTY_FLAG) == 0) {
+      if (keys[i] != EMPTY_KEY) {
 	//fprintf(stderr, " %ld ", keys[i]);
 	hash_set_single(h2, keys[i], vals[i]);
 	ins++;
@@ -294,8 +294,8 @@ int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v)
       vals[idx] = v;
       break;
     }
-    else if (keys[idx] & EMPTY_FLAG) {
-      keys[idx] = k & ~EMPTY_FLAG;
+    else if (keys[idx] == EMPTY_KEY) {
+      keys[idx] = k;
       vals[idx] = v;
       h->cnt++;
       break;
@@ -324,15 +324,15 @@ int hash_accum_single(struct hash *h, hash_key_t k, hash_val_t c)
       vals[idx] += c;
       break;
     }
-    else if (keys[idx] & EMPTY_FLAG) {
-      keys[idx] = k & ~EMPTY_FLAG;
+    else if (keys[idx] == EMPTY_KEY) {
+      keys[idx] = k;
       vals[idx] = c;
       h->cnt++;
       break;
     }
 #else
     /* Try experimental lock-free approach */
-    hash_key_t empty = EMPTY_FLAG;
+    hash_key_t empty = EMPTY_KEY;
     _Bool rc = atomic_compare_exchange_strong((_Atomic(hash_key_t) *) &keys[idx], &empty, k);
 
     if (rc) {
@@ -371,7 +371,7 @@ static inline int hash_search(const struct hash *h, hash_key_t k, hash_val_t *v)
       *v = vals[idx];
       return 0;
     }
-    else if (keys[idx] & EMPTY_FLAG) {
+    else if (keys[idx] == EMPTY_KEY) {
       *v = 0; /* Default value */
       return -1;
     }
@@ -402,7 +402,7 @@ static inline hash_val_t hash_sum(const struct hash *h)
   const hash_val_t *vals = hash_get_vals((struct hash *) h);
 
   for (i=0; i<h->width; i++) {
-    if ((keys[i] & EMPTY_FLAG) == 0) {
+    if (keys[i] != EMPTY_KEY) {
       s += vals[i];
     }
   }
@@ -417,7 +417,7 @@ static inline size_t hash_keys(const struct hash *h, unsigned long *keys, size_t
   size_t i, width = h->width, cnt = 0;
 
   for (i=0; i<width; i++) {
-    if ((h_keys[i] & EMPTY_FLAG) == 0) {
+    if (h_keys[i] != EMPTY_KEY) {
       if (cnt == max_cnt) {
 	break;
       }
@@ -436,7 +436,7 @@ size_t hash_vals(const struct hash *h, long *vals, size_t max_cnt)
   hash_val_t *h_vals = hash_get_vals((struct hash *) h);
 
   for (i=0; i<width; i++) {
-    if ((h_keys[i] & EMPTY_FLAG) == 0) {
+    if (h_keys[i] != EMPTY_KEY) {
       if (cnt == max_cnt) {
 	break;
       }
@@ -457,7 +457,7 @@ void hash_print(struct hash *h)
   fprintf(stderr, "Print dict %p with %u items\n", h, h->cnt);
   fprintf(stderr, "{ ");
   for (i=0; i<width; i++) {
-    if ((keys[i] & EMPTY_FLAG) == 0) {
+    if (keys[i] != EMPTY_KEY) {
       fprintf(stderr, "%ld:%ld ", keys[i], vals[i]);
     }
   }
@@ -471,7 +471,7 @@ int hash_eq(const struct hash *x, const struct hash *y)
   hash_val_t *x_vals = hash_get_vals((struct hash *) x);
 
   for (i=0; i<x->width; i++) {
-    if ((x_keys[i] & EMPTY_FLAG) == 0) {
+    if (x_keys[i] != EMPTY_KEY) {
       hash_val_t v2 = 0;
       hash_search(y, x_keys[i], &v2);
       if (v2 != x_vals[i]) {
@@ -485,7 +485,7 @@ int hash_eq(const struct hash *x, const struct hash *y)
   hash_val_t *y_vals = hash_get_vals((struct hash *) y);
 
   for (i=0; i<y->width; i++) {
-    if ((y_keys[i] & EMPTY_FLAG) == 0) {
+    if (y_keys[i] != EMPTY_KEY) {
       hash_val_t v = 0;
       hash_search(x, y_keys[i], &v);
       if (v != y_vals[i]) {
@@ -507,7 +507,7 @@ static inline void hash_accum_constant(const struct hash *h, size_t C)
   hash_val_t *vals = hash_get_vals((struct hash *) h);
 
   for (i=0; i<width; i++) {
-    if ((keys[i] & EMPTY_FLAG) == 0) {
+    if (keys[i] != EMPTY_KEY) {
       vals[i] += C;
     }
   }
@@ -541,7 +541,7 @@ static inline struct hash *hash_accum_multi(struct hash *h, const unsigned long 
 	h_vals[idx] += vals[j];
 	break;
       }
-      else if (h_keys[idx] & EMPTY_FLAG) {
+      else if (h_keys[idx] == EMPTY_KEY) {
 	/* Not found assume the previous default value of zero and set a new entry. */
 	h_keys[idx] = keys[j];
 	h_vals[idx] = vals[j];
@@ -853,7 +853,7 @@ int hash_accum_resize(struct hash_outer *ho, hash_key_t k, hash_val_t C)
       for (ii=0; ii<oldh->width; ii++) {
 	hash_key_t k = keys[ii];
 	hash_val_t v = vals[ii];
-	if (k != EMPTY_FLAG) {
+	if (k != EMPTY_KEY) {
 	  if (1 == hash_accum_single(newh, k, v)) {
 	    fprintf(stderr, "Pid %d Error: Needed ANOTHER resize while resizing!\n", getpid());
 	    return -1;
@@ -1395,7 +1395,7 @@ static PyObject* setaxis_from_dict(PyObject *self, PyObject *args)
   hash_val_t *vals = hash_get_vals(h);  
 
   for (j=0; j<h->width; j++) {
-    if ((keys[j] & EMPTY_FLAG) == 0) {
+    if (keys[j] != EMPTY_KEY) {
       if (axis == 0) {
 	compressed_set_single(x, i, keys[j], vals[j]);
       }
@@ -1684,7 +1684,7 @@ static PyObject* sanity_check(PyObject *self, PyObject *args)
   for (i=0; i<x->n_row; i++) {
     for (j=0; j<x->rows[i].h->width; j++) {
       hash_key_t *keys = hash_get_keys(x->rows[i].h);
-      if (keys[j] != EMPTY_FLAG) {
+      if (keys[j] != EMPTY_KEY) {
 	if (keys[j] > 999999) {
 	  char *msg;
 	  if (asprintf(&msg, "Invalid key value "PRI_HASH_KEY" found in hash %p", keys[j], x->rows[i].h) > 0) {
@@ -1722,7 +1722,7 @@ static inline double entropy_row(struct hash *h, const int64_t *restrict deg, lo
   hash_val_t *vals = hash_get_vals(h);
 
   for (i=0; i<h->width; i++) {
-    if ((keys[i] & EMPTY_FLAG) == 0) {
+    if (keys[i] != EMPTY_KEY) {
       int64_t xi = vals[i];
       int64_t yi = deg[keys[i]];
       if (xi > 0 && yi > 0) {
@@ -1780,7 +1780,7 @@ static inline double entropy_row_excl(struct hash *h, const int64_t *restrict de
 
   /* Iterate over keys and values */
   for (i=0; i<h->width; i++) {
-    if ((keys[i] & EMPTY_FLAG) == 0 && keys[i] != r && keys[i] != s) {
+    if (keys[i] != EMPTY_KEY && keys[i] != r && keys[i] != s) {
       hash_val_t xi = vals[i];
       int64_t yi = deg[keys[i]];
       if (xi > 0 && yi > 0) {
