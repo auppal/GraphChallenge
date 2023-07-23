@@ -457,19 +457,19 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
             new_M_r_row = np.zeros(B, dtype=M.dtype)
             new_M_r_col = np.zeros(B, dtype=M.dtype)            
 
-        cur_M_r_row = M[r, :].copy()
-        cur_M_r_col = M[:, r].copy()
-        cur_M_s_row = M[s, :].copy()
-        cur_M_s_col = M[:, s].copy()
+        cur_M_r_row = M[r, :]
+        cur_M_r_col = M[:, r]
+        cur_M_s_row = M[s, :]
+        cur_M_s_col = M[:, s]
     else:
         if agg_move:
             new_M_r_row = compressed_array.empty_dict(M.width)
             new_M_r_col = compressed_array.empty_dict(M.width)            
 
-        cur_M_r_row = compressed_array.take_dict(M.x, r, 0)
-        cur_M_r_col = compressed_array.take_dict(M.x, r, 1)
-        cur_M_s_row = compressed_array.take_dict(M.x, s, 0)
-        cur_M_s_col = compressed_array.take_dict(M.x, s, 1)
+        cur_M_r_row = compressed_array.take_dict_ref(M.x, r, 0)
+        cur_M_r_col = compressed_array.take_dict_ref(M.x, r, 1)
+        cur_M_s_row = compressed_array.take_dict_ref(M.x, s, 0)
+        cur_M_s_col = compressed_array.take_dict_ref(M.x, s, 1)
     
     if not agg_move:  # the r row and column are simply empty after this merge move
         where_b_in_r = np.where(b_in == r)
