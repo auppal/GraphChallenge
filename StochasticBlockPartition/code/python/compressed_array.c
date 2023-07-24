@@ -1977,7 +1977,48 @@ static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
 /* Given two sets of key-alue pairs, combine them and return the
  * resulting key-value pairs.
  */
-static PyObject* combine_key_value_pairs(PyObject *self, PyObject *args)
+static inline int combine_key_value_pairs(const long *k0, const long *v0, long n0, const long *k1, const long *v1, long n1, long **pk2, long **pv2, long *pn2)
+{
+  /* Reserve at least 2x elements, to avoid resizes due to 0.70 max
+   * load factor. But reserve at least 16.
+   */
+  long i;
+  size_t initial_width = (2 * (n0 + n1) > 16) ? 2 * (n0 + n1) : 16;
+
+  struct hash *h = hash_create(initial_width, 0);
+
+  for (i=0; i<n0; i++) {
+    if (hash_accum_single(h, k0[i], v0[i]) == 1) {
+      h = hash_resize(h);
+      return -1;
+    }
+  }
+
+  for (i=0; i<n1; i++) {
+    if (hash_accum_single(h, k1[i], v1[i]) == 1) {
+      h = hash_resize(h);
+      if (!h) {
+	return -1;
+      }
+    }
+  }
+
+  long cnt = h->cnt;
+  long *k2 = malloc(cnt * sizeof(long));
+  long *v2 = malloc(cnt * sizeof(long));
+
+  hash_keys(h, (unsigned long *) k2, cnt);
+  hash_vals(h, v2, cnt);
+  hash_destroy(h);
+
+  *pk2 = k2;
+  *pv2 = v2;
+  *pn2 = cnt;
+
+  return 0;
+}
+
+static PyObject* combine_key_value_pairs_py(PyObject *self, PyObject *args)
 {
   PyObject *obj_k0, *obj_v0, *obj_k1, *obj_v1;
 
@@ -1995,7 +2036,6 @@ static PyObject* combine_key_value_pairs(PyObject *self, PyObject *args)
   const long *k1 = (const long *) PyArray_DATA(ar_k1);
   const long *v1 = (const long *) PyArray_DATA(ar_v1);  
 
-  long i;
   long n0 = (long) PyArray_DIM(ar_k0, 0);
   long n1 = (long) PyArray_DIM(ar_k1, 0);
 
@@ -2009,48 +2049,19 @@ static PyObject* combine_key_value_pairs(PyObject *self, PyObject *args)
     return NULL;
   }
 
+  long *k2, *v2, n2;
   
-  /* Reserve at least 2x elements, to avoid resizes due to 0.70 max
-   * load factor. But reserve at least 16.
-   */
-  size_t initial_width = (2 * (n0 + n1) > 16) ? 2 * (n0 + n1) : 16;
-
-  struct hash *h = hash_create(initial_width, 0);
-
-  for (i=0; i<n0; i++) {
-    if (hash_accum_single(h, k0[i], v0[i]) == 1) {
-      h = hash_resize(h);
-      if (!h) {
-	PyErr_SetString(PyExc_RuntimeError, "hash_resize failed");	
-	return NULL;
-      }
-    }
-  }
-
-  for (i=0; i<n1; i++) {
-    if (hash_accum_single(h, k1[i], v1[i]) == 1) {
-      h = hash_resize(h);
-      if (!h) {
-	PyErr_SetString(PyExc_RuntimeError, "hash_resize failed");
-	return NULL;
-      }
-    }
+  if (combine_key_value_pairs(k0, v0, n0, k1, v1, n1, &k2, &v2, &n2) < 0) {
+    PyErr_SetString(PyExc_RuntimeError, "combine_key_value_pairs_inner failed");
+    return NULL;
   }
 
   Py_DECREF(ar_k0);
   Py_DECREF(ar_v0);
   Py_DECREF(ar_k1);
   Py_DECREF(ar_v1);  
-
-  long cnt = h->cnt;
-  unsigned long *k2 = malloc(cnt * sizeof(long));
-  long *v2 = malloc(cnt * sizeof(long));
-
-  hash_keys(h, k2, cnt);
-  hash_vals(h, v2, cnt);
-  hash_destroy(h);
-
-  npy_intp dims[] = {cnt};
+  
+  npy_intp dims[] = {n2};
   PyObject *keys_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, k2);
   PyObject *vals_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, v2);
 
@@ -2060,6 +2071,155 @@ static PyObject* combine_key_value_pairs(PyObject *self, PyObject *args)
   PyObject *ret = Py_BuildValue("NN", keys_obj, vals_obj);
   return ret;
 }
+
+
+static inline int hastings_correction(const long *b_out, const long *count_out, long n_out,
+				       const long *b_in, const long *count_in, long n_in,
+				       const struct hash *cur_M_s_row,
+				       const struct hash *cur_M_s_col,
+				       const struct hash *new_M_r_row,
+				       const struct hash *new_M_r_col,
+				       long B,
+				       const long *d,
+				       const long *d_new,
+				       double *p_prob_f,
+				       double *p_prob_b
+				      )
+{
+  long *t, *count, n_t;
+  combine_key_value_pairs(b_out, count_out, n_out,
+			  b_in, count_in, n_in,
+			  &t, &count, &n_t);
+
+
+
+  long *M_t_s = malloc(n_t * sizeof(M_t_s[0]));
+  long *M_s_t = malloc(n_t * sizeof(M_s_t[0]));  
+
+  /* M_t_s = cur_M_s_col[t] */
+  hash_search_multi(cur_M_s_col, (const unsigned long *) t, M_t_s, n_t);
+  /* M_s_t = cur_M_s_row[t] */
+  hash_search_multi(cur_M_s_row, (const unsigned long *) t, M_s_t, n_t);
+
+  double prob_fwd = 0.0, prob_back = 0.0;
+  long i;
+
+  for (i=0; i<n_t; i++) {
+    prob_fwd += (double) count[i] * (M_t_s[i] + M_s_t[i] + 1) / (d[t[i]] + B);
+  }
+
+  long *M_r_row_t = malloc(n_t * sizeof(M_r_row_t[0]));
+  long *M_r_col_t = malloc(n_t * sizeof(M_r_col_t[0]));
+
+  hash_search_multi(new_M_r_row, (const unsigned long *) t, M_r_row_t, n_t);
+  hash_search_multi(new_M_r_col, (const unsigned long *) t, M_r_col_t, n_t);
+  
+  for (i=0; i<n_t; i++) {
+    double c = (double) count[i] / (d_new[t[i]] + B);
+    prob_back += c * M_r_row_t[i];
+    prob_back += c * (M_r_col_t[i] + 1);
+  }
+
+  free(M_t_s);
+  free(M_s_t);
+  free(M_r_row_t);
+  free(M_r_col_t);
+
+  *p_prob_b = prob_back;
+  *p_prob_f = prob_fwd;
+  
+  return 0;
+}
+
+static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
+{
+  PyObject *obj_b_out, *obj_count_out, *obj_b_in, *obj_count_in, *obj_cur_M_s_row, *obj_cur_M_s_col, *obj_M_r_row, *obj_M_r_col, *obj_d, *obj_d_new;
+  
+  long r, s, B;
+
+  if (!PyArg_ParseTuple(args, "OOOOllOOOOlOO",
+			&obj_b_out, &obj_count_out, &obj_b_in, &obj_count_in,
+			&r, &s,
+			&obj_cur_M_s_row, &obj_cur_M_s_col, &obj_M_r_row, &obj_M_r_col,
+			&B, &obj_d, &obj_d_new))
+    {
+      return NULL;
+    }
+
+  const PyObject *ar_b_out = PyArray_FROM_OTF(obj_b_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_count_out = PyArray_FROM_OTF(obj_count_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_b_in = PyArray_FROM_OTF(obj_b_in, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_count_in = PyArray_FROM_OTF(obj_count_in, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d = PyArray_FROM_OTF(obj_d, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d_new = PyArray_FROM_OTF(obj_d_new, NPY_LONG, NPY_IN_ARRAY);  
+
+  struct hash *cur_M_s_row = *((struct hash **) PyCapsule_GetPointer(obj_cur_M_s_row, "compressed_array_dict"));
+  struct hash *cur_M_s_col = *((struct hash **) PyCapsule_GetPointer(obj_cur_M_s_col, "compressed_array_dict"));
+  struct hash *M_r_row = *((struct hash **) PyCapsule_GetPointer(obj_M_r_row, "compressed_array_dict"));
+  struct hash *M_r_col = *((struct hash **) PyCapsule_GetPointer(obj_M_r_col, "compressed_array_dict"));
+
+  long n_out = (long) PyArray_DIM(ar_b_out, 0);
+  long n_in = (long) PyArray_DIM(ar_b_in, 0);
+
+  if (n_out != (long) PyArray_DIM(ar_count_out, 0)) {
+    PyErr_SetString(PyExc_RuntimeError, "Key-Value pair b_out dimension mismatch");
+    return NULL;
+  }
+
+  if (n_in != (long) PyArray_DIM(ar_count_in, 0)) {
+    PyErr_SetString(PyExc_RuntimeError, "Key-Value pair b_in dimension mismatch");
+    return NULL;
+  }
+
+  if (B != (long) PyArray_DIM(ar_d, 0)) {
+    PyErr_SetString(PyExc_RuntimeError, "Array d dimension mismatch");
+    return NULL;
+  }
+
+  if (B != (long) PyArray_DIM(ar_d_new, 0)) {
+    PyErr_SetString(PyExc_RuntimeError, "Array d dimension mismatch");
+    return NULL;
+  }
+
+  const long *b_out = (const long *) PyArray_DATA(ar_b_out);
+  const long *count_out = (const long *) PyArray_DATA(ar_count_out);
+  const long *b_in = (const long *) PyArray_DATA(ar_b_in);
+  const long *count_in = (const long *) PyArray_DATA(ar_count_in);
+  const long *d = (const long *) PyArray_DATA(ar_d);
+  const long *d_new = (const long *) PyArray_DATA(ar_d_new);
+
+  double prob_fwd, prob_back, prob;
+
+  int rc = hastings_correction(
+    b_out, count_out, n_out,
+    b_in, count_in, n_in,
+    cur_M_s_row,
+    cur_M_s_col,
+    M_r_row,
+    M_r_col,
+    B,
+    d,
+    d_new,
+    &prob_fwd,
+    &prob_back
+  );
+
+  if (rc < 0) {
+    PyErr_SetString(PyExc_RuntimeError, "hastings_correction failed");
+    return NULL;    
+  }
+
+  prob = prob_back / prob_fwd;
+  
+  Py_DECREF(ar_b_out);
+  Py_DECREF(ar_count_out);
+  Py_DECREF(ar_b_in);
+  Py_DECREF(ar_count_in);
+
+  PyObject *ret = Py_BuildValue("d", prob);
+  return ret;
+}
+
 
 /*
  * Args: M, r, s, b_out, count_out, b_in, count_in
@@ -2340,7 +2500,8 @@ static PyMethodDef compressed_array_methods[] =
    { "dict_entropy_row_excl", dict_entropy_row_excl, METH_VARARGS, "Compute part of delta entropy for a row entry." },
    { "inplace_compute_new_rows_cols_interblock_edge_count_matrix", inplace_compute_new_rows_cols_interblock_edge_count_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
    { "blocks_and_counts", blocks_and_counts, METH_VARARGS, "" },
-   { "combine_key_value_pairs", combine_key_value_pairs, METH_VARARGS, "" },
+   { "combine_key_value_pairs", combine_key_value_pairs_py, METH_VARARGS, "" },
+   { "hastings_correction", hastings_correction_py, METH_VARARGS, "" },   
    { "inplace_atomic_new_rows_cols_M", inplace_atomic_new_rows_cols_M, METH_VARARGS, "" },
    { "rebuild_M", rebuild_M, METH_VARARGS, "" },
    { "rebuild_M_compressed", rebuild_M_compressed, METH_VARARGS, "" },
