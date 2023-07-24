@@ -463,20 +463,14 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         block_degrees_new[r] = block_degrees_out[r] + block_degrees_in[r]
 
         # SHR: read block_degrees[t] where t is union of b_out and b_in
-        if is_compressed(M):
-            hastings_fn = compressed_array.hastings_correction
-        else:
-            hastings_fn = compute_Hastings_correction
-        
-        Hastings_correction = hastings_fn(blocks_out, count_out, blocks_in, count_in,
-                                          r,
-                                          s,
-                                          cur_M_s_row,
-                                          cur_M_s_col,
-                                          new_M_r_row,
-                                          new_M_r_col,
-                                          num_blocks, block_degrees,
-                                          block_degrees_new)
+        Hastings_correction = compressed_array.hastings_correction(
+            blocks_out, count_out, blocks_in, count_in,
+            cur_M_s_row,
+            cur_M_s_col,
+            new_M_r_row,
+            new_M_r_col,
+            num_blocks, block_degrees,
+            block_degrees_new)
 
         # compute change in entropy / posterior
         delta_entropy = compute_delta_entropy(r, s,

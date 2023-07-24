@@ -2074,18 +2074,18 @@ static PyObject* combine_key_value_pairs_py(PyObject *self, PyObject *args)
 
 
 static inline int hastings_correction(const long *b_out, const long *count_out, long n_out,
-				       const long *b_in, const long *count_in, long n_in,
-				       const struct hash *cur_M_s_row,
-				       const struct hash *cur_M_s_col,
-				       const struct hash *new_M_r_row,
-				       const struct hash *new_M_r_col,
-				       long B,
-				       const long *d,
-				       const long *d_new,
-				       double *p_prob_f,
-				       double *p_prob_b
-				      )
+				      const long *b_in, const long *count_in, long n_in,
+				      const void *p_cur_M_s_row,
+				      const void *p_cur_M_s_col,
+				      const void *p_new_M_r_row,
+				      const void *p_new_M_r_col,
+				      long B,
+				      const long *d,
+				      const long *d_new,
+				      int is_hash,
+				      double *prob)
 {
+  long i;
   long *t, *count, n_t;
   combine_key_value_pairs(b_out, count_out, n_out,
 			  b_in, count_in, n_in,
@@ -2096,13 +2096,22 @@ static inline int hastings_correction(const long *b_out, const long *count_out, 
   long *M_t_s = malloc(n_t * sizeof(M_t_s[0]));
   long *M_s_t = malloc(n_t * sizeof(M_s_t[0]));  
 
-  /* M_t_s = cur_M_s_col[t] */
-  hash_search_multi(cur_M_s_col, (const unsigned long *) t, M_t_s, n_t);
-  /* M_s_t = cur_M_s_row[t] */
-  hash_search_multi(cur_M_s_row, (const unsigned long *) t, M_s_t, n_t);
+  if (is_hash) {
+    const struct hash *cur_M_s_row = (const struct hash *) p_cur_M_s_row;
+    const struct hash *cur_M_s_col = (const struct hash *) p_cur_M_s_col;
+    hash_search_multi(cur_M_s_col, (const unsigned long *) t, M_t_s, n_t);
+    hash_search_multi(cur_M_s_row, (const unsigned long *) t, M_s_t, n_t);
+  }
+  else {
+    const long *cur_M_s_row = (const long *) p_cur_M_s_row;
+    const long *cur_M_s_col = (const long *) p_cur_M_s_col;    
+    for (i=0; i<n_t; i++) {
+      M_t_s[i] = cur_M_s_col[t[i]];
+      M_s_t[i] = cur_M_s_row[t[i]];
+    }
+  }
 
   double prob_fwd = 0.0, prob_back = 0.0;
-  long i;
 
   for (i=0; i<n_t; i++) {
     prob_fwd += (double) count[i] * (M_t_s[i] + M_s_t[i] + 1) / (d[t[i]] + B);
@@ -2111,8 +2120,20 @@ static inline int hastings_correction(const long *b_out, const long *count_out, 
   long *M_r_row_t = malloc(n_t * sizeof(M_r_row_t[0]));
   long *M_r_col_t = malloc(n_t * sizeof(M_r_col_t[0]));
 
-  hash_search_multi(new_M_r_row, (const unsigned long *) t, M_r_row_t, n_t);
-  hash_search_multi(new_M_r_col, (const unsigned long *) t, M_r_col_t, n_t);
+  if (is_hash) {
+    const struct hash *new_M_r_row = (const struct hash *) p_new_M_r_row;
+    const struct hash *new_M_r_col = (const struct hash *) p_new_M_r_col;
+    hash_search_multi(new_M_r_row, (const unsigned long *) t, M_r_row_t, n_t);
+    hash_search_multi(new_M_r_col, (const unsigned long *) t, M_r_col_t, n_t);
+  }
+  else {
+    const long *new_M_r_row = (const long *) p_new_M_r_row;
+    const long *new_M_r_col = (const long *) p_new_M_r_col;
+    for (i=0; i<n_t; i++) {
+      M_r_row_t[i] = new_M_r_row[t[i]];
+      M_r_col_t[i] = new_M_r_col[t[i]];
+    }
+  }
   
   for (i=0; i<n_t; i++) {
     double c = (double) count[i] / (d_new[t[i]] + B);
@@ -2125,8 +2146,7 @@ static inline int hastings_correction(const long *b_out, const long *count_out, 
   free(M_r_row_t);
   free(M_r_col_t);
 
-  *p_prob_b = prob_back;
-  *p_prob_f = prob_fwd;
+  *prob = prob_back / prob_fwd;
   
   return 0;
 }
@@ -2135,11 +2155,10 @@ static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
 {
   PyObject *obj_b_out, *obj_count_out, *obj_b_in, *obj_count_in, *obj_cur_M_s_row, *obj_cur_M_s_col, *obj_M_r_row, *obj_M_r_col, *obj_d, *obj_d_new;
   
-  long r, s, B;
+  long B;
 
-  if (!PyArg_ParseTuple(args, "OOOOllOOOOlOO",
+  if (!PyArg_ParseTuple(args, "OOOOOOOOlOO",
 			&obj_b_out, &obj_count_out, &obj_b_in, &obj_count_in,
-			&r, &s,
 			&obj_cur_M_s_row, &obj_cur_M_s_col, &obj_M_r_row, &obj_M_r_col,
 			&B, &obj_d, &obj_d_new))
     {
@@ -2152,11 +2171,6 @@ static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
   const PyObject *ar_count_in = PyArray_FROM_OTF(obj_count_in, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_d = PyArray_FROM_OTF(obj_d, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_d_new = PyArray_FROM_OTF(obj_d_new, NPY_LONG, NPY_IN_ARRAY);  
-
-  struct hash *cur_M_s_row = *((struct hash **) PyCapsule_GetPointer(obj_cur_M_s_row, "compressed_array_dict"));
-  struct hash *cur_M_s_col = *((struct hash **) PyCapsule_GetPointer(obj_cur_M_s_col, "compressed_array_dict"));
-  struct hash *M_r_row = *((struct hash **) PyCapsule_GetPointer(obj_M_r_row, "compressed_array_dict"));
-  struct hash *M_r_col = *((struct hash **) PyCapsule_GetPointer(obj_M_r_col, "compressed_array_dict"));
 
   long n_out = (long) PyArray_DIM(ar_b_out, 0);
   long n_in = (long) PyArray_DIM(ar_b_in, 0);
@@ -2188,29 +2202,60 @@ static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
   const long *d = (const long *) PyArray_DATA(ar_d);
   const long *d_new = (const long *) PyArray_DATA(ar_d_new);
 
-  double prob_fwd, prob_back, prob;
+  int rc;
+  double prob;
 
-  int rc = hastings_correction(
-    b_out, count_out, n_out,
-    b_in, count_in, n_in,
-    cur_M_s_row,
-    cur_M_s_col,
-    M_r_row,
-    M_r_col,
-    B,
-    d,
-    d_new,
-    &prob_fwd,
-    &prob_back
-  );
+  if (PyCapsule_GetPointer(obj_cur_M_s_row, "compressed_array_dict")) {
+    struct hash *cur_M_s_row = *((struct hash **) PyCapsule_GetPointer(obj_cur_M_s_row, "compressed_array_dict"));
+    struct hash *cur_M_s_col = *((struct hash **) PyCapsule_GetPointer(obj_cur_M_s_col, "compressed_array_dict"));
+    struct hash *M_r_row = *((struct hash **) PyCapsule_GetPointer(obj_M_r_row, "compressed_array_dict"));
+    struct hash *M_r_col = *((struct hash **) PyCapsule_GetPointer(obj_M_r_col, "compressed_array_dict"));
+
+    rc = hastings_correction(
+      b_out, count_out, n_out,
+      b_in, count_in, n_in,
+      cur_M_s_row,
+      cur_M_s_col,
+      M_r_row,
+      M_r_col,
+      B,
+      d,
+      d_new,
+      1,
+      &prob);
+  }
+  else {
+    PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
+    const PyObject *ar_cur_M_s_row = PyArray_FROM_OTF(obj_cur_M_s_row, NPY_LONG, NPY_IN_ARRAY);
+    const PyObject *ar_cur_M_s_col = PyArray_FROM_OTF(obj_cur_M_s_col, NPY_LONG, NPY_IN_ARRAY);
+    const PyObject *ar_M_r_row = PyArray_FROM_OTF(obj_M_r_row, NPY_LONG, NPY_IN_ARRAY);
+    const PyObject *ar_M_r_col = PyArray_FROM_OTF(obj_M_r_col, NPY_LONG, NPY_IN_ARRAY);
+
+    const long *cur_M_s_row = (const long *) PyArray_DATA(ar_cur_M_s_row);
+    const long *cur_M_s_col = (const long *) PyArray_DATA(ar_cur_M_s_col);
+    const long *M_r_row = (const long *) PyArray_DATA(ar_M_r_row);
+    const long *M_r_col = (const long *) PyArray_DATA(ar_M_r_col);
+
+    rc = hastings_correction(
+      b_out, count_out, n_out,
+      b_in, count_in, n_in,
+      cur_M_s_row,
+      cur_M_s_col,
+      M_r_row,
+      M_r_col,
+      B,
+      d,
+      d_new,
+      0,
+      &prob);
+
+  }
 
   if (rc < 0) {
     PyErr_SetString(PyExc_RuntimeError, "hastings_correction failed");
     return NULL;    
-  }
+  }      
 
-  prob = prob_back / prob_fwd;
-  
   Py_DECREF(ar_b_out);
   Py_DECREF(ar_count_out);
   Py_DECREF(ar_b_in);
