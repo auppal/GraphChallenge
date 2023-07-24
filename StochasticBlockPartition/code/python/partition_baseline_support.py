@@ -370,7 +370,7 @@ def initialize_edge_counts(out_neighbors, B, b, args):
 def multinomial_choice_fast(a, p):
     """ Fast replacement for np.random.choice. Probabilities need not sum to 1."""
     c = np.cumsum(p)
-    u = np.random.uniform(0.0, c[-1])
+    u = random.random() * c[-1]
     s = np.searchsorted(c, u, side='left')
     return a[s]
 
@@ -417,7 +417,7 @@ def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, 
 
     u = b[rand_neighbor]
 
-    if np.random.uniform() <= B / (d[u].astype(float) + B):
+    if random.random() <= B / (d[u].astype(float) + B):
         if agg_move:
             # force proposals to be different from current block via a random offset and modulo
             s1 = (r + 1 + np.random.randint(B - 1)) % B

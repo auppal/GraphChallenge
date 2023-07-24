@@ -586,7 +586,7 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
                 sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)
 
             (ni, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
-            accept = (np.random.uniform() <= p_accept)
+            accept = (random.random() <= p_accept)
 
             if not accept:
                 continue
