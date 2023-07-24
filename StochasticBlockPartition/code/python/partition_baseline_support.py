@@ -411,7 +411,7 @@ def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, 
 
     if not agg_move:
         # For unit weight graphs all probabilities are 1.
-        rand_neighbor = neighbors[np.random.randint(len(neighbors))]
+        rand_neighbor = neighbors[int(len(neighbors) * random.random())]
     else:
         rand_neighbor = multinomial_choice_fast(neighbors, p=neighbor_weights)
 
@@ -420,9 +420,9 @@ def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, 
     if random.random() <= B / (d[u].astype(float) + B):
         if agg_move:
             # force proposals to be different from current block via a random offset and modulo
-            s1 = (r + 1 + np.random.randint(B - 1)) % B
+            s1 = (r + 1 + int((B - 1) * random.random())) % B
         else:
-            s1 = np.random.randint(B, dtype=np.int64)
+            s1 = int(B * random.random())
         return s1
     else:
         # proposals by random draw from neighbors of block partition[rand_neighbor]
@@ -437,7 +437,7 @@ def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, 
 
             if sum_multinomial_probs == 0:
                 # the current block has no (available) neighbors. randomly propose a different block
-                s2 = (r + 1 + np.random.randint(B - 1, dtype=np.int64)) % B
+                s2 = (r + 1 + int((B - 1) * random.random())) % B
                 return s2
 
         s2 = multinomial_choice_fast(multinomial_choices, p = multinomial_probs)
