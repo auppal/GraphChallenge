@@ -1830,7 +1830,7 @@ static PyObject* dict_entropy_row_excl(PyObject *self, PyObject *args)
 /*
  * Args: M, r, s, b_out, count_out, b_in, count_in
  */
-static PyObject* inplace_compute_new_rows_cols_interblock_edge_count_matrix(PyObject *self, PyObject *args)
+static PyObject* inplace_apply_movement_compressed_interblock_matrix(PyObject *self, PyObject *args)
 {
   PyObject *obj_M, *obj_b_out, *obj_count_out, *obj_b_in, *obj_count_in, *obj_d_out, *obj_d_in, *obj_d;
   uint64_t r, s;
@@ -2276,7 +2276,7 @@ static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
  * Args: M, r, s, b_out, count_out, b_in, count_in
  * Version for an uncompressed array, using atomic operations.
  */
-static PyObject* inplace_atomic_new_rows_cols_M(PyObject *self, PyObject *args)
+static PyObject* inplace_apply_movement_uncompressed_interblock_matrix(PyObject *self, PyObject *args)
 {
   PyObject *obj_M, *obj_b_out, *obj_count_out, *obj_b_in, *obj_count_in, *obj_d_out, *obj_d_in, *obj_d;
   uint64_t r, s;
@@ -2549,11 +2549,12 @@ static PyMethodDef compressed_array_methods[] =
    { "sanity_check", sanity_check, METH_VARARGS, "Run a sanity check." },
    { "dict_entropy_row", dict_entropy_row, METH_VARARGS, "Compute part of delta entropy for a row entry." },
    { "dict_entropy_row_excl", dict_entropy_row_excl, METH_VARARGS, "Compute part of delta entropy for a row entry." },
-   { "inplace_compute_new_rows_cols_interblock_edge_count_matrix", inplace_compute_new_rows_cols_interblock_edge_count_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
+   { "inplace_apply_movement_compressed_interblock_matrix", inplace_apply_movement_compressed_interblock_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
+   { "inplace_apply_movement_uncompressed_interblock_matrix", inplace_apply_movement_uncompressed_interblock_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
+   
    { "blocks_and_counts", blocks_and_counts, METH_VARARGS, "" },
    { "combine_key_value_pairs", combine_key_value_pairs_py, METH_VARARGS, "" },
    { "hastings_correction", hastings_correction_py, METH_VARARGS, "" },   
-   { "inplace_atomic_new_rows_cols_M", inplace_atomic_new_rows_cols_M, METH_VARARGS, "" },
    { "rebuild_M", rebuild_M, METH_VARARGS, "" },
    { "rebuild_M_compressed", rebuild_M_compressed, METH_VARARGS, "" },
    { "nonzero_count", nonzero_count, METH_VARARGS, "" },
