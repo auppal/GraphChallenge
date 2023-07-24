@@ -2085,16 +2085,17 @@ static inline int hastings_correction(const long *b_out, const long *count_out, 
 				      int is_hash,
 				      double *prob)
 {
+  int rc = -1;
   long i;
   long *t, *count, n_t;
   combine_key_value_pairs(b_out, count_out, n_out,
 			  b_in, count_in, n_in,
 			  &t, &count, &n_t);
 
+  long *M_t_s = NULL, *M_s_t = NULL, *M_r_row_t = NULL, *M_r_col_t = NULL;
 
-
-  long *M_t_s = malloc(n_t * sizeof(M_t_s[0]));
-  long *M_s_t = malloc(n_t * sizeof(M_s_t[0]));  
+  if (!(M_t_s = malloc(n_t * sizeof(M_t_s[0])))) { goto exit; }
+  if (!(M_s_t = malloc(n_t * sizeof(M_s_t[0])))) { goto exit; }
 
   if (is_hash) {
     const struct hash *cur_M_s_row = (const struct hash *) p_cur_M_s_row;
@@ -2117,8 +2118,8 @@ static inline int hastings_correction(const long *b_out, const long *count_out, 
     prob_fwd += (double) count[i] * (M_t_s[i] + M_s_t[i] + 1) / (d[t[i]] + B);
   }
 
-  long *M_r_row_t = malloc(n_t * sizeof(M_r_row_t[0]));
-  long *M_r_col_t = malloc(n_t * sizeof(M_r_col_t[0]));
+  if (!(M_r_row_t = malloc(n_t * sizeof(M_r_row_t[0])))) { goto exit; }
+  if (!(M_r_col_t = malloc(n_t * sizeof(M_r_col_t[0])))) { goto exit; }
 
   if (is_hash) {
     const struct hash *new_M_r_row = (const struct hash *) p_new_M_r_row;
@@ -2141,14 +2142,15 @@ static inline int hastings_correction(const long *b_out, const long *count_out, 
     prob_back += c * (M_r_col_t[i] + 1);
   }
 
+  *prob = prob_back / prob_fwd;
+  rc = 0;
+
+exit:
   free(M_t_s);
   free(M_s_t);
   free(M_r_row_t);
   free(M_r_col_t);
-
-  *prob = prob_back / prob_fwd;
-  
-  return 0;
+  return rc;
 }
 
 static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
@@ -2249,6 +2251,10 @@ static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
       0,
       &prob);
 
+    Py_DECREF(ar_cur_M_s_row);
+    Py_DECREF(ar_cur_M_s_col);    
+    Py_DECREF(ar_M_r_row);
+    Py_DECREF(ar_M_r_col);    
   }
 
   if (rc < 0) {
