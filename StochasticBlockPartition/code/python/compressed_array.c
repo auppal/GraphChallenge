@@ -154,9 +154,8 @@ int hash_outer_init(struct hash_outer *ho, size_t initial_size)
 
 void hash_destroy(struct hash *h)
 {
-  size_t alloc_size = hash_get_alloc_size(h);
-
   if (h) {
+    size_t alloc_size = hash_get_alloc_size(h);
     if (h->flags & HASH_FLAG_SHARED_MEM) {
       shared_free(h, alloc_size);
     }
@@ -478,7 +477,7 @@ int hash_eq(const struct hash *x, const struct hash *y)
       hash_search(y, x_keys[i], &v2);
       if (v2 != x_vals[i]) {
 	fprintf(stderr, "Mismatch at key " PRI_HASH_KEY "\n", x_keys[i]);
-	return 1;
+	return 0;
       }
     }
   }
@@ -492,12 +491,12 @@ int hash_eq(const struct hash *x, const struct hash *y)
       hash_search(x, y_keys[i], &v);
       if (v != y_vals[i]) {
 	fprintf(stderr, "Mismatch at key " PRI_HASH_KEY "\n", y_keys[i]);
-	return 1;
+	return 0;
       }
     }
   }
 
-  return 0;
+  return 1; /* 1 if equal */
 }
 
 #if 0
@@ -520,7 +519,7 @@ static inline void hash_accum_constant(const struct hash *h, size_t C)
  * It is not strictly correct to use int64_t instead of hash_key_t.
  * But it is done here for expedience.
  */
-static inline struct hash *hash_accum_multi(struct hash *h, const unsigned long *keys, const long *vals, size_t n_keys)
+static inline struct hash *hash_accum_multi(struct hash *h, const unsigned long *keys, const long *vals, size_t n_keys, int scale)
 {
   size_t j, i;
 
@@ -540,13 +539,13 @@ static inline struct hash *hash_accum_multi(struct hash *h, const unsigned long 
     for (i=0; i<h->width; i++) {
       size_t idx = (kh + i) % h->width;
       if (h_keys[idx] == keys[j]) {
-	h_vals[idx] += vals[j];
+	h_vals[idx] += scale * vals[j];
 	break;
       }
       else if (h_keys[idx] == EMPTY_KEY) {
 	/* Not found assume the previous default value of zero and set a new entry. */
 	h_keys[idx] = keys[j];
-	h_vals[idx] = vals[j];
+	h_vals[idx] = scale * vals[j];
 	h->cnt++;
 	break;
       }
@@ -1048,7 +1047,7 @@ static PyObject* accum_dict(PyObject *self, PyObject *args)
   const long *vals = (const long *) PyArray_DATA(obj_v);
   long N = (long) PyArray_DIM(obj_k, 0);
 
-  h = hash_accum_multi(h, (unsigned long *) keys, vals, N);
+  h = hash_accum_multi(h, (unsigned long *) keys, vals, N, 1);
 
   if (!h) {
     PyErr_SetString(PyExc_RuntimeError, "hash_accum_multi failed");
@@ -2279,7 +2278,7 @@ static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
 static PyObject* inplace_apply_movement_uncompressed_interblock_matrix(PyObject *self, PyObject *args)
 {
   PyObject *obj_M, *obj_b_out, *obj_count_out, *obj_b_in, *obj_count_in, *obj_d_out, *obj_d_in, *obj_d;
-  uint64_t r, s;
+  long r, s;
 
   if (!PyArg_ParseTuple(args, "OllOOOOOOO", &obj_M, &r, &s, &obj_b_out, &obj_count_out, &obj_b_in, &obj_count_in, &obj_d_out, &obj_d_in, &obj_d)) {
     return NULL;
@@ -2345,6 +2344,191 @@ static PyObject* inplace_apply_movement_uncompressed_interblock_matrix(PyObject 
   return ret;
 }
 
+/*
+ * Args: M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move
+ */
+static PyObject* compute_new_rows_cols_interblock(PyObject *self, PyObject *args)
+{
+  PyObject *obj_M, *obj_b_out, *obj_count_out, *obj_b_in, *obj_count_in;
+  long r, s, count_self, agg_move;
+
+  if (!PyArg_ParseTuple(args, "OllOOOOll", &obj_M, &r, &s, &obj_b_out, &obj_count_out, &obj_b_in, &obj_count_in, &count_self, &agg_move)) {
+    return NULL;
+  }
+
+  const PyObject *ar_b_out = PyArray_FROM_OTF(obj_b_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_count_out = PyArray_FROM_OTF(obj_count_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_b_in = PyArray_FROM_OTF(obj_b_in, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_count_in = PyArray_FROM_OTF(obj_count_in, NPY_LONG, NPY_IN_ARRAY);
+
+  const long *b_out = (const long *) PyArray_DATA(ar_b_out);
+  const long *count_out = (const long *) PyArray_DATA(ar_count_out);
+  const long *b_in = (const long  *) PyArray_DATA(ar_b_in);
+  const long *count_in = (const long *) PyArray_DATA(ar_count_in);
+
+  long n_out= (long) PyArray_DIM(ar_b_out, 0);
+  long n_in = (long) PyArray_DIM(ar_b_in, 0);
+  
+  long i;
+  const PyObject *M;
+
+  struct hash *cur_M_r_row = NULL, *cur_M_r_col = NULL, *cur_M_s_row = NULL, *cur_M_s_col = NULL;
+  struct hash *new_M_r_row = NULL, *new_M_r_col = NULL, *new_M_s_row = NULL, *new_M_s_col = NULL;
+
+  struct compressed_array *x = PyCapsule_GetPointer(obj_M, "compressed_array");
+  PyObject *ret = NULL;
+
+  hash_val_t r_row_offset = 0;
+  hash_val_t r_col_offset = 0;
+
+  if (agg_move) {
+    for (i=0; i<n_in; i++) {
+      if (b_in[i] == r) {
+	r_row_offset = count_in[i];
+	break;
+      }
+    }
+
+    for (i=0; i<n_out; i++) {
+      if (b_out[i] == r) {
+	r_col_offset = count_out[i];
+	break;
+      }
+    }
+  }
+
+  hash_val_t s_row_offset = count_self;
+  for (i=0; i<n_in; i++) {
+    if (b_in[i] == s) {
+      s_row_offset += count_in[i];
+      break;
+    }
+  }
+
+  hash_val_t s_col_offset = count_self;
+  for (i=0; i<n_out; i++) {
+    if (b_out[i] == s) {
+      s_col_offset += count_out[i];
+      break;
+    }
+  }
+  
+  if (x) {
+    /* Take references to current rows and cols. */
+    cur_M_r_row = compressed_take(x, r, 0);
+    cur_M_r_col = compressed_take(x, r, 1);
+    cur_M_s_row = compressed_take(x, s, 0);
+    cur_M_s_col = compressed_take(x, s, 1);
+
+    if (agg_move) {
+      size_t default_width = 16;
+      new_M_r_row = hash_create(default_width, 0);
+      new_M_r_col = hash_create(default_width, 0);      
+    }
+    else {
+      /* Compute new_M_r_row */
+      new_M_r_row = hash_copy(cur_M_r_row, 0);
+      new_M_r_row = hash_accum_multi(new_M_r_row, (const unsigned long *) b_out, count_out, n_out, -1);
+
+      if (1 == hash_accum_single(new_M_r_row, r, -r_row_offset)) {
+	if (!(new_M_r_row = hash_resize(new_M_r_row))) { goto hash_resize_failed; }
+      }
+
+      if (1 == hash_accum_single(new_M_r_row, s, +r_row_offset)) {
+	if (!(new_M_r_row = hash_resize(new_M_r_row))) { goto hash_resize_failed; }
+      }
+
+      /* Compute new_M_r_col */
+      new_M_r_col = hash_copy(cur_M_r_col, 0);
+      new_M_r_col = hash_accum_multi(new_M_r_col, (const unsigned long *) b_in,
+				     count_in, n_in, -1);
+
+      if (1 == hash_accum_single(new_M_r_col, r, -r_col_offset)) {
+	if (!(new_M_r_col = hash_resize(new_M_r_col))) { goto hash_resize_failed; }
+      }
+
+      if (1 == hash_accum_single(new_M_r_col, s, +r_col_offset)) {
+	if (!(new_M_r_col = hash_resize(new_M_r_col))) { goto hash_resize_failed; }
+      }
+    }
+
+    /* Compute new_M_s_row */
+    new_M_s_row = hash_copy(cur_M_s_row, 0);    
+    new_M_s_row = hash_accum_multi(new_M_s_row,
+				   (const unsigned long *) b_out, count_out, n_out, +1);
+
+    if (1 == hash_accum_single(new_M_s_row, r, -s_row_offset)) {
+      if (!(new_M_s_row = hash_resize(new_M_s_row))) { goto hash_resize_failed; }
+    }
+
+    if (1 == hash_accum_single(new_M_s_row, s, +s_row_offset)) {
+      if (!(new_M_s_row = hash_resize(new_M_s_row))) { goto hash_resize_failed; }
+    }
+
+    /* Compute new_M_s_col */
+    new_M_s_col = hash_copy(cur_M_s_col, 0);
+    new_M_s_col = hash_accum_multi(new_M_s_col, (const unsigned long *) b_in,
+				     count_in, n_in, +1);
+
+    if (1 == hash_accum_single(new_M_s_col, r, -s_col_offset)) {
+      if (!(new_M_s_col = hash_resize(new_M_s_col))) { goto hash_resize_failed; }
+    }
+
+    if (1 == hash_accum_single(new_M_s_col, s, +s_col_offset)) {
+      if (!(new_M_s_col = hash_resize(new_M_s_col))) { goto hash_resize_failed; }
+    }
+
+    struct hash **p_new_M_r_row = create_dict(new_M_r_row);
+    struct hash **p_new_M_r_col = create_dict(new_M_r_col);
+    struct hash **p_new_M_s_row = create_dict(new_M_s_row);
+    struct hash **p_new_M_s_col = create_dict(new_M_s_col);    
+
+    struct hash **p_cur_M_r_row = create_dict(cur_M_r_row);
+    struct hash **p_cur_M_r_col = create_dict(cur_M_r_col);
+    struct hash **p_cur_M_s_row = create_dict(cur_M_s_row);
+    struct hash **p_cur_M_s_col = create_dict(cur_M_s_col);    
+
+    PyObject *ret_new_M_r_row = PyCapsule_New(p_new_M_r_row, "compressed_array_dict", destroy_dict_copy);
+    PyObject *ret_new_M_r_col = PyCapsule_New(p_new_M_r_col, "compressed_array_dict", destroy_dict_copy);
+    PyObject *ret_new_M_s_row = PyCapsule_New(p_new_M_s_row, "compressed_array_dict", destroy_dict_copy);
+    PyObject *ret_new_M_s_col = PyCapsule_New(p_new_M_s_col, "compressed_array_dict", destroy_dict_copy);
+
+    PyObject *ret_cur_M_r_row = PyCapsule_New(p_cur_M_r_row, "compressed_array_dict", destroy_dict_ref);
+    PyObject *ret_cur_M_r_col = PyCapsule_New(p_cur_M_r_col, "compressed_array_dict", destroy_dict_ref);
+    PyObject *ret_cur_M_s_row = PyCapsule_New(p_cur_M_s_row, "compressed_array_dict", destroy_dict_ref);
+    PyObject *ret_cur_M_s_col = PyCapsule_New(p_cur_M_s_col, "compressed_array_dict", destroy_dict_ref);
+
+    ret = Py_BuildValue("NNNNNNNN",
+			ret_new_M_r_row, ret_new_M_r_col, ret_new_M_s_row, ret_new_M_s_col,
+			ret_cur_M_r_row, ret_cur_M_r_col, ret_cur_M_s_row, ret_cur_M_s_col);
+  }
+  else if ((M = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY))) {
+    PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
+    PyErr_SetString(PyExc_RuntimeError, "Not Implemented");
+    Py_DECREF(M);
+  }
+  else {
+    PyErr_SetString(PyExc_RuntimeError, "Invalid obj_M object type.");    
+  }
+
+  Py_DECREF(ar_b_out);
+  Py_DECREF(ar_count_out);
+  Py_DECREF(ar_b_in);
+  Py_DECREF(ar_count_in);
+  return ret;
+
+hash_resize_failed:
+  hash_destroy(cur_M_r_row);
+  hash_destroy(cur_M_r_col);
+  hash_destroy(cur_M_s_row);
+  hash_destroy(cur_M_s_col);
+  hash_destroy(new_M_r_row);
+  hash_destroy(new_M_r_col);
+  hash_destroy(new_M_s_row);
+  hash_destroy(new_M_s_col);
+  PyErr_SetString(PyExc_RuntimeError, "hash_resize failed");
+  return NULL;
+}
 
 
 /*
@@ -2551,7 +2735,7 @@ static PyMethodDef compressed_array_methods[] =
    { "dict_entropy_row_excl", dict_entropy_row_excl, METH_VARARGS, "Compute part of delta entropy for a row entry." },
    { "inplace_apply_movement_compressed_interblock_matrix", inplace_apply_movement_compressed_interblock_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
    { "inplace_apply_movement_uncompressed_interblock_matrix", inplace_apply_movement_uncompressed_interblock_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
-   
+   { "compute_new_rows_cols_interblock", compute_new_rows_cols_interblock, METH_VARARGS, "" },
    { "blocks_and_counts", blocks_and_counts, METH_VARARGS, "" },
    { "combine_key_value_pairs", combine_key_value_pairs_py, METH_VARARGS, "" },
    { "hastings_correction", hastings_correction_py, METH_VARARGS, "" },   
