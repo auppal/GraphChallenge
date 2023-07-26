@@ -374,7 +374,7 @@ def propose_node_movement_wrapper(tup):
             movement = propose_node_movement(ni, partition, out_neighbors, in_neighbors,
                                              M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
                                              vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges,
-                                             vertex_neighbors, self_edge_weights, args, vertex_lock=None)
+                                             vertex_neighbors, self_edge_weights, args)
             (ni2, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
             accept = (np.random.uniform() <= p_accept)
             if accept:
@@ -411,7 +411,7 @@ def propose_node_movement_wrapper(tup):
 
 def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, M, num_blocks,
                           block_degrees, block_degrees_out, block_degrees_in,
-                          vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args, vertex_lock=None):
+                          vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args):
     # SHR: read partition[ni]
     r = partition[current_node]
 
