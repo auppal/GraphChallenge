@@ -158,7 +158,6 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
                 r,
                 block_neighbors,
                 block_neighbor_weights,
-                num_block_edges,
                 block_partition, M, block_degrees, num_blocks,
                 agg_move = 1)
 
@@ -432,7 +431,6 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         r,
         vertex_neighbors[current_node][:, 0],
         vertex_neighbors[current_node][:, 1],
-        vertex_num_neighbor_edges[current_node],
         partition,
         M, block_degrees, num_blocks, agg_move = 0)
 

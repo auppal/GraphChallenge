@@ -374,7 +374,7 @@ def multinomial_choice_fast(a, p):
     s = np.searchsorted(c, u, side='left')
     return a[s]
 
-def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, B, agg_move):
+def propose_new_partition(r, neighbors, neighbor_weights, b, M, d, B, agg_move):
     """Propose a new block assignment for the current node or block
 
         Parameters
@@ -404,11 +404,6 @@ def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, 
         Randomly select a neighbor of the current node, and obtain its block assignment u. With probability \frac{B}{d_u + B}, randomly propose
         a block. Otherwise, randomly selects a neighbor to block u and propose its block assignment. For block (agglomerative) moves,
         avoid proposing the current block."""
-
-    # No neighbor available. This used to happen during block merges,
-    # before testing for testing and short-cutting this condition.
-    if n_neighbors == 0:
-        return r
 
     if not agg_move:
         # For unit weight graphs all probabilities are 1.
