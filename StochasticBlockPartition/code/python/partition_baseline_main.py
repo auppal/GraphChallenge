@@ -139,6 +139,10 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
         num_in_block_edges = in_weight.sum()
         num_block_edges = num_out_block_edges + num_in_block_edges
 
+        if num_block_edges == 0:
+            # Nothing to do
+            continue
+        
         delta_entropy = np.empty(n_proposal)
         proposals = np.empty(n_proposal, dtype=int)
 
@@ -279,7 +283,7 @@ def propose_node_movement_defunct_wrapper(tup):
     for current_node in range(start, stop, step):
         res = propose_node_movement(current_node, partition, out_neighbors, in_neighbors,
                                     M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
-                                    vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args)
+                                    vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args.beta)
 
         (ni, current_block, proposal, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = res
         accept = (np.random.uniform() <= p_accept)
@@ -335,7 +339,7 @@ def propose_node_movement_wrapper(tup):
             movement = propose_node_movement(ni, partition, out_neighbors, in_neighbors,
                                              M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
                                              vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges,
-                                             vertex_neighbors, self_edge_weights, args, vertex_lock=None)
+                                             vertex_neighbors, self_edge_weights, args.beta)
 
             (ni2, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
             accept = (np.random.uniform() <= p_accept)
@@ -374,7 +378,7 @@ def propose_node_movement_wrapper(tup):
             movement = propose_node_movement(ni, partition, out_neighbors, in_neighbors,
                                              M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
                                              vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges,
-                                             vertex_neighbors, self_edge_weights, args)
+                                             vertex_neighbors, self_edge_weights, args.beta)
             (ni2, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
             accept = (np.random.uniform() <= p_accept)
             if accept:
@@ -411,13 +415,13 @@ def propose_node_movement_wrapper(tup):
 
 def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, M, num_blocks,
                           block_degrees, block_degrees_out, block_degrees_in,
-                          vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args):
+                          vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, beta):
     # SHR: read partition[ni]
     r = partition[current_node]
 
     # SHR: read u = partition[rand_neighbor]
     # SHR: read row M[u,:] col M[:,u]
-    
+
     s = propose_new_partition(
         r,
         vertex_neighbors[current_node][:, 0],
@@ -426,14 +430,14 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         partition,
         M, block_degrees, num_blocks, agg_move = 0)
 
-    num_out_neighbor_edges = vertex_num_out_neighbor_edges[current_node]
-    num_in_neighbor_edges = vertex_num_in_neighbor_edges[current_node]
-    num_neighbor_edges = vertex_num_neighbor_edges[current_node]
-
-    # determine whether to accept or reject the proposal
     if s == r:
+        # Re-trying until s != r does not improve the performance.
         (current_node, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = current_node, r, int(s), 0.0, False, None, None, None, None, None, None
     else:
+        num_out_neighbor_edges = vertex_num_out_neighbor_edges[current_node]
+        num_in_neighbor_edges = vertex_num_in_neighbor_edges[current_node]
+        num_neighbor_edges = vertex_num_neighbor_edges[current_node]
+
         # SHR: read partition[out_neighbors[current_node]]
         # SHR: read partition[in_neighbors[current_node]]
         blocks_out,count_out = compressed_array.blocks_and_counts(
@@ -493,7 +497,7 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         elif delta_entropy < -10.0:
             delta_entropy = -10.0
 
-        p_accept = np.min([np.exp(-args.beta * delta_entropy) * Hastings_correction, 1])
+        p_accept = np.min([np.exp(-beta * delta_entropy) * Hastings_correction, 1])
 
     return current_node, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new    
 
@@ -579,7 +583,7 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
         for i in L:
             movement = propose_node_movement(i, partition, out_neighbors, in_neighbors, M, num_blocks,
                                              block_degrees, block_degrees_out, block_degrees_in,
-                                             vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args)
+                                             vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args.beta)
 
             if args.sanity_check:
                 sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)

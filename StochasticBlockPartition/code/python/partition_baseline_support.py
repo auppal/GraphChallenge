@@ -405,7 +405,8 @@ def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, 
         a block. Otherwise, randomly selects a neighbor to block u and propose its block assignment. For block (agglomerative) moves,
         avoid proposing the current block."""
 
-    # xxx no neighbor available
+    # No neighbor available. This used to happen during block merges,
+    # before testing for testing and short-cutting this condition.
     if n_neighbors == 0:
         return r
 
