@@ -124,6 +124,11 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
     n_proposals_evaluated = 0
     n_proposal = 10
 
+    if not is_compressed(M):
+        getitem = np.ndarray.__getitem__
+    else:
+        getitem = compressed_array.getitem
+    
     for current_block_idx,r in enumerate(blocks):
         if r is None:
             break
@@ -145,6 +150,7 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
         
         delta_entropy = np.empty(n_proposal)
         proposals = np.empty(n_proposal, dtype=int)
+        self_count = getitem(M, r, r)
 
         # propose new blocks to merge with
         for proposal_idx in range(n_proposal):
@@ -164,7 +170,7 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
                 compute_new_rows_cols_interblock_edge_count_matrix(M, r, s,
                                                                    out_idx, out_weight,
                                                                    in_idx, in_weight,
-                                                                   M[r, r],
+                                                                   self_count,
                                                                    agg_move = 1)
             # compute change in entropy / posterior
             block_degrees_out_new, block_degrees_in_new, block_degrees_new \
@@ -263,10 +269,10 @@ def propose_node_movement_defunct_wrapper(tup):
                 M[:, w] = M_shared[:, w]
             else:
                 for i in w:
-                    rr = compressed_array.take_dict_ref(M_shared.x, i, 0)
-                    ss = compressed_array.take_dict_ref(M_shared.x, i, 1)
-                    compressed_array.set_dict(M.x, i, 0, rr)
-                    compressed_array.set_dict(M.x, i, 1, ss)
+                    rr = compressed_array.take_dict_ref(M_shared, i, 0)
+                    ss = compressed_array.take_dict_ref(M_shared, i, 1)
+                    compressed_array.set_dict(M, i, 0, rr)
+                    compressed_array.set_dict(M, i, 1, ss)
 
             block_degrees_in[w] = block_degrees_in_shared[w]
             block_degrees_out[w] = block_degrees_out_shared[w]
@@ -539,7 +545,7 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
     release_locks(vertex_locks)
 
     if is_compressed(M):
-        compressed_array.inplace_apply_movement_compressed_interblock_matrix(M.x, r, s, blocks_out, count_out, blocks_in, count_in, block_degrees_out, block_degrees_in, block_degrees)
+        compressed_array.inplace_apply_movement_compressed_interblock_matrix(M, r, s, blocks_out, count_out, blocks_in, count_in, block_degrees_out, block_degrees_in, block_degrees)
     else:
         compressed_array.inplace_apply_movement_uncompressed_interblock_matrix(M, r, s, blocks_out, count_out, blocks_in, count_in, block_degrees_out, block_degrees_in, block_degrees)
 
@@ -669,7 +675,7 @@ def sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_deg
     bd = np.add(bd_out, bd_in)
     
     if is_compressed(M):
-        compressed_array.sanity_check(M.x)
+        compressed_array.sanity_check(M)
         if not (M == M2):
             raise Exception("Sanity check of interblock edge count matrix failed.")
     else:

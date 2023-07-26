@@ -60,7 +60,7 @@ def take_nonzero(A, idx, axis, sort):
         val = a[idx]
         return idx, val
     else:
-        idx,val = A.take(idx, axis)
+        idx,val = compressed_array.take(A, idx, axis)
         if sort:
             s = np.argsort(idx)
             idx = idx[s]

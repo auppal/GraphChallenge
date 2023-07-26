@@ -350,10 +350,10 @@ def initialize_edge_counts(out_neighbors, B, b, args):
     else:
         # Emperically a small initial hash table size seems to be best to reduce both initial build time and nodal move time.
         width=12
-        M = fast_sparse_array((B,B), width=width, dtype=mydtype)
+        M = compressed_array.create(B, width)
         for v in range(len(out_neighbors)):
-            compressed_array.rebuild_M_compressed(b, v, v, out_neighbors[v][:, 0], out_neighbors[v][:, 1], M.x, d_out, d_in)
-        nz_count = compressed_array.nonzero_count(M.x)
+            compressed_array.rebuild_M_compressed(b, v, v, out_neighbors[v][:, 0], out_neighbors[v][:, 1], M, d_out, d_in)
+        nz_count = compressed_array.nonzero_count(M)
         np.add(d_out, d_in, out=d)
         density = nz_count / (B ** 2.)
 
@@ -449,7 +449,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
     compressed = is_compressed(M)
 
     if compressed:
-        nmrr,nmrc,nmsr,nmsc,cmrr,cmrc,cmsr,cmsc = compressed_array.compute_new_rows_cols_interblock(M.x, r, s, b_out, count_out, b_in, count_in, count_self, agg_move)
+        nmrr,nmrc,nmsr,nmsc,cmrr,cmrc,cmsr,cmsc = compressed_array.compute_new_rows_cols_interblock(M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move)
         return nmrr, nmsr, nmrc, nmsc, cmrr, cmsr, cmrc, cmsc
     else:
         nmrr,nmrc,nmsr,nmsc,cmrr,cmrc,cmsr,cmsc = compressed_array.compute_new_rows_cols_interblock(M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move)
@@ -471,10 +471,10 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
             new_M_r_row = compressed_array.empty_dict(M.width)
             new_M_r_col = compressed_array.empty_dict(M.width)            
 
-        cur_M_r_row = compressed_array.take_dict_ref(M.x, r, 0)
-        cur_M_r_col = compressed_array.take_dict_ref(M.x, r, 1)
-        cur_M_s_row = compressed_array.take_dict_ref(M.x, s, 0)
-        cur_M_s_col = compressed_array.take_dict_ref(M.x, s, 1)
+        cur_M_r_row = compressed_array.take_dict_ref(M, r, 0)
+        cur_M_r_col = compressed_array.take_dict_ref(M, r, 1)
+        cur_M_s_row = compressed_array.take_dict_ref(M, s, 0)
+        cur_M_s_col = compressed_array.take_dict_ref(M, s, 1)
     
     if not agg_move:  # the r row and column are simply empty after this merge move
         where_b_in_r = np.where(b_in == r)
@@ -968,7 +968,10 @@ def prepare_for_partition_on_next_num_blocks(S, b, M, d, d_out, d_in, B, hist, B
         if args.diet == 1:
             M,d_out,d_in,d = initialize_edge_counts(out_neighbors, B, b, args)            
         else:
-            M = old_M[1].copy()
+            if not is_compressed(old_M[1]):
+                M = old_M[1].copy()
+            else:
+                M = compressed_array.copy(old_M[1])            
             d = old_d[1].copy()
             d_out = old_d_out[1].copy()
             d_in = old_d_in[1].copy()
@@ -989,11 +992,11 @@ def prepare_for_partition_on_next_num_blocks(S, b, M, d, d_out, d_in, B, hist, B
 
             if args.diet == 1:
                 M,d_out,d_in,d = initialize_edge_counts(out_neighbors, B, b, args)
-#                Mx,d_out,d_in,d = prepare_for_partition_on_next_num_blocks_cache[B]
-#                M = fast_sparse_array((0,0),width=0)
-#                M.x = Mx
             else:
-                M = old_M[index].copy()
+                if not is_compressed(old_M[index]):
+                    M = old_M[index].copy()
+                else:
+                    M = compressed_array.copy(old_M[index])
                 d = old_d[index].copy()
                 d_out = old_d_out[index].copy()
                 d_in = old_d_in[index].copy()
