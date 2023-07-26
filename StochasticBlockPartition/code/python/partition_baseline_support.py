@@ -374,6 +374,22 @@ def multinomial_choice_fast(a, p):
     s = np.searchsorted(c, u, side='left')
     return a[s]
 
+
+def multinomial_choice_fast_pieces(a0, p0, a1, p1):
+    """ Fast replacement for np.random.choice. Probabilities need not sum to 1."""
+    c0 = np.cumsum(p0)
+    c1 = np.cumsum(p1)
+    c = c0[-1] + c1[-1]
+    u = random.random() * c
+
+    if u < c0[-1]:
+        s = np.searchsorted(c0, u, side='left')
+        return a0[s]
+    else:
+        u -= c0[-1]
+        s = np.searchsorted(c1, u, side='left')
+        return a1[s]
+
 def propose_new_partition(r, neighbors, neighbor_weights, b, M, d, B, agg_move):
     """Propose a new block assignment for the current node or block
 
@@ -422,23 +438,28 @@ def propose_new_partition(r, neighbors, neighbor_weights, b, M, d, B, agg_move):
         return s1
     else:
         # proposals by random draw from neighbors of block partition[rand_neighbor]
-        Mu_row_i, Mu_row = take_nonzero(M, u, 0, sort = False)
-        Mu_col_i, Mu_col = take_nonzero(M, u, 1, sort = False)
-        multinomial_choices = np.concatenate((Mu_row_i, Mu_col_i))
-        multinomial_probs = np.concatenate((Mu_row, Mu_col)).astype(float)
+        if not is_compressed(M):
+            row = M[u, :]
+            col = M[:, u]
+            Mu_row_i = np.nonzero(row)[0]
+            Mu_col_i = np.nonzero(col)[0]
+            # Indexing like this produces a copy
+            Mu_row = row[Mu_row_i]
+            Mu_col = col[Mu_col_i]
+        else:
+            Mu_row_i, Mu_row = compressed_array.take(M, u, 0)
+            Mu_col_i, Mu_col = compressed_array.take(M, u, 1)
 
-        if agg_move: # force proposal to be different from current block
-            multinomial_probs[ (multinomial_choices == r) ] = 0.0
-            sum_multinomial_probs = multinomial_probs.sum()
-
-            if sum_multinomial_probs == 0:
-                # the current block has no (available) neighbors. randomly propose a different block
+        if agg_move:
+            Mu_row[(Mu_row_i == r)] = 0
+            Mu_col[(Mu_col_i == r)] = 0
+            if np.sum(Mu_row) + np.sum(Mu_col) == 0:
+                # The current block has no (available) neighbors.
+                # Randomly propose a different block                
                 s2 = (r + 1 + int((B - 1) * random.random())) % B
                 return s2
-
-        s2 = multinomial_choice_fast(multinomial_choices, p = multinomial_probs)
+        s2 = multinomial_choice_fast_pieces(Mu_row_i, Mu_row, Mu_col_i, Mu_col)
         return s2
-
 
 # Old Python version. Kept only for debugging.
 def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move):

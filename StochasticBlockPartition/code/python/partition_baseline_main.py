@@ -124,11 +124,6 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
     n_proposals_evaluated = 0
     n_proposal = 10
 
-    if not is_compressed(M):
-        getitem = np.ndarray.__getitem__
-    else:
-        getitem = compressed_array.getitem
-    
     for current_block_idx,r in enumerate(blocks):
         if r is None:
             break
@@ -150,7 +145,11 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
         
         delta_entropy = np.empty(n_proposal)
         proposals = np.empty(n_proposal, dtype=int)
-        self_count = getitem(M, r, r)
+
+        if not is_compressed(M):
+            self_count = np.ndarray.__getitem__(M, (r, r))
+        else:
+            self_count = compressed_array.getitem(M, r, r)
 
         # propose new blocks to merge with
         for proposal_idx in range(n_proposal):
