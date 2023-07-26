@@ -2344,6 +2344,31 @@ static PyObject* inplace_apply_movement_uncompressed_interblock_matrix(PyObject 
   return ret;
 }
 
+static PyObject *take_view(PyObject *ar_M, long idx, long axis)
+{
+  /* Assumes M is square of type long */
+  npy_intp N = PyArray_DIM(ar_M, 0);
+  npy_intp size = PyArray_ITEMSIZE(ar_M);
+  npy_intp dims[] = {N};
+
+  npy_intp strides[] = {};
+  void *data;
+  int flags = 0; /* Maybe PyArray_FLAGS(ar_M) is better. */
+
+  if (axis == 0) {
+    data = PyArray_GETPTR2(ar_M, idx, 0);
+    strides[0] = size;
+  }
+  else {
+    data = PyArray_GETPTR2(ar_M, 0, idx);
+    strides[0] = N * size;
+  }
+
+  PyArray_Descr *desc = PyArray_DescrNewFromType(PyArray_TYPE(ar_M));
+  PyObject *ret = PyArray_NewFromDescr(&PyArray_Type, desc, 1, dims, strides, data, flags, ar_M);
+  return ret;
+}
+
 /*
  * Args: M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move
  */
@@ -2370,10 +2395,10 @@ static PyObject* compute_new_rows_cols_interblock(PyObject *self, PyObject *args
   long n_in = (long) PyArray_DIM(ar_b_in, 0);
   
   long i;
-  const PyObject *M;
+  PyObject *ar_M;
 
-  struct hash *cur_M_r_row = NULL, *cur_M_r_col = NULL, *cur_M_s_row = NULL, *cur_M_s_col = NULL;
-  struct hash *new_M_r_row = NULL, *new_M_r_col = NULL, *new_M_s_row = NULL, *new_M_s_col = NULL;
+  PyObject *ret_new_M_r_row = NULL, *ret_new_M_r_col = NULL, *ret_new_M_s_row = NULL, *ret_new_M_s_col = NULL,
+	  *ret_cur_M_r_row = NULL, *ret_cur_M_r_col = NULL, *ret_cur_M_s_row = NULL, *ret_cur_M_s_col = NULL;
 
   struct compressed_array *x = PyCapsule_GetPointer(obj_M, "compressed_array");
   PyObject *ret = NULL;
@@ -2381,7 +2406,7 @@ static PyObject* compute_new_rows_cols_interblock(PyObject *self, PyObject *args
   hash_val_t r_row_offset = 0;
   hash_val_t r_col_offset = 0;
 
-  if (agg_move) {
+  if (!agg_move) {
     for (i=0; i<n_in; i++) {
       if (b_in[i] == r) {
 	r_row_offset = count_in[i];
@@ -2414,6 +2439,15 @@ static PyObject* compute_new_rows_cols_interblock(PyObject *self, PyObject *args
   }
   
   if (x) {
+    struct hash *cur_M_r_row = NULL,
+      *cur_M_r_col = NULL,
+      *cur_M_s_row = NULL,
+      *cur_M_s_col = NULL,
+      *new_M_r_row = NULL,
+      *new_M_r_col = NULL,
+      *new_M_s_row = NULL,
+      *new_M_s_col = NULL;
+    
     /* Take references to current rows and cols. */
     cur_M_r_row = compressed_take(x, r, 0);
     cur_M_r_col = compressed_take(x, r, 1);
@@ -2423,7 +2457,7 @@ static PyObject* compute_new_rows_cols_interblock(PyObject *self, PyObject *args
     if (agg_move) {
       size_t default_width = 16;
       new_M_r_row = hash_create(default_width, 0);
-      new_M_r_col = hash_create(default_width, 0);      
+      new_M_r_col = hash_create(default_width, 0);
     }
     else {
       /* Compute new_M_r_row */
@@ -2488,24 +2522,107 @@ static PyObject* compute_new_rows_cols_interblock(PyObject *self, PyObject *args
     struct hash **p_cur_M_s_row = create_dict(cur_M_s_row);
     struct hash **p_cur_M_s_col = create_dict(cur_M_s_col);    
 
-    PyObject *ret_new_M_r_row = PyCapsule_New(p_new_M_r_row, "compressed_array_dict", destroy_dict_copy);
-    PyObject *ret_new_M_r_col = PyCapsule_New(p_new_M_r_col, "compressed_array_dict", destroy_dict_copy);
-    PyObject *ret_new_M_s_row = PyCapsule_New(p_new_M_s_row, "compressed_array_dict", destroy_dict_copy);
-    PyObject *ret_new_M_s_col = PyCapsule_New(p_new_M_s_col, "compressed_array_dict", destroy_dict_copy);
+    ret_new_M_r_row = PyCapsule_New(p_new_M_r_row, "compressed_array_dict", destroy_dict_copy);
+    ret_new_M_r_col = PyCapsule_New(p_new_M_r_col, "compressed_array_dict", destroy_dict_copy);
+    ret_new_M_s_row = PyCapsule_New(p_new_M_s_row, "compressed_array_dict", destroy_dict_copy);
+    ret_new_M_s_col = PyCapsule_New(p_new_M_s_col, "compressed_array_dict", destroy_dict_copy);
 
-    PyObject *ret_cur_M_r_row = PyCapsule_New(p_cur_M_r_row, "compressed_array_dict", destroy_dict_ref);
-    PyObject *ret_cur_M_r_col = PyCapsule_New(p_cur_M_r_col, "compressed_array_dict", destroy_dict_ref);
-    PyObject *ret_cur_M_s_row = PyCapsule_New(p_cur_M_s_row, "compressed_array_dict", destroy_dict_ref);
-    PyObject *ret_cur_M_s_col = PyCapsule_New(p_cur_M_s_col, "compressed_array_dict", destroy_dict_ref);
+    ret_cur_M_r_row = PyCapsule_New(p_cur_M_r_row, "compressed_array_dict", destroy_dict_ref);
+    ret_cur_M_r_col = PyCapsule_New(p_cur_M_r_col, "compressed_array_dict", destroy_dict_ref);
+    ret_cur_M_s_row = PyCapsule_New(p_cur_M_s_row, "compressed_array_dict", destroy_dict_ref);
+    ret_cur_M_s_col = PyCapsule_New(p_cur_M_s_col, "compressed_array_dict", destroy_dict_ref);
 
     ret = Py_BuildValue("NNNNNNNN",
 			ret_new_M_r_row, ret_new_M_r_col, ret_new_M_s_row, ret_new_M_s_col,
 			ret_cur_M_r_row, ret_cur_M_r_col, ret_cur_M_s_row, ret_cur_M_s_col);
+
+    return ret;
+
+  hash_resize_failed:
+    hash_destroy(cur_M_r_row);
+    hash_destroy(cur_M_r_col);
+    hash_destroy(cur_M_s_row);
+    hash_destroy(cur_M_s_col);
+    hash_destroy(new_M_r_row);
+    hash_destroy(new_M_r_col);
+    hash_destroy(new_M_s_row);
+    hash_destroy(new_M_s_col);
+    PyErr_SetString(PyExc_RuntimeError, "hash_resize failed");
+    return NULL;
   }
-  else if ((M = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY))) {
+  else if ((ar_M = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY))) {
     PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
-    PyErr_SetString(PyExc_RuntimeError, "Not Implemented");
-    Py_DECREF(M);
+
+    PyObject
+      *cur_M_r_row = NULL,
+      *cur_M_r_col = NULL,
+      *cur_M_s_row = NULL,
+      *cur_M_s_col = NULL,
+      *new_M_r_row = NULL,
+      *new_M_r_col = NULL,
+      *new_M_s_row = NULL,
+      *new_M_s_col = NULL;
+
+    const long *M = (const long *) PyArray_DATA(ar_M);
+    npy_intp N = PyArray_DIM(ar_M, 0);
+
+    cur_M_r_row = take_view(ar_M, r, 0);
+    cur_M_r_col = take_view(ar_M, r, 1);
+    cur_M_s_row = take_view(ar_M, s, 0);
+    cur_M_s_col = take_view(ar_M, s, 1);
+
+    new_M_s_row = PyArray_NewCopy((PyArrayObject *) cur_M_s_row, NPY_ANYORDER);
+    new_M_s_col = PyArray_NewCopy((PyArrayObject *) cur_M_s_col, NPY_ANYORDER);
+
+    if (agg_move) {
+      /* Consider refactoring to return Py_None (with Py_INCREF) */
+      npy_intp dims[] = { N };
+      new_M_r_row = PyArray_Zeros(1, dims,
+				      PyArray_DescrNewFromType(PyArray_TYPE(ar_M)), 0);
+      new_M_r_col = PyArray_Zeros(1, dims,
+				      PyArray_DescrNewFromType(PyArray_TYPE(ar_M)), 0);
+    }
+    else {
+      new_M_r_row = PyArray_NewCopy((PyArrayObject *) cur_M_r_row, NPY_ANYORDER);
+      long *c_new_M_r_row = (long *) PyArray_DATA(new_M_r_row);
+
+      for (i=0; i<n_out; i++) {
+	c_new_M_r_row[b_out[i]] -= count_out[i];
+      }
+      c_new_M_r_row[r] -= r_row_offset;
+      c_new_M_r_row[s] += r_row_offset;
+
+      new_M_r_col = PyArray_NewCopy((PyArrayObject *) cur_M_r_col, NPY_ANYORDER);
+      long *c_new_M_r_col = (long *) PyArray_DATA(new_M_r_col);
+
+      for (i=0; i<n_in; i++) {
+	c_new_M_r_col[b_in[i]] -= count_in[i];
+      }
+      c_new_M_r_col[r] -= r_col_offset;
+      c_new_M_r_col[s] += r_col_offset;
+    }
+
+    long *c_new_M_s_row = (long *) PyArray_DATA(new_M_s_row);
+    long *c_new_M_s_col = (long *) PyArray_DATA(new_M_s_col);    
+    
+    for (i=0; i<n_out; i++) {
+      c_new_M_s_row[b_out[i]] += count_out[i];
+    }
+    c_new_M_s_row[r] -= s_row_offset;
+    c_new_M_s_row[s] += s_row_offset;
+
+    for (i=0; i<n_in; i++) {
+      c_new_M_s_col[b_in[i]] += count_in[i];
+    }
+    c_new_M_s_col[r] -= s_col_offset;
+    c_new_M_s_col[s] += s_col_offset;
+    
+    
+    ret = Py_BuildValue("NNNNNNNN",
+			new_M_r_row, new_M_r_col, new_M_s_row, new_M_s_col,
+			cur_M_r_row, cur_M_r_col, cur_M_s_row, cur_M_s_col);
+    
+    Py_DECREF(ar_M);
   }
   else {
     PyErr_SetString(PyExc_RuntimeError, "Invalid obj_M object type.");    
@@ -2515,19 +2632,8 @@ static PyObject* compute_new_rows_cols_interblock(PyObject *self, PyObject *args
   Py_DECREF(ar_count_out);
   Py_DECREF(ar_b_in);
   Py_DECREF(ar_count_in);
-  return ret;
 
-hash_resize_failed:
-  hash_destroy(cur_M_r_row);
-  hash_destroy(cur_M_r_col);
-  hash_destroy(cur_M_s_row);
-  hash_destroy(cur_M_s_col);
-  hash_destroy(new_M_r_row);
-  hash_destroy(new_M_r_col);
-  hash_destroy(new_M_s_row);
-  hash_destroy(new_M_s_col);
-  PyErr_SetString(PyExc_RuntimeError, "hash_resize failed");
-  return NULL;
+  return ret;
 }
 
 
@@ -2579,7 +2685,6 @@ static PyObject* rebuild_M(PyObject *self, PyObject *args)
  */
 static PyObject* rebuild_M_compressed(PyObject *self, PyObject *args)
 {
-
   PyObject *obj_partition, *obj_neighbors, *obj_weights, *obj_M, *obj_d_out, *obj_d_in;
   uint64_t vid_start, vid_end;
 
