@@ -445,16 +445,8 @@ def propose_new_partition(r, neighbors, neighbor_weights, n_neighbors, b, M, d, 
         return s2
 
 
+# Old Python version. Kept only for debugging.
 def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move):
-    compressed = is_compressed(M)
-
-    if compressed:
-        nmrr,nmrc,nmsr,nmsc,cmrr,cmrc,cmsr,cmsc = compressed_array.compute_new_rows_cols_interblock(M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move)
-        return nmrr, nmsr, nmrc, nmsc, cmrr, cmsr, cmrc, cmsc
-    else:
-        nmrr,nmrc,nmsr,nmsc,cmrr,cmrc,cmsr,cmsc = compressed_array.compute_new_rows_cols_interblock(M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move)
-        return nmrr, nmsr, nmrc, nmsc, cmrr, cmsr, cmrc, cmsc        
-
     B = M.shape[0]
 
     if not compressed:

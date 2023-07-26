@@ -166,12 +166,12 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
             proposals[proposal_idx] = s
 
             # compute the two new rows and columns of the interblock edge count matrix
-            new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col = \
-                compute_new_rows_cols_interblock_edge_count_matrix(M, r, s,
+            new_M_r_row, new_M_r_col, new_M_s_row, new_M_s_col, cur_M_r_row, cur_M_r_col, cur_M_s_row, cur_M_s_col = \
+                compressed_array.compute_new_rows_cols_interblock(M, r, s,
                                                                    out_idx, out_weight,
                                                                    in_idx, in_weight,
                                                                    self_count,
-                                                                   agg_move = 1)
+                                                                   1)
             # compute change in entropy / posterior
             block_degrees_out_new, block_degrees_in_new, block_degrees_new \
                 = compute_new_block_degrees(r,
@@ -455,10 +455,10 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
         self_edge_weight = self_edge_weights[current_node]
 
         # SHR: read M[r,:] M[s,:] M[:,r] M[:s]
-        new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col = \
-            compute_new_rows_cols_interblock_edge_count_matrix(M, r, s,
-                                                               blocks_out, count_out, blocks_in, count_in,
-                                                               self_edge_weight, agg_move = 0)
+        new_M_r_row, new_M_r_col, new_M_s_row, new_M_s_col, cur_M_r_row, cur_M_r_col, cur_M_s_row, cur_M_s_col = \
+            compressed_array.compute_new_rows_cols_interblock(M, r, s,
+                                                              blocks_out, count_out, blocks_in, count_in,
+                                                              self_edge_weight, 0)
 
         # SHR: read block_degrees_out[:], block_degrees_in[:], block_degrees[:]
         block_degrees_out_new = block_degrees_out.copy()
