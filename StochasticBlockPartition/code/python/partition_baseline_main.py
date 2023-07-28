@@ -114,7 +114,7 @@ def compute_best_block_merge_wrapper(tup):
     block_degrees_out = syms['block_degrees_out']
     block_degrees_in = syms['block_degrees_in']
     args = syms['args']
-
+    compressed_array.seed()
     return compute_best_block_merge(blocks, num_blocks, interblock_edge_count, block_partition, block_degrees, args.n_proposal, block_degrees_out, block_degrees_in, args)
 
 
@@ -123,6 +123,11 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
     best_overall_delta_entropy = [np.Inf for i in blocks]
     n_proposals_evaluated = 0
     n_proposal = 10
+
+    if not is_compressed(M):
+        propose = propose_new_partition
+    else:
+        propose = compressed_array.propose_new_partition
 
     for current_block_idx,r in enumerate(blocks):
         if r is None:
@@ -153,12 +158,12 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
 
         # propose new blocks to merge with
         for proposal_idx in range(n_proposal):
-            s = propose_new_partition(
+            s = propose(
                 r,
                 block_neighbors,
                 block_neighbor_weights,
                 block_partition, M, block_degrees, num_blocks,
-                agg_move = 1)
+                1)
 
             s = int(s)
             proposals[proposal_idx] = s
@@ -316,6 +321,7 @@ def propose_node_movement_wrapper(tup):
     
     if update_id != update_id_shared.value:
         if update_id == -1:
+            compressed_array.seed()
             # Ensure every worker has a different random seed.
             mypid = current_process().pid
             numpy.random.seed((mypid + int(timeit.default_timer() * 1e6)) % 4294967295)
@@ -426,12 +432,17 @@ def propose_node_movement(current_node, partition, out_neighbors, in_neighbors, 
     # SHR: read u = partition[rand_neighbor]
     # SHR: read row M[u,:] col M[:,u]
 
-    s = propose_new_partition(
+    if not is_compressed(M):
+        propose = propose_new_partition
+    else:
+        propose = compressed_array.propose_new_partition
+
+    s = propose(
         r,
         vertex_neighbors[current_node][:, 0],
         vertex_neighbors[current_node][:, 1],
         partition,
-        M, block_degrees, num_blocks, agg_move = 0)
+        M, block_degrees, num_blocks, 0)
 
     if s == r:
         # Re-trying until s != r does not improve the performance.

@@ -370,8 +370,8 @@ def initialize_edge_counts(out_neighbors, B, b, args):
 def multinomial_choice_fast(a, p):
     """ Fast replacement for np.random.choice. Probabilities need not sum to 1."""
     c = np.cumsum(p)
-    u = random.random() * c[-1]
-    s = np.searchsorted(c, u, side='left')
+    u = int(random.random() * c[-1])
+    s = np.searchsorted(c, u, side='right')
     return a[s]
 
 
@@ -380,14 +380,13 @@ def multinomial_choice_fast_pieces(a0, p0, a1, p1):
     c0 = np.cumsum(p0)
     c1 = np.cumsum(p1)
     c = c0[-1] + c1[-1]
-    u = random.random() * c
-
+    u = int(random.random() * c)
     if u < c0[-1]:
-        s = np.searchsorted(c0, u, side='left')
+        s = np.searchsorted(c0, u, side='right')
         return a0[s]
     else:
         u -= c0[-1]
-        s = np.searchsorted(c1, u, side='left')
+        s = np.searchsorted(c1, u, side='right')
         return a1[s]
 
 def propose_new_partition(r, neighbors, neighbor_weights, b, M, d, B, agg_move):
@@ -420,12 +419,11 @@ def propose_new_partition(r, neighbors, neighbor_weights, b, M, d, B, agg_move):
         Randomly select a neighbor of the current node, and obtain its block assignment u. With probability \frac{B}{d_u + B}, randomly propose
         a block. Otherwise, randomly selects a neighbor to block u and propose its block assignment. For block (agglomerative) moves,
         avoid proposing the current block."""
-
     if not agg_move:
         # For unit weight graphs all probabilities are 1.
         rand_neighbor = neighbors[int(len(neighbors) * random.random())]
     else:
-        rand_neighbor = multinomial_choice_fast(neighbors, p=neighbor_weights)
+        rand_neighbor = multinomial_choice_fast(neighbors, neighbor_weights)
 
     u = b[rand_neighbor]
 
@@ -455,7 +453,7 @@ def propose_new_partition(r, neighbors, neighbor_weights, b, M, d, B, agg_move):
             Mu_col[(Mu_col_i == r)] = 0
             if np.sum(Mu_row) + np.sum(Mu_col) == 0:
                 # The current block has no (available) neighbors.
-                # Randomly propose a different block                
+                # Randomly propose a different block
                 s2 = (r + 1 + int((B - 1) * random.random())) % B
                 return s2
         s2 = multinomial_choice_fast_pieces(Mu_row_i, Mu_row, Mu_col_i, Mu_col)

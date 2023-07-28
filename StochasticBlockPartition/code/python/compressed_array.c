@@ -45,7 +45,6 @@ typedef int64_t hash_val_t;
 #define HASH_IMPL_DESCRIPTION "64 bit"
 #endif
 
-/* An array of hash tables. There are n_cols tables, each with an allocated size of n_rows. */
 struct hash {
   uint32_t flags;
   uint32_t width;  /* width of each hash table */
@@ -2369,6 +2368,198 @@ static PyObject *take_view(PyObject *ar_M, long idx, long axis)
   return ret;
 }
 
+#include <sys/random.h>
+
+#if 1
+/* Ok if seeded from pool wrappers */
+static inline double random_uniform()
+{ return drand48(); }
+
+static PyObject *seed()
+{
+  long seed;
+  getrandom(&seed, sizeof(seed), 0);
+  srand48(seed);
+  Py_RETURN_NONE;
+}
+#elif 0
+/* Good. */
+static inline double random_uniform()
+{
+  uint64_t r;
+  getrandom(&r, sizeof(r), 0);
+  return (double) (r & (1ull << 52) - 1) / ((1ull << 52) - 1);
+}
+
+static PyObject *seed()
+{
+  Py_RETURN_NONE;
+}
+
+#elif 0
+/* Good. */
+static inline double random_uniform()
+{
+  uint32_t r;
+  getrandom(&r, sizeof(r), 0);
+  return (double) r / 0xffffffff;
+}
+
+static PyObject *seed()
+{
+  Py_RETURN_NONE;
+}
+#endif
+
+static long multinomial_choice(const long *a, long n, const long *p)
+{
+  long i, u, csum = 0, csum_tot = 0;
+
+  for (i=0; i<n; i++) {
+    csum_tot += p[i];
+  }
+
+  double r = random_uniform();
+  u = r * csum_tot;
+
+  for (i=0; i<n; i++) {
+    csum += p[i];
+    if (u < csum) {
+      break;
+    }
+  }
+
+  return a[i];
+}
+
+static PyObject* propose_new_partition(PyObject *self, PyObject *args)
+{
+  PyObject *obj_neighbors, *obj_neighbor_weights, *obj_partition, *obj_M, *obj_d;
+  long r, B, agg_move;
+  long s = r, u, rand_neighbor;
+
+  if (!PyArg_ParseTuple(args, "lOOOOOll", &r, &obj_neighbors, &obj_neighbor_weights,
+			&obj_partition, &obj_M, &obj_d, &B, &agg_move)) {
+    PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
+    return NULL;
+  }
+
+  const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_neighbor_weights = PyArray_FROM_OTF(obj_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d = PyArray_FROM_OTF(obj_d, NPY_LONG, NPY_IN_ARRAY);
+
+  struct compressed_array *M = PyCapsule_GetPointer(obj_M, "compressed_array");
+  
+  const long *neighbors = (const long *) PyArray_DATA(ar_neighbors);
+  const long *neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
+  const long *partition = (const long  *) PyArray_DATA(ar_partition);
+  const long *d = (const long *) PyArray_DATA(ar_d);
+
+  long n_neighbors= (long) PyArray_DIM(ar_neighbors, 0);
+  long N = (long) PyArray_DIM(ar_partition, 0);
+
+  PyObject *ret;
+
+  if (!agg_move) {
+    /* For unit weight graphs all probabilities are 1. */
+    rand_neighbor = neighbors[(int) (random_uniform() * n_neighbors)];
+  }
+  else {
+    rand_neighbor = multinomial_choice(neighbors, n_neighbors, neighbor_weights);
+  }
+
+  u = partition[rand_neighbor];
+
+  if (rand_neighbor > N) {
+    PyErr_SetString(PyExc_RuntimeError, "rand_neighbor out of range");
+    return NULL;
+  }
+
+  double rr = random_uniform();
+  if (rr <= ((double) B / (d[u] + B))) {
+    if (agg_move) {
+      s = (r + 1 + (long) ((B - 1) * random_uniform())) % B;      
+    }
+    else {
+      s = B * random_uniform();
+    }
+    goto done;
+  }
+  
+  /* proposals by random draw from neighbors of
+   * partition[rand_neighbor]
+   */
+
+  struct hash *Mu_row = compressed_take(M, u, 0);
+  struct hash *Mu_col = compressed_take(M, u, 1);
+
+  hash_val_t Mu_row_r = 0, Mu_col_r = 0;
+  long sum_row = hash_sum(Mu_row);
+  long sum_col = hash_sum(Mu_col);  
+  long sum_tot = sum_row + sum_col;
+
+  if (agg_move) {
+    hash_search(Mu_row, r, &Mu_row_r);
+    hash_search(Mu_col, r, &Mu_col_r);
+    sum_row -= Mu_row_r;
+    sum_col -= Mu_col_r;
+    sum_tot = sum_row + sum_col;
+
+    if (0 == sum_tot) {
+      /* The current block has no (available) neighbors, 
+       * so randomly propose a different block.
+       */
+      s = (r + 1 + (long) ((B - 1) * random_uniform())) % B;
+      goto done;
+    }
+  }
+
+  hash_key_t *keys;
+  hash_val_t *vals;    
+  long i, sum = 0;
+  double rand = random_uniform();
+  long p =  rand * sum_tot;
+
+  keys = hash_get_keys(Mu_row);
+  vals = hash_get_vals(Mu_row);
+
+  for (i=0; i<Mu_row->width; i++) {
+    if (keys[i] != EMPTY_KEY && !(agg_move && keys[i] == r)) {
+      sum += vals[i];
+      if (p < sum) {
+	s = keys[i];
+	goto done;
+      }
+    }
+  }
+
+  p -= sum_row;
+  sum = 0;
+
+  keys = hash_get_keys(Mu_col);
+  vals = hash_get_vals(Mu_col);
+
+  for (i=0; i<Mu_col->width; i++) {
+    if (keys[i] != EMPTY_KEY && !(agg_move && keys[i] == r)) {
+      sum += vals[i];
+      if (p < sum) {
+	s = keys[i];
+	goto done;
+      }
+    }
+  }
+
+  fprintf(stderr, "Warning: both conditions failed rand = %lf\n", rand);
+  PyErr_SetString(PyExc_RuntimeError, "multinomial choice for both conditions failed");  
+  return NULL;
+  
+done:
+  ret = Py_BuildValue("l", s);
+  return ret;
+}
+
+
 /*
  * Args: M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move
  */
@@ -2843,7 +3034,8 @@ static PyMethodDef compressed_array_methods[] =
    { "compute_new_rows_cols_interblock", compute_new_rows_cols_interblock, METH_VARARGS, "" },
    { "blocks_and_counts", blocks_and_counts, METH_VARARGS, "" },
    { "combine_key_value_pairs", combine_key_value_pairs_py, METH_VARARGS, "" },
-   { "hastings_correction", hastings_correction_py, METH_VARARGS, "" },   
+   { "hastings_correction", hastings_correction_py, METH_VARARGS, "" },
+   { "propose_new_partition", propose_new_partition, METH_VARARGS, "" },   
    { "rebuild_M", rebuild_M, METH_VARARGS, "" },
    { "rebuild_M_compressed", rebuild_M_compressed, METH_VARARGS, "" },
    { "nonzero_count", nonzero_count, METH_VARARGS, "" },
@@ -2852,6 +3044,7 @@ static PyMethodDef compressed_array_methods[] =
    { "shared_memory_reserve", shared_memory_reserve, METH_VARARGS, "" },
    { "hash_pointer", hash_pointer, METH_VARARGS, "" },
    { "info", info, METH_NOARGS, "Get implementation info." },
+   { "seed", seed, METH_NOARGS, "Set random number seed from system urandom." },
    {NULL, NULL, 0, NULL}
   };
 
