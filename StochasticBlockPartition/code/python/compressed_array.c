@@ -1824,6 +1824,19 @@ static PyObject* dict_entropy_row_excl(PyObject *self, PyObject *args)
   return ret;
 }
 
+static double compute_delta_entropy(long r, long s, struct hash *cur_M_r_row, struct hash *cur_M_s_row, struct hash *cur_M_r_col, struct hash *cur_M_s_col, struct hash *M_r_row, struct hash *M_s_row, struct hash *M_r_col, struct hash *M_s_col, const long *d_out, const long *d_in, const long *d_out_new, const long *d_in_new, long N)
+{
+  double d0, d1, d2, d3, d4, d5, d6, d7;
+  d0 = entropy_row(M_r_row, d_in_new, N, d_out_new[r]);
+  d1 = entropy_row(M_s_row, d_in_new, N, d_out_new[s]);
+  d2 = entropy_row_excl(M_r_col, d_out_new, N, d_in_new[r], r, s);
+  d3 = entropy_row_excl(M_s_col, d_out_new, N, d_in_new[s], r, s);
+  d4 = entropy_row(cur_M_r_row,  d_in, N, d_out[r]);
+  d5 = entropy_row(cur_M_s_row,  d_in, N, d_out[s]);
+  d6 = entropy_row_excl(cur_M_r_col, d_out, N, d_in[r], r, s);
+  d7 = entropy_row_excl(cur_M_s_col, d_out, N, d_in[s], r, s);
+  return -d0 - d1 - d2 - d3 + d4 + d5 + d6 + d7;
+}
 
 /*
  * Args: M, r, s, b_out, count_out, b_in, count_in
@@ -1906,10 +1919,49 @@ bad:
 }
 
 
+
+static int blocks_and_counts(const long *partition, const long *neighbors, const long *weights, long n, long **p_blocks, long **p_counts, long *p_n_blocks)
+{
+  /* Reserve at least 2x elements, to avoid resizes due to 0.70 max
+   * load factor. But reserve at least 16.
+   */
+  long i;
+  size_t initial_width = (2 * n > 16) ? 2 * n : 16;
+  struct hash *h = hash_create(initial_width, 0);
+  // size_t resize_cnt = 0;
+
+  for (i=0; i<n; i++) {
+    uint64_t k = partition[neighbors[i]];
+    uint64_t w = weights[i];
+    if (hash_accum_single(h, k, w) == 1) {
+      // fprintf(stderr, "PID: %d blocks_and_counts of %ld neighbors needed resizing (cnt %ld) from width %u to width %u\n", getpid(), n, resize_cnt, h->width, 2 * h->width);
+      h = hash_resize(h);
+      if (!h) {
+	return -1;
+      }
+    }
+  }
+
+  long *blocks = malloc(n * sizeof(long));
+  long *counts = malloc(n * sizeof(long));
+
+  long cnt;
+  cnt = hash_keys(h, (unsigned long *) blocks, n);
+  hash_vals(h, counts, n);
+
+  hash_destroy(h);
+
+  *p_blocks = blocks;
+  *p_counts = counts;
+  *p_n_blocks = cnt;
+  return 0;
+}
+  
+
 /*
  * Args: partition, neighbor nodes, weights
  */
-static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
+static PyObject* blocks_and_counts_py(PyObject *self, PyObject *args)
 {
   PyObject *obj_partition, *obj_neighbors, *obj_weights;
 
@@ -1925,50 +1977,31 @@ static PyObject* blocks_and_counts(PyObject *self, PyObject *args)
   const long *neighbors = (const long *) PyArray_DATA(ar_neighbors);
   const long *weights = (const long *) PyArray_DATA(ar_weights);
 
-  long i;
   long n = (long) PyArray_DIM(ar_neighbors, 0);
 
-  /* Reserve at least 2x elements, to avoid resizes due to 0.70 max
-   * load factor. But reserve at least 16.
-   */
-  size_t initial_width = (2 * n > 16) ? 2 * n : 16;
-  struct hash *h = hash_create(initial_width, 0);
-  // size_t resize_cnt = 0;
+  long *blocks;
+  long *counts, n_block;
 
-  for (i=0; i<n; i++) {
-    uint64_t k = partition[neighbors[i]];
-    uint64_t w = weights[i];
-    if (hash_accum_single(h, k, w) == 1) {
-      // fprintf(stderr, "PID: %d blocks_and_counts of %ld neighbors needed resizing (cnt %ld) from width %u to width %u\n", getpid(), n, resize_cnt, h->width, 2 * h->width);
-      h = hash_resize(h);
-      if (!h) {
-	PyErr_SetString(PyExc_RuntimeError, "hash_resize failed");
-	return NULL;
-      }
-    }
+  PyObject *ret = NULL;
+
+  if (blocks_and_counts(partition, neighbors, weights, n, &blocks, &counts, &n_block) < 0) {
+    	PyErr_SetString(PyExc_RuntimeError, "hash_resize failed");
+  }
+  else {
+    npy_intp dims[] = {n_block};
+    PyObject *blocks_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, blocks);
+    PyObject *counts_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, counts);
+
+    PyArray_ENABLEFLAGS((PyArrayObject*) blocks_obj, NPY_ARRAY_OWNDATA);
+    PyArray_ENABLEFLAGS((PyArrayObject*) counts_obj, NPY_ARRAY_OWNDATA);
+
+    ret = Py_BuildValue("NN", blocks_obj, counts_obj);
   }
 
   Py_DECREF(ar_partition);
   Py_DECREF(ar_neighbors);
   Py_DECREF(ar_weights);
 
-  unsigned long *blocks = malloc(n * sizeof(long));
-  long *counts = malloc(n * sizeof(long));
-
-  long cnt;
-  cnt = hash_keys(h, blocks, n);
-  hash_vals(h, counts, n);
-
-  hash_destroy(h);
-
-  npy_intp dims[] = {cnt};
-  PyObject *blocks_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, blocks);
-  PyObject *counts_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, counts);
-
-  PyArray_ENABLEFLAGS((PyArrayObject*) blocks_obj, NPY_ARRAY_OWNDATA);
-  PyArray_ENABLEFLAGS((PyArrayObject*) counts_obj, NPY_ARRAY_OWNDATA);
-
-  PyObject *ret = Py_BuildValue("NN", blocks_obj, counts_obj);
   return ret;
 }
 
@@ -2375,10 +2408,15 @@ static PyObject *take_view(PyObject *ar_M, long idx, long axis)
 static inline double random_uniform()
 { return drand48(); }
 
-static PyObject *seed()
+static PyObject *seed(PyObject *self, PyObject *args)
 {
   long seed;
-  getrandom(&seed, sizeof(seed), 0);
+
+  if (!PyArg_ParseTuple(args, "l", &seed)) {
+      getrandom(&seed, sizeof(seed), 0);
+  }
+  PyErr_Restore(NULL, NULL, NULL); /* clear the exception */    
+
   srand48(seed);
   Py_RETURN_NONE;
 }
@@ -2432,34 +2470,12 @@ static long multinomial_choice(const long *a, long n, const long *p)
   return a[i];
 }
 
-static PyObject* propose_new_partition(PyObject *self, PyObject *args)
+static long propose_new_partition(long r, const long *neighbors, const long *neighbor_weights,
+				  const long *partition,
+				  struct compressed_array *M,
+				  const long *d, long n_neighbors, long N, long B, long agg_move)
 {
-  PyObject *obj_neighbors, *obj_neighbor_weights, *obj_partition, *obj_M, *obj_d;
-  long r, B, agg_move;
   long s = r, u, rand_neighbor;
-
-  if (!PyArg_ParseTuple(args, "lOOOOOll", &r, &obj_neighbors, &obj_neighbor_weights,
-			&obj_partition, &obj_M, &obj_d, &B, &agg_move)) {
-    PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
-    return NULL;
-  }
-
-  const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_neighbor_weights = PyArray_FROM_OTF(obj_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_d = PyArray_FROM_OTF(obj_d, NPY_LONG, NPY_IN_ARRAY);
-
-  struct compressed_array *M = PyCapsule_GetPointer(obj_M, "compressed_array");
-  
-  const long *neighbors = (const long *) PyArray_DATA(ar_neighbors);
-  const long *neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
-  const long *partition = (const long  *) PyArray_DATA(ar_partition);
-  const long *d = (const long *) PyArray_DATA(ar_d);
-
-  long n_neighbors= (long) PyArray_DIM(ar_neighbors, 0);
-  long N = (long) PyArray_DIM(ar_partition, 0);
-
-  PyObject *ret;
 
   if (!agg_move) {
     /* For unit weight graphs all probabilities are 1. */
@@ -2473,7 +2489,7 @@ static PyObject* propose_new_partition(PyObject *self, PyObject *args)
 
   if (rand_neighbor > N) {
     PyErr_SetString(PyExc_RuntimeError, "rand_neighbor out of range");
-    return NULL;
+    return -1;
   }
 
   double rr = random_uniform();
@@ -2549,51 +2565,79 @@ static PyObject* propose_new_partition(PyObject *self, PyObject *args)
       }
     }
   }
-
-  fprintf(stderr, "Warning: both conditions failed rand = %lf\n", rand);
-  PyErr_SetString(PyExc_RuntimeError, "multinomial choice for both conditions failed");  
-  return NULL;
+  s = -1;
   
 done:
+  return s;
+}
+
+static PyObject* propose_new_partition_py(PyObject *self, PyObject *args)
+{
+  PyObject *obj_neighbors, *obj_neighbor_weights, *obj_partition, *obj_M, *obj_d;
+  long r, B, agg_move;
+
+  if (!PyArg_ParseTuple(args, "lOOOOOll", &r, &obj_neighbors, &obj_neighbor_weights,
+			&obj_partition, &obj_M, &obj_d, &B, &agg_move)) {
+    PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
+    return NULL;
+  }
+
+  const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_neighbor_weights = PyArray_FROM_OTF(obj_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d = PyArray_FROM_OTF(obj_d, NPY_LONG, NPY_IN_ARRAY);
+
+  struct compressed_array *M = PyCapsule_GetPointer(obj_M, "compressed_array");
+  
+  const long *neighbors = (const long *) PyArray_DATA(ar_neighbors);
+  const long *neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
+  const long *partition = (const long  *) PyArray_DATA(ar_partition);
+  const long *d = (const long *) PyArray_DATA(ar_d);
+
+  long n_neighbors= (long) PyArray_DIM(ar_neighbors, 0);
+  long N = (long) PyArray_DIM(ar_partition, 0);
+
+  PyObject *ret;
+
+  long s = propose_new_partition(r, neighbors, neighbor_weights, partition,
+				 M, d, n_neighbors, N, B, agg_move);
+
+  if (s < 0) {
+    fprintf(stderr, "Warning: both conditions failed rand = %lf\n", rand);
+    PyErr_SetString(PyExc_RuntimeError, "multinomial choice for both conditions failed");
+    return NULL;
+  }
+
+  Py_DECREF(ar_neighbors);
+  Py_DECREF(ar_neighbor_weights);
+  Py_DECREF(ar_partition);
+  Py_DECREF(ar_d);
+
   ret = Py_BuildValue("l", s);
   return ret;
 }
 
-
-/*
- * Args: M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move
- */
-static PyObject* compute_new_rows_cols_interblock(PyObject *self, PyObject *args)
+static int compute_new_rows_cols_interblock_compressed(struct compressed_array *x,
+						       long r, long s,
+						       const long *b_out,
+						       const long *count_out,
+						       long n_out,
+						       const long *b_in,
+						       const long *count_in,
+						       long n_in,
+						       long count_self,
+						       long agg_move,
+						       struct hash **p_cur_M_r_row,
+						       struct hash **p_cur_M_r_col,
+						       struct hash **p_cur_M_s_row,
+						       struct hash **p_cur_M_s_col,
+						       struct hash **p_new_M_r_row,
+						       struct hash **p_new_M_r_col,
+						       struct hash **p_new_M_s_row,
+						       struct hash **p_new_M_s_col)
 {
-  PyObject *obj_M, *obj_b_out, *obj_count_out, *obj_b_in, *obj_count_in;
-  long r, s, count_self, agg_move;
-
-  if (!PyArg_ParseTuple(args, "OllOOOOll", &obj_M, &r, &s, &obj_b_out, &obj_count_out, &obj_b_in, &obj_count_in, &count_self, &agg_move)) {
-    return NULL;
-  }
-
-  const PyObject *ar_b_out = PyArray_FROM_OTF(obj_b_out, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_count_out = PyArray_FROM_OTF(obj_count_out, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_b_in = PyArray_FROM_OTF(obj_b_in, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_count_in = PyArray_FROM_OTF(obj_count_in, NPY_LONG, NPY_IN_ARRAY);
-
-  const long *b_out = (const long *) PyArray_DATA(ar_b_out);
-  const long *count_out = (const long *) PyArray_DATA(ar_count_out);
-  const long *b_in = (const long  *) PyArray_DATA(ar_b_in);
-  const long *count_in = (const long *) PyArray_DATA(ar_count_in);
-
-  long n_out= (long) PyArray_DIM(ar_b_out, 0);
-  long n_in = (long) PyArray_DIM(ar_b_in, 0);
-  
   long i;
-  PyObject *ar_M;
-
-  PyObject *ret_new_M_r_row = NULL, *ret_new_M_r_col = NULL, *ret_new_M_s_row = NULL, *ret_new_M_s_col = NULL,
-	  *ret_cur_M_r_row = NULL, *ret_cur_M_r_col = NULL, *ret_cur_M_s_row = NULL, *ret_cur_M_s_col = NULL;
-
-  struct compressed_array *x = PyCapsule_GetPointer(obj_M, "compressed_array");
-  PyObject *ret = NULL;
-
+  int rc = -1;
   hash_val_t r_row_offset = 0;
   hash_val_t r_col_offset = 0;
 
@@ -2628,6 +2672,267 @@ static PyObject* compute_new_rows_cols_interblock(PyObject *self, PyObject *args
       break;
     }
   }
+
+  struct hash *cur_M_r_row = NULL,
+    *cur_M_r_col = NULL,
+    *cur_M_s_row = NULL,
+    *cur_M_s_col = NULL,
+    *new_M_r_row = NULL,
+    *new_M_r_col = NULL,
+    *new_M_s_row = NULL,
+    *new_M_s_col = NULL;
+    
+  /* Take references to current rows and cols. */
+  cur_M_r_row = compressed_take(x, r, 0);
+  cur_M_r_col = compressed_take(x, r, 1);
+  cur_M_s_row = compressed_take(x, s, 0);
+  cur_M_s_col = compressed_take(x, s, 1);
+
+  if (agg_move) {
+    size_t default_width = 16;
+    new_M_r_row = hash_create(default_width, 0);
+    new_M_r_col = hash_create(default_width, 0);
+  }
+  else {
+    /* Compute new_M_r_row */
+    new_M_r_row = hash_copy(cur_M_r_row, 0);
+    new_M_r_row = hash_accum_multi(new_M_r_row, (const unsigned long *) b_out, count_out, n_out, -1);
+
+    if (1 == hash_accum_single(new_M_r_row, r, -r_row_offset)) {
+      if (!(new_M_r_row = hash_resize(new_M_r_row))) { goto hash_resize_failed; }
+    }
+
+    if (1 == hash_accum_single(new_M_r_row, s, +r_row_offset)) {
+      if (!(new_M_r_row = hash_resize(new_M_r_row))) { goto hash_resize_failed; }
+    }
+
+    /* Compute new_M_r_col */
+    new_M_r_col = hash_copy(cur_M_r_col, 0);
+    new_M_r_col = hash_accum_multi(new_M_r_col, (const unsigned long *) b_in,
+				   count_in, n_in, -1);
+
+    if (1 == hash_accum_single(new_M_r_col, r, -r_col_offset)) {
+      if (!(new_M_r_col = hash_resize(new_M_r_col))) { goto hash_resize_failed; }
+    }
+
+    if (1 == hash_accum_single(new_M_r_col, s, +r_col_offset)) {
+      if (!(new_M_r_col = hash_resize(new_M_r_col))) { goto hash_resize_failed; }
+    }
+  }
+
+  /* Compute new_M_s_row */
+  new_M_s_row = hash_copy(cur_M_s_row, 0);    
+  new_M_s_row = hash_accum_multi(new_M_s_row,
+				 (const unsigned long *) b_out, count_out, n_out, +1);
+
+  if (1 == hash_accum_single(new_M_s_row, r, -s_row_offset)) {
+    if (!(new_M_s_row = hash_resize(new_M_s_row))) { goto hash_resize_failed; }
+  }
+
+  if (1 == hash_accum_single(new_M_s_row, s, +s_row_offset)) {
+    if (!(new_M_s_row = hash_resize(new_M_s_row))) { goto hash_resize_failed; }
+  }
+
+  /* Compute new_M_s_col */
+  new_M_s_col = hash_copy(cur_M_s_col, 0);
+  new_M_s_col = hash_accum_multi(new_M_s_col, (const unsigned long *) b_in,
+				 count_in, n_in, +1);
+
+  if (1 == hash_accum_single(new_M_s_col, r, -s_col_offset)) {
+    if (!(new_M_s_col = hash_resize(new_M_s_col))) { goto hash_resize_failed; }
+  }
+
+  if (1 == hash_accum_single(new_M_s_col, s, +s_col_offset)) {
+    if (!(new_M_s_col = hash_resize(new_M_s_col))) { goto hash_resize_failed; }
+  }
+
+  *p_cur_M_r_row = cur_M_r_row;
+  *p_cur_M_r_col = cur_M_r_col;
+  *p_cur_M_s_row = cur_M_s_row;
+  *p_cur_M_s_col = cur_M_s_col;
+  *p_new_M_r_row = new_M_r_row;
+  *p_new_M_r_col = new_M_r_col;
+  *p_new_M_s_row = new_M_s_row;
+  *p_new_M_s_col = new_M_s_col;
+  return 0;
+    
+hash_resize_failed:
+  hash_destroy(cur_M_r_row);
+  hash_destroy(cur_M_r_col);
+  hash_destroy(cur_M_s_row);
+  hash_destroy(cur_M_s_col);
+  hash_destroy(new_M_r_row);
+  hash_destroy(new_M_r_col);
+  hash_destroy(new_M_s_row);
+  hash_destroy(new_M_s_col);
+  return rc;
+}
+
+
+static int compute_new_rows_cols_interblock_uncompressed(PyObject *ar_M,
+							 long r, long s,
+							 const long *b_out,
+							 const long *count_out,
+							 long n_out,
+							 const long *b_in,
+							 const long *count_in,
+							 long n_in,
+							 long count_self,
+							 long agg_move,
+							 const long *M,
+							 npy_intp N,
+							 PyObject **p_cur_M_r_row,
+							 PyObject **p_cur_M_r_col,
+							 PyObject **p_cur_M_s_row,
+							 PyObject **p_cur_M_s_col,
+							 PyObject **p_new_M_r_row,
+							 PyObject **p_new_M_r_col,
+							 PyObject **p_new_M_s_row,
+							 PyObject **p_new_M_s_col)
+{
+  long i;
+  int rc = -1;
+  hash_val_t r_row_offset = 0;
+  hash_val_t r_col_offset = 0;
+
+  if (!agg_move) {
+    for (i=0; i<n_in; i++) {
+      if (b_in[i] == r) {
+	r_row_offset = count_in[i];
+	break;
+      }
+    }
+
+    for (i=0; i<n_out; i++) {
+      if (b_out[i] == r) {
+	r_col_offset = count_out[i];
+	break;
+      }
+    }
+  }
+
+  hash_val_t s_row_offset = count_self;
+  for (i=0; i<n_in; i++) {
+    if (b_in[i] == s) {
+      s_row_offset += count_in[i];
+      break;
+    }
+  }
+
+  hash_val_t s_col_offset = count_self;
+  for (i=0; i<n_out; i++) {
+    if (b_out[i] == s) {
+      s_col_offset += count_out[i];
+      break;
+    }
+  }
+
+  PyObject
+    *cur_M_r_row = NULL,
+    *cur_M_r_col = NULL,
+    *cur_M_s_row = NULL,
+    *cur_M_s_col = NULL,
+    *new_M_r_row = NULL,
+    *new_M_r_col = NULL,
+    *new_M_s_row = NULL,
+    *new_M_s_col = NULL;
+
+  cur_M_r_row = take_view(ar_M, r, 0);
+  cur_M_r_col = take_view(ar_M, r, 1);
+  cur_M_s_row = take_view(ar_M, s, 0);
+  cur_M_s_col = take_view(ar_M, s, 1);
+
+  new_M_s_row = PyArray_NewCopy((PyArrayObject *) cur_M_s_row, NPY_ANYORDER);
+  new_M_s_col = PyArray_NewCopy((PyArrayObject *) cur_M_s_col, NPY_ANYORDER);
+
+  if (agg_move) {
+    /* Consider refactoring to return Py_None (with Py_INCREF) */
+    npy_intp dims[] = { N };
+    new_M_r_row = PyArray_Zeros(1, dims,
+				PyArray_DescrNewFromType(PyArray_TYPE(ar_M)), 0);
+    new_M_r_col = PyArray_Zeros(1, dims,
+				PyArray_DescrNewFromType(PyArray_TYPE(ar_M)), 0);
+  }
+  else {
+    new_M_r_row = PyArray_NewCopy((PyArrayObject *) cur_M_r_row, NPY_ANYORDER);
+    long *c_new_M_r_row = (long *) PyArray_DATA(new_M_r_row);
+
+    for (i=0; i<n_out; i++) {
+      c_new_M_r_row[b_out[i]] -= count_out[i];
+    }
+    c_new_M_r_row[r] -= r_row_offset;
+    c_new_M_r_row[s] += r_row_offset;
+
+    new_M_r_col = PyArray_NewCopy((PyArrayObject *) cur_M_r_col, NPY_ANYORDER);
+    long *c_new_M_r_col = (long *) PyArray_DATA(new_M_r_col);
+
+    for (i=0; i<n_in; i++) {
+      c_new_M_r_col[b_in[i]] -= count_in[i];
+    }
+    c_new_M_r_col[r] -= r_col_offset;
+    c_new_M_r_col[s] += r_col_offset;
+  }
+
+  long *c_new_M_s_row = (long *) PyArray_DATA(new_M_s_row);
+  long *c_new_M_s_col = (long *) PyArray_DATA(new_M_s_col);    
+    
+  for (i=0; i<n_out; i++) {
+    c_new_M_s_row[b_out[i]] += count_out[i];
+  }
+  c_new_M_s_row[r] -= s_row_offset;
+  c_new_M_s_row[s] += s_row_offset;
+
+  for (i=0; i<n_in; i++) {
+    c_new_M_s_col[b_in[i]] += count_in[i];
+  }
+  c_new_M_s_col[r] -= s_col_offset;
+  c_new_M_s_col[s] += s_col_offset;
+
+  *p_cur_M_r_row = cur_M_r_row;
+  *p_cur_M_r_col = cur_M_r_col;
+  *p_cur_M_s_row = cur_M_s_row;
+  *p_cur_M_s_col = cur_M_s_col;
+  *p_new_M_r_row = new_M_r_row;
+  *p_new_M_r_col = new_M_r_col;
+  *p_new_M_s_row = new_M_s_row;
+  *p_new_M_s_col = new_M_s_col;
+  return 0;
+  
+}
+
+/*
+ * Args: M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move
+ */
+static PyObject* compute_new_rows_cols_interblock(PyObject *self, PyObject *args)
+{
+  PyObject *obj_M, *obj_b_out, *obj_count_out, *obj_b_in, *obj_count_in;
+  long r, s, count_self, agg_move;
+
+  if (!PyArg_ParseTuple(args, "OllOOOOll", &obj_M, &r, &s, &obj_b_out, &obj_count_out, &obj_b_in, &obj_count_in, &count_self, &agg_move)) {
+    return NULL;
+  }
+
+  const PyObject *ar_b_out = PyArray_FROM_OTF(obj_b_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_count_out = PyArray_FROM_OTF(obj_count_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_b_in = PyArray_FROM_OTF(obj_b_in, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_count_in = PyArray_FROM_OTF(obj_count_in, NPY_LONG, NPY_IN_ARRAY);
+
+  const long *b_out = (const long *) PyArray_DATA(ar_b_out);
+  const long *count_out = (const long *) PyArray_DATA(ar_count_out);
+  const long *b_in = (const long  *) PyArray_DATA(ar_b_in);
+  const long *count_in = (const long *) PyArray_DATA(ar_count_in);
+
+  long n_out= (long) PyArray_DIM(ar_b_out, 0);
+  long n_in = (long) PyArray_DIM(ar_b_in, 0);
+  
+  long i;
+  PyObject *ar_M;
+
+  PyObject *ret_new_M_r_row = NULL, *ret_new_M_r_col = NULL, *ret_new_M_s_row = NULL, *ret_new_M_s_col = NULL,
+	  *ret_cur_M_r_row = NULL, *ret_cur_M_r_col = NULL, *ret_cur_M_s_row = NULL, *ret_cur_M_s_col = NULL;
+
+  struct compressed_array *x = PyCapsule_GetPointer(obj_M, "compressed_array");
+  PyObject *ret = NULL;
   
   if (x) {
     struct hash *cur_M_r_row = NULL,
@@ -2639,68 +2944,14 @@ static PyObject* compute_new_rows_cols_interblock(PyObject *self, PyObject *args
       *new_M_s_row = NULL,
       *new_M_s_col = NULL;
     
-    /* Take references to current rows and cols. */
-    cur_M_r_row = compressed_take(x, r, 0);
-    cur_M_r_col = compressed_take(x, r, 1);
-    cur_M_s_row = compressed_take(x, s, 0);
-    cur_M_s_col = compressed_take(x, s, 1);
-
-    if (agg_move) {
-      size_t default_width = 16;
-      new_M_r_row = hash_create(default_width, 0);
-      new_M_r_col = hash_create(default_width, 0);
-    }
-    else {
-      /* Compute new_M_r_row */
-      new_M_r_row = hash_copy(cur_M_r_row, 0);
-      new_M_r_row = hash_accum_multi(new_M_r_row, (const unsigned long *) b_out, count_out, n_out, -1);
-
-      if (1 == hash_accum_single(new_M_r_row, r, -r_row_offset)) {
-	if (!(new_M_r_row = hash_resize(new_M_r_row))) { goto hash_resize_failed; }
-      }
-
-      if (1 == hash_accum_single(new_M_r_row, s, +r_row_offset)) {
-	if (!(new_M_r_row = hash_resize(new_M_r_row))) { goto hash_resize_failed; }
-      }
-
-      /* Compute new_M_r_col */
-      new_M_r_col = hash_copy(cur_M_r_col, 0);
-      new_M_r_col = hash_accum_multi(new_M_r_col, (const unsigned long *) b_in,
-				     count_in, n_in, -1);
-
-      if (1 == hash_accum_single(new_M_r_col, r, -r_col_offset)) {
-	if (!(new_M_r_col = hash_resize(new_M_r_col))) { goto hash_resize_failed; }
-      }
-
-      if (1 == hash_accum_single(new_M_r_col, s, +r_col_offset)) {
-	if (!(new_M_r_col = hash_resize(new_M_r_col))) { goto hash_resize_failed; }
-      }
-    }
-
-    /* Compute new_M_s_row */
-    new_M_s_row = hash_copy(cur_M_s_row, 0);    
-    new_M_s_row = hash_accum_multi(new_M_s_row,
-				   (const unsigned long *) b_out, count_out, n_out, +1);
-
-    if (1 == hash_accum_single(new_M_s_row, r, -s_row_offset)) {
-      if (!(new_M_s_row = hash_resize(new_M_s_row))) { goto hash_resize_failed; }
-    }
-
-    if (1 == hash_accum_single(new_M_s_row, s, +s_row_offset)) {
-      if (!(new_M_s_row = hash_resize(new_M_s_row))) { goto hash_resize_failed; }
-    }
-
-    /* Compute new_M_s_col */
-    new_M_s_col = hash_copy(cur_M_s_col, 0);
-    new_M_s_col = hash_accum_multi(new_M_s_col, (const unsigned long *) b_in,
-				     count_in, n_in, +1);
-
-    if (1 == hash_accum_single(new_M_s_col, r, -s_col_offset)) {
-      if (!(new_M_s_col = hash_resize(new_M_s_col))) { goto hash_resize_failed; }
-    }
-
-    if (1 == hash_accum_single(new_M_s_col, s, +s_col_offset)) {
-      if (!(new_M_s_col = hash_resize(new_M_s_col))) { goto hash_resize_failed; }
+    if (compute_new_rows_cols_interblock_compressed(x, r, s, b_out, count_out, n_out,
+						    b_in, count_in, n_in,
+						    count_self, agg_move,
+						    &cur_M_r_row, &cur_M_r_col, &cur_M_s_row, &cur_M_s_col,
+						    &new_M_r_row, &new_M_r_col, &new_M_s_row, &new_M_s_col) < 0)
+    {
+      PyErr_SetString(PyExc_RuntimeError, "compute_new_rows_cols_interblock_compressed failed");
+      goto done;
     }
 
     struct hash **p_new_M_r_row = create_dict(new_M_r_row);
@@ -2727,19 +2978,6 @@ static PyObject* compute_new_rows_cols_interblock(PyObject *self, PyObject *args
 			ret_new_M_r_row, ret_new_M_r_col, ret_new_M_s_row, ret_new_M_s_col,
 			ret_cur_M_r_row, ret_cur_M_r_col, ret_cur_M_s_row, ret_cur_M_s_col);
 
-    return ret;
-
-  hash_resize_failed:
-    hash_destroy(cur_M_r_row);
-    hash_destroy(cur_M_r_col);
-    hash_destroy(cur_M_s_row);
-    hash_destroy(cur_M_s_col);
-    hash_destroy(new_M_r_row);
-    hash_destroy(new_M_r_col);
-    hash_destroy(new_M_s_row);
-    hash_destroy(new_M_s_col);
-    PyErr_SetString(PyExc_RuntimeError, "hash_resize failed");
-    return NULL;
   }
   else if ((ar_M = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY))) {
     PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
@@ -2756,73 +2994,276 @@ static PyObject* compute_new_rows_cols_interblock(PyObject *self, PyObject *args
 
     const long *M = (const long *) PyArray_DATA(ar_M);
     npy_intp N = PyArray_DIM(ar_M, 0);
-
-    cur_M_r_row = take_view(ar_M, r, 0);
-    cur_M_r_col = take_view(ar_M, r, 1);
-    cur_M_s_row = take_view(ar_M, s, 0);
-    cur_M_s_col = take_view(ar_M, s, 1);
-
-    new_M_s_row = PyArray_NewCopy((PyArrayObject *) cur_M_s_row, NPY_ANYORDER);
-    new_M_s_col = PyArray_NewCopy((PyArrayObject *) cur_M_s_col, NPY_ANYORDER);
-
-    if (agg_move) {
-      /* Consider refactoring to return Py_None (with Py_INCREF) */
-      npy_intp dims[] = { N };
-      new_M_r_row = PyArray_Zeros(1, dims,
-				      PyArray_DescrNewFromType(PyArray_TYPE(ar_M)), 0);
-      new_M_r_col = PyArray_Zeros(1, dims,
-				      PyArray_DescrNewFromType(PyArray_TYPE(ar_M)), 0);
-    }
-    else {
-      new_M_r_row = PyArray_NewCopy((PyArrayObject *) cur_M_r_row, NPY_ANYORDER);
-      long *c_new_M_r_row = (long *) PyArray_DATA(new_M_r_row);
-
-      for (i=0; i<n_out; i++) {
-	c_new_M_r_row[b_out[i]] -= count_out[i];
-      }
-      c_new_M_r_row[r] -= r_row_offset;
-      c_new_M_r_row[s] += r_row_offset;
-
-      new_M_r_col = PyArray_NewCopy((PyArrayObject *) cur_M_r_col, NPY_ANYORDER);
-      long *c_new_M_r_col = (long *) PyArray_DATA(new_M_r_col);
-
-      for (i=0; i<n_in; i++) {
-	c_new_M_r_col[b_in[i]] -= count_in[i];
-      }
-      c_new_M_r_col[r] -= r_col_offset;
-      c_new_M_r_col[s] += r_col_offset;
-    }
-
-    long *c_new_M_s_row = (long *) PyArray_DATA(new_M_s_row);
-    long *c_new_M_s_col = (long *) PyArray_DATA(new_M_s_col);    
     
-    for (i=0; i<n_out; i++) {
-      c_new_M_s_row[b_out[i]] += count_out[i];
+    if (compute_new_rows_cols_interblock_uncompressed(ar_M, r, s, b_out, count_out, n_out,
+						      b_in, count_in, n_in,
+						      count_self, agg_move,
+						      M,
+						      N,
+						      &cur_M_r_row, &cur_M_r_col, &cur_M_s_row, &cur_M_s_col,
+						      &new_M_r_row, &new_M_r_col, &new_M_s_row, &new_M_s_col) < 0)
+    {
+      PyErr_SetString(PyExc_RuntimeError, "compute_new_rows_cols_interblock_compressed failed");
+      goto done;
     }
-    c_new_M_s_row[r] -= s_row_offset;
-    c_new_M_s_row[s] += s_row_offset;
-
-    for (i=0; i<n_in; i++) {
-      c_new_M_s_col[b_in[i]] += count_in[i];
-    }
-    c_new_M_s_col[r] -= s_col_offset;
-    c_new_M_s_col[s] += s_col_offset;
-    
-    
     ret = Py_BuildValue("NNNNNNNN",
 			new_M_r_row, new_M_r_col, new_M_s_row, new_M_s_col,
 			cur_M_r_row, cur_M_r_col, cur_M_s_row, cur_M_s_col);
-    
     Py_DECREF(ar_M);
+
   }
   else {
-    PyErr_SetString(PyExc_RuntimeError, "Invalid obj_M object type.");    
+    PyErr_SetString(PyExc_RuntimeError, "Invalid obj_M object type.");
   }
 
+done:
   Py_DECREF(ar_b_out);
   Py_DECREF(ar_count_out);
   Py_DECREF(ar_b_in);
   Py_DECREF(ar_count_in);
+
+  return ret;
+}
+
+static PyObject* propose_node_movement(PyObject *self, PyObject *args)
+{
+  PyObject *obj_partition,
+    *obj_out_neighbors, *obj_out_neighbor_weights, *obj_in_neighbors, *obj_in_neighbor_weights,
+    *obj_M,
+    *obj_block_degrees, *obj_block_degrees_out, *obj_block_degrees_in,
+    *obj_neighbors, *obj_neighbor_weights, *obj_self_edge_weights;
+
+  long ni, num_out_neighbor_edges, num_in_neighbor_edges, num_neighbor_edges, num_blocks;
+  double beta;
+  /* vertex_neighbors is a list */
+  /* self_edge_weights is a defaultdict */
+  if (!PyArg_ParseTuple(args, "lOOOOOOlOOOlllOOOd",
+			&ni,
+			&obj_partition,
+			&obj_out_neighbors, &obj_out_neighbor_weights,
+			&obj_in_neighbors, &obj_in_neighbor_weights,
+			&obj_M,
+			&num_blocks,
+			&obj_block_degrees, &obj_block_degrees_out, &obj_block_degrees_in,
+			&num_out_neighbor_edges, &num_in_neighbor_edges, &num_neighbor_edges,
+			&obj_neighbors, &obj_neighbor_weights,
+			&obj_self_edge_weights, &beta))
+  {
+    PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
+    return NULL;
+  }
+
+  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_out_neighbors = PyArray_FROM_OTF(obj_out_neighbors, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_out_neighbor_weights = PyArray_FROM_OTF(obj_out_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_in_neighbors = PyArray_FROM_OTF(obj_in_neighbors, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_in_neighbor_weights = PyArray_FROM_OTF(obj_in_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
+
+  struct compressed_array *M = PyCapsule_GetPointer(obj_M, "compressed_array");
+
+  /* d, d_out, d_in have size num_blocks */
+  const PyObject *ar_d = PyArray_FROM_OTF(obj_block_degrees, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d_out = PyArray_FROM_OTF(obj_block_degrees_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d_in = PyArray_FROM_OTF(obj_block_degrees_in, NPY_LONG, NPY_IN_ARRAY);    
+  const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_neighbor_weights = PyArray_FROM_OTF(obj_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
+  /* self_edge_weights unused for now */
+
+  const long *partition = (const long  *) PyArray_DATA(ar_partition);
+  const long *out_neighbors = (const long *) PyArray_DATA(ar_out_neighbors);
+  const long *out_neighbor_weights = (const long *) PyArray_DATA(ar_out_neighbor_weights);
+  const long *in_neighbors = (const long *) PyArray_DATA(ar_in_neighbors);
+  const long *in_neighbor_weights = (const long *) PyArray_DATA(ar_in_neighbor_weights);
+
+  const long *d = (const long *) PyArray_DATA(ar_d);
+  const long *d_out = (const long *) PyArray_DATA(ar_d_out);
+  const long *d_in = (const long *) PyArray_DATA(ar_d_in);
+
+  const long *neighbors = (const long *) PyArray_DATA(ar_neighbors);
+  const long *neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
+
+  long n_out_neighbors = (long) PyArray_DIM(ar_out_neighbors, 0);
+  long n_in_neighbors = (long) PyArray_DIM(ar_in_neighbors, 0);  
+  long n_neighbors = (long) PyArray_DIM(ar_neighbors, 0);
+  long N = (long) PyArray_DIM(ar_partition, 0);
+
+  PyObject *ret = NULL;
+  
+  long *b_out = NULL, *b_in = NULL;
+  long *count_out = NULL, *count_in = NULL, n_out, n_in;
+  long *d_out_new = NULL, *d_in_new = NULL, *d_new = NULL;
+  double p_accept = 0.0, delta_entropy = 0.0, hastings = 0.0;
+
+  struct hash *cur_M_r_row = NULL,
+    *cur_M_r_col = NULL,
+    *cur_M_s_row = NULL,
+    *cur_M_s_col = NULL,
+    *new_M_r_row = NULL,
+    *new_M_r_col = NULL,
+    *new_M_s_row = NULL,
+    *new_M_s_col = NULL;
+
+  if (!M) {
+    PyErr_SetString(PyExc_RuntimeError, "Invalid compressed array pointer");
+    goto done;
+  }
+
+  long r = partition[ni];
+  long s = propose_new_partition(r, neighbors, neighbor_weights, partition,
+				 M, d, n_neighbors, N, num_blocks, 0);
+
+  if (s == r) {
+    ret = Py_BuildValue("kkkdd", ni,r,s,delta_entropy,p_accept);
+    goto done;
+  }
+ 
+  if (blocks_and_counts(partition, out_neighbors, out_neighbor_weights, n_out_neighbors, &b_out, &count_out, &n_out) < 0) {
+    PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts_failed");
+    goto done;
+  }
+
+  if (blocks_and_counts(partition, in_neighbors, in_neighbor_weights, n_in_neighbors, &b_in, &count_in, &n_in) < 0) {
+    PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts_failed");    
+    goto done;
+  }
+
+  long self_edge_weight = 0;
+
+  if (compute_new_rows_cols_interblock_compressed(M, r, s, b_out, count_out, n_out,
+						  b_in, count_in, n_in,
+						  self_edge_weight,
+						  0,
+						  &cur_M_r_row, &cur_M_r_col, &cur_M_s_row, &cur_M_s_col,
+						  &new_M_r_row, &new_M_r_col, &new_M_s_row, &new_M_s_col) < 0)
+  {
+    PyErr_SetString(PyExc_RuntimeError, "compute_new_rows_cols_interblock_compressed failed");
+    goto done;
+  }
+  
+  d_out_new = malloc(num_blocks * sizeof(long));
+
+  if (!d_out_new) {
+    PyErr_SetFromErrnoWithFilename(PyExc_RuntimeError, "malloc d_out_new failed");
+    goto done;
+  }
+  
+  d_in_new = malloc(num_blocks * sizeof(long));
+
+  if (!d_in_new) {
+    PyErr_SetFromErrnoWithFilename(PyExc_RuntimeError, "malloc d_in_new failed");
+    goto done;    
+  }
+  
+  d_new = malloc(num_blocks * sizeof(long));
+
+  if (!d_new) {
+    PyErr_SetFromErrnoWithFilename(PyExc_RuntimeError, "malloc d_new failed");
+    goto done;    
+  }
+
+#if 0
+  if (r >= N) {
+    PyErr_SetString(PyExc_RuntimeError, "Sanity check r < N failed.");
+    goto done;
+  }
+  if (r < 0) {
+    PyErr_SetString(PyExc_RuntimeError, "Sanity check r >= 0 failed.");
+    goto done;
+  }
+  if (s >= N) {
+    PyErr_SetString(PyExc_RuntimeError, "Sanity check s < N failed.");
+    goto done;
+  }
+  if (s < 0) {
+    PyErr_SetString(PyExc_RuntimeError, "Sanity check s >= 0 failed.");
+    goto done;
+  }
+
+  if (num_blocks != PyArray_DIM(ar_d_in, 0)) {
+    fprintf(stderr, "N = %ld len(d_in) = %ld\n", N, PyArray_DIM(ar_d_in, 0));
+    PyErr_SetString(PyExc_RuntimeError, "Sanity check B == len(d_in) failed.");
+    goto done;    
+  }
+
+  if (num_blocks != PyArray_DIM(ar_d_out, 0)) {
+    PyErr_SetString(PyExc_RuntimeError, "Sanity check B == len(d_out) failed.");
+    goto done;    
+  }
+
+  if (num_blocks != PyArray_DIM(ar_d, 0)) {
+    PyErr_SetString(PyExc_RuntimeError, "Sanity check B == len(d) failed.");
+    goto done;    
+  }
+#endif  
+
+  memcpy(d_out_new, d_out, num_blocks * sizeof(long));
+  memcpy(d_in_new, d_in, num_blocks * sizeof(long));
+  memcpy(d_new, d, num_blocks * sizeof(long));  
+
+  d_out_new[r] -= num_out_neighbor_edges;
+  d_out_new[s] += num_out_neighbor_edges;
+  d_in_new[r] -= num_in_neighbor_edges;
+  d_in_new[s] += num_in_neighbor_edges;
+  d_new[s] = d_out[s] + d_in[s];
+  d_new[r] = d_out[r] + d_in[r];
+
+  int rc = hastings_correction(
+    b_out, count_out, n_out,
+    b_in, count_in, n_in,
+    cur_M_s_row,
+    cur_M_s_col,
+    new_M_r_row,
+    new_M_r_col,
+    num_blocks,
+    d,
+    d_new,
+    1,
+    &hastings);
+
+  if (rc < 0) {
+    PyErr_SetFromErrnoWithFilename(PyExc_RuntimeError, "hastings_correction failed");
+    goto done;
+  }
+
+  delta_entropy = compute_delta_entropy(r, s, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col,
+					new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col,
+					d_out, d_in, d_out_new, d_in_new, N);
+  if (delta_entropy > 10.0)
+    delta_entropy = 10.0;
+  else if (delta_entropy < -10.0)
+    delta_entropy = -10.0;
+  
+  p_accept = exp(-beta * delta_entropy) * hastings;
+
+  if (p_accept > 1.0)
+    p_accept = 1.0;
+
+  ret = Py_BuildValue("kkkdd", ni,r,s,delta_entropy,p_accept);
+
+done:
+  hash_destroy(new_M_r_row);
+  hash_destroy(new_M_r_col);
+  hash_destroy(new_M_s_row);
+  hash_destroy(new_M_s_col);
+
+  free(b_out);
+  free(count_out);  
+  free(b_in);
+  free(count_in);  
+  free(d_out_new);
+  free(d_in_new);
+  free(d_new);
+
+  Py_DECREF(ar_partition);
+  Py_DECREF(ar_out_neighbors);
+  Py_DECREF(ar_out_neighbor_weights);
+  Py_DECREF(ar_in_neighbors);
+  Py_DECREF(ar_in_neighbor_weights);
+  Py_DECREF(ar_neighbors);
+  Py_DECREF(ar_neighbor_weights);  
+  Py_DECREF(ar_d);
+  Py_DECREF(ar_d_out);
+  Py_DECREF(ar_d_in);
 
   return ret;
 }
@@ -2868,7 +3309,6 @@ static PyObject* rebuild_M(PyObject *self, PyObject *args)
   Py_DECREF(ar_weights);
   Py_RETURN_NONE;
 }
-
 
 /*
  * Args: partition, vertex_id_start, vertex_id_end, neighbors[vid], weights[vid]
@@ -3032,10 +3472,11 @@ static PyMethodDef compressed_array_methods[] =
    { "inplace_apply_movement_compressed_interblock_matrix", inplace_apply_movement_compressed_interblock_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
    { "inplace_apply_movement_uncompressed_interblock_matrix", inplace_apply_movement_uncompressed_interblock_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
    { "compute_new_rows_cols_interblock", compute_new_rows_cols_interblock, METH_VARARGS, "" },
-   { "blocks_and_counts", blocks_and_counts, METH_VARARGS, "" },
+   { "blocks_and_counts", blocks_and_counts_py, METH_VARARGS, "" },
    { "combine_key_value_pairs", combine_key_value_pairs_py, METH_VARARGS, "" },
    { "hastings_correction", hastings_correction_py, METH_VARARGS, "" },
-   { "propose_new_partition", propose_new_partition, METH_VARARGS, "" },   
+   { "propose_new_partition", propose_new_partition_py, METH_VARARGS, "" },
+   { "propose_node_movement", propose_node_movement, METH_VARARGS, "" },
    { "rebuild_M", rebuild_M, METH_VARARGS, "" },
    { "rebuild_M_compressed", rebuild_M_compressed, METH_VARARGS, "" },
    { "nonzero_count", nonzero_count, METH_VARARGS, "" },
@@ -3044,7 +3485,7 @@ static PyMethodDef compressed_array_methods[] =
    { "shared_memory_reserve", shared_memory_reserve, METH_VARARGS, "" },
    { "hash_pointer", hash_pointer, METH_VARARGS, "" },
    { "info", info, METH_NOARGS, "Get implementation info." },
-   { "seed", seed, METH_NOARGS, "Set random number seed from system urandom." },
+   { "seed", seed, METH_VARARGS, "Set random number seed from system urandom." },
    {NULL, NULL, 0, NULL}
   };
 
