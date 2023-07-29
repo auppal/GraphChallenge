@@ -1794,6 +1794,55 @@ static inline double entropy_row_excl(struct hash *h, const int64_t *restrict de
   return sum;
 }
 
+
+static inline double entropy_row_subst(struct hash *h, const int64_t *restrict deg, long N, int64_t c, uint64_t r, uint64_t s, int64_t deg_r, int64_t deg_s)
+{
+  double sum = 0.0;
+  float log_c;
+  size_t i;
+
+  if (c == 0) {
+    return 0.0;
+  }
+
+  log_c = logf(c);
+
+  const hash_key_t *restrict keys = hash_get_keys(h);
+  const hash_val_t *restrict vals = hash_get_vals(h);
+
+  /* Iterate over existing keys and values */
+  for (i=0; i<h->width; i++) {
+    if (keys[i] != EMPTY_KEY && keys[i] != r && keys[i] != s) {
+      hash_val_t xi = vals[i];
+      int64_t yi = deg[keys[i]];
+      if (xi > 0 && yi > 0) {
+	sum += xi * (logf((float) xi / yi) - log_c);
+      }
+    }
+  }
+
+  /* Factor in substitutions */
+  hash_val_t xr, xs;
+  int64_t yr = deg_r, ys = deg_s;
+
+  if (yr > 0) {
+    hash_search(h, r, &xr);  
+    if (xr > 0) {
+      sum += xr * (logf((float) xr / yr) - log_c);
+    }
+  }
+
+  if (ys > 0) {
+    hash_search(h, s, &xs);  
+    if (xs > 0) {
+      sum += xs * (logf((float) xs / ys) - log_c);
+    }
+  }
+
+  return sum;
+}
+
+
 static PyObject* dict_entropy_row_excl(PyObject *self, PyObject *args)
 {
   PyObject *hash_obj, *deg_obj;
@@ -1824,17 +1873,28 @@ static PyObject* dict_entropy_row_excl(PyObject *self, PyObject *args)
   return ret;
 }
 
-static double compute_delta_entropy(long r, long s, struct hash *cur_M_r_row, struct hash *cur_M_s_row, struct hash *cur_M_r_col, struct hash *cur_M_s_col, struct hash *M_r_row, struct hash *M_s_row, struct hash *M_r_col, struct hash *M_s_col, const long *d_out, const long *d_in, const long *d_out_new, const long *d_in_new, long N)
+static double compute_delta_entropy(long r, long s, struct hash *cur_M_r_row, struct hash *cur_M_s_row, struct hash *cur_M_r_col, struct hash *cur_M_s_col, struct hash *M_r_row, struct hash *M_s_row, struct hash *M_r_col, struct hash *M_s_col, const long *d_out, const long *d_in, long d_out_new_r, long d_out_new_s, long d_in_new_r, long d_in_new_s, long N)
 {
+  
+  /* d_out_new excludes r and s in the computation. But that means it
+   * is identical to d_out
+   * Next, the full d_new arrays are not needed. Just substitute the
+   * new values as needed.
+   */
+
   double d0, d1, d2, d3, d4, d5, d6, d7;
-  d0 = entropy_row(M_r_row, d_in_new, N, d_out_new[r]);
-  d1 = entropy_row(M_s_row, d_in_new, N, d_out_new[s]);
-  d2 = entropy_row_excl(M_r_col, d_out_new, N, d_in_new[r], r, s);
-  d3 = entropy_row_excl(M_s_col, d_out_new, N, d_in_new[s], r, s);
-  d4 = entropy_row(cur_M_r_row,  d_in, N, d_out[r]);
-  d5 = entropy_row(cur_M_s_row,  d_in, N, d_out[s]);
+  d0 = entropy_row_subst(M_r_row, d_in, N, d_out_new_r, r, s, d_in_new_r, d_in_new_s);
+  d1 = entropy_row_subst(M_s_row, d_in, N, d_out_new_s, r, s, d_in_new_r, d_in_new_s);
+
+  d2 = entropy_row_excl(M_r_col, d_out, N, d_in_new_r, r, s);
+  d3 = entropy_row_excl(M_s_col, d_out, N, d_in_new_s, r, s);
+
+  d4 = entropy_row_subst(cur_M_r_row,  d_in, N, d_out[r], r, s, d_in[r], d_in[s]);
+  d5 = entropy_row_subst(cur_M_s_row,  d_in, N, d_out[s], r, s, d_in[r], d_in[s]);
+
   d6 = entropy_row_excl(cur_M_r_col, d_out, N, d_in[r], r, s);
   d7 = entropy_row_excl(cur_M_s_col, d_out, N, d_in[s], r, s);
+
   return -d0 - d1 - d2 - d3 + d4 + d5 + d6 + d7;
 }
 
@@ -2112,7 +2172,10 @@ static inline int hastings_correction(const long *b_out, const long *count_out, 
 				      const void *p_new_M_r_col,
 				      long B,
 				      const long *d,
-				      const long *d_new,
+				      long r,
+				      long s,
+				      long d_new_r,
+				      long d_new_s,
 				      int is_hash,
 				      double *prob)
 {
@@ -2168,7 +2231,18 @@ static inline int hastings_correction(const long *b_out, const long *count_out, 
   }
   
   for (i=0; i<n_t; i++) {
-    double c = (double) count[i] / (d_new[t[i]] + B);
+    long d_new_ti;
+    if (t[i] == r) {
+      d_new_ti = d_new_r;
+    }
+    else if (t[i] == s) {
+      d_new_ti = d_new_s;
+    }
+    else {
+      d_new_ti = d[t[i]];
+    }
+    
+    double c = (double) count[i] / (d_new_ti + B);
     prob_back += c * M_r_row_t[i];
     prob_back += c * (M_r_col_t[i] + 1);
   }
@@ -2186,8 +2260,11 @@ exit:
 
 static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
 {
-  PyObject *obj_b_out, *obj_count_out, *obj_b_in, *obj_count_in, *obj_cur_M_s_row, *obj_cur_M_s_col, *obj_M_r_row, *obj_M_r_col, *obj_d, *obj_d_new;
+  PyErr_SetString(PyExc_RuntimeError, "Temporarily out of order after d_*new.");
+  return NULL;
+
   
+  PyObject *obj_b_out, *obj_count_out, *obj_b_in, *obj_count_in, *obj_cur_M_s_row, *obj_cur_M_s_col, *obj_M_r_row, *obj_M_r_col, *obj_d, *obj_d_new;
   long B;
 
   if (!PyArg_ParseTuple(args, "OOOOOOOOlOO",
@@ -2237,7 +2314,9 @@ static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
 
   int rc;
   double prob;
+  long r = 0, s = 0; /* XXX */
 
+  
   if (PyCapsule_GetPointer(obj_cur_M_s_row, "compressed_array_dict")) {
     struct hash *cur_M_s_row = *((struct hash **) PyCapsule_GetPointer(obj_cur_M_s_row, "compressed_array_dict"));
     struct hash *cur_M_s_col = *((struct hash **) PyCapsule_GetPointer(obj_cur_M_s_col, "compressed_array_dict"));
@@ -2253,7 +2332,10 @@ static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
       M_r_col,
       B,
       d,
-      d_new,
+      r,
+      s,
+      d_new[r],
+      d_new[s],
       1,
       &prob);
   }
@@ -2278,7 +2360,10 @@ static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
       M_r_col,
       B,
       d,
-      d_new,
+      r,
+      s,
+      d_new[r],
+      d_new[s],
       0,
       &prob);
 
@@ -3091,7 +3176,6 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   
   long *b_out = NULL, *b_in = NULL;
   long *count_out = NULL, *count_in = NULL, n_out, n_in;
-  long *d_out_new = NULL, *d_in_new = NULL, *d_new = NULL;
   double p_accept = 0.0, delta_entropy = 0.0, hastings = 0.0;
 
   struct hash *cur_M_r_row = NULL,
@@ -3139,73 +3223,14 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
     PyErr_SetString(PyExc_RuntimeError, "compute_new_rows_cols_interblock_compressed failed");
     goto done;
   }
-  
-  d_out_new = malloc(num_blocks * sizeof(long));
 
-  if (!d_out_new) {
-    PyErr_SetFromErrnoWithFilename(PyExc_RuntimeError, "malloc d_out_new failed");
-    goto done;
-  }
-  
-  d_in_new = malloc(num_blocks * sizeof(long));
+  long d_out_new_r = d_out[r] - num_out_neighbor_edges;
+  long d_out_new_s = d_out[s] + num_out_neighbor_edges;
+  long d_in_new_r = d_in[r] - num_in_neighbor_edges;
+  long d_in_new_s = d_in[s] + num_in_neighbor_edges;
 
-  if (!d_in_new) {
-    PyErr_SetFromErrnoWithFilename(PyExc_RuntimeError, "malloc d_in_new failed");
-    goto done;    
-  }
-  
-  d_new = malloc(num_blocks * sizeof(long));
-
-  if (!d_new) {
-    PyErr_SetFromErrnoWithFilename(PyExc_RuntimeError, "malloc d_new failed");
-    goto done;    
-  }
-
-#if 0
-  if (r >= N) {
-    PyErr_SetString(PyExc_RuntimeError, "Sanity check r < N failed.");
-    goto done;
-  }
-  if (r < 0) {
-    PyErr_SetString(PyExc_RuntimeError, "Sanity check r >= 0 failed.");
-    goto done;
-  }
-  if (s >= N) {
-    PyErr_SetString(PyExc_RuntimeError, "Sanity check s < N failed.");
-    goto done;
-  }
-  if (s < 0) {
-    PyErr_SetString(PyExc_RuntimeError, "Sanity check s >= 0 failed.");
-    goto done;
-  }
-
-  if (num_blocks != PyArray_DIM(ar_d_in, 0)) {
-    fprintf(stderr, "N = %ld len(d_in) = %ld\n", N, PyArray_DIM(ar_d_in, 0));
-    PyErr_SetString(PyExc_RuntimeError, "Sanity check B == len(d_in) failed.");
-    goto done;    
-  }
-
-  if (num_blocks != PyArray_DIM(ar_d_out, 0)) {
-    PyErr_SetString(PyExc_RuntimeError, "Sanity check B == len(d_out) failed.");
-    goto done;    
-  }
-
-  if (num_blocks != PyArray_DIM(ar_d, 0)) {
-    PyErr_SetString(PyExc_RuntimeError, "Sanity check B == len(d) failed.");
-    goto done;    
-  }
-#endif  
-
-  memcpy(d_out_new, d_out, num_blocks * sizeof(long));
-  memcpy(d_in_new, d_in, num_blocks * sizeof(long));
-  memcpy(d_new, d, num_blocks * sizeof(long));  
-
-  d_out_new[r] -= num_out_neighbor_edges;
-  d_out_new[s] += num_out_neighbor_edges;
-  d_in_new[r] -= num_in_neighbor_edges;
-  d_in_new[s] += num_in_neighbor_edges;
-  d_new[s] = d_out[s] + d_in[s];
-  d_new[r] = d_out[r] + d_in[r];
+  long d_new_s = d_out_new_s + d_in_new_s;
+  long d_new_r = d_out_new_r + d_in_new_r;
 
   int rc = hastings_correction(
     b_out, count_out, n_out,
@@ -3216,7 +3241,10 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
     new_M_r_col,
     num_blocks,
     d,
-    d_new,
+    r,
+    s,
+    d_new_r,
+    d_new_s,
     1,
     &hastings);
 
@@ -3227,7 +3255,8 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
 
   delta_entropy = compute_delta_entropy(r, s, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col,
 					new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col,
-					d_out, d_in, d_out_new, d_in_new, N);
+					d_out, d_in,
+					d_out_new_r, d_out_new_s, d_in_new_r, d_in_new_s, N);
   if (delta_entropy > 10.0)
     delta_entropy = 10.0;
   else if (delta_entropy < -10.0)
@@ -3249,10 +3278,7 @@ done:
   free(b_out);
   free(count_out);  
   free(b_in);
-  free(count_in);  
-  free(d_out_new);
-  free(d_in_new);
-  free(d_new);
+  free(count_in);
 
   Py_DECREF(ar_partition);
   Py_DECREF(ar_out_neighbors);
