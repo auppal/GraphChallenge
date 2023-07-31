@@ -460,11 +460,13 @@ def propose_new_partition(r, neighbors, neighbor_weights, b, M, d, B, agg_move):
         return s2
 
 # Old Python version. Kept only for debugging.
+# r and s may not be in (b_in, b_out)
 def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out, b_in, count_in, count_self, agg_move):
-    B = M.shape[0]
-
+    compressed = is_compressed(M)
     if not compressed:
+        B = M.shape[0]
         if agg_move:
+            # the r row and column are simply empty after a merge move
             new_M_r_row = np.zeros(B, dtype=M.dtype)
             new_M_r_col = np.zeros(B, dtype=M.dtype)            
 
@@ -481,8 +483,8 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         cur_M_r_col = compressed_array.take_dict_ref(M, r, 1)
         cur_M_s_row = compressed_array.take_dict_ref(M, s, 0)
         cur_M_s_col = compressed_array.take_dict_ref(M, s, 1)
-    
-    if not agg_move:  # the r row and column are simply empty after this merge move
+
+    if not agg_move:
         where_b_in_r = np.where(b_in == r)
         where_b_out_r = np.where(b_out == r)
 
@@ -500,7 +502,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
 
         r_col_offset = np.sum(count_out[where_b_out_r])
 
-        if not compressed:
+        if not is_compressed(M):
             new_M_r_col = cur_M_r_col.copy()
             new_M_r_col[b_in] -= count_in
             new_M_r_col[r] -= r_col_offset
@@ -538,7 +540,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         compressed_array.accum_dict(new_M_s_col, b_in, +count_in)
         compressed_array.accum_dict(new_M_s_col, [r, s], [-s_col_offset, +s_col_offset])
 
-    return new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col
+    return new_M_r_row, new_M_r_col, new_M_s_row, new_M_s_col, cur_M_r_row, cur_M_r_col, cur_M_s_row, cur_M_s_col
 
 
 def compute_new_block_degrees(r, s, d_out, d_in, d, k_out, k_in, k):
