@@ -2260,17 +2260,14 @@ exit:
 
 static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
 {
-  PyErr_SetString(PyExc_RuntimeError, "Temporarily out of order after d_*new.");
-  return NULL;
-
-  
   PyObject *obj_b_out, *obj_count_out, *obj_b_in, *obj_count_in, *obj_cur_M_s_row, *obj_cur_M_s_col, *obj_M_r_row, *obj_M_r_col, *obj_d, *obj_d_new;
   long B;
+  long r = 0, s = 0;
 
-  if (!PyArg_ParseTuple(args, "OOOOOOOOlOO",
+  if (!PyArg_ParseTuple(args, "OOOOOOOOlOOll",
 			&obj_b_out, &obj_count_out, &obj_b_in, &obj_count_in,
 			&obj_cur_M_s_row, &obj_cur_M_s_col, &obj_M_r_row, &obj_M_r_col,
-			&B, &obj_d, &obj_d_new))
+			&B, &obj_d, &obj_d_new, &r, &s))
     {
       return NULL;
     }
@@ -2314,8 +2311,6 @@ static PyObject* hastings_correction_py(PyObject *self, PyObject *args)
 
   int rc;
   double prob;
-  long r = 0, s = 0; /* XXX */
-
   
   if (PyCapsule_GetPointer(obj_cur_M_s_row, "compressed_array_dict")) {
     struct hash *cur_M_s_row = *((struct hash **) PyCapsule_GetPointer(obj_cur_M_s_row, "compressed_array_dict"));

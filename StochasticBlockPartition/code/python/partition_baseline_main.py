@@ -511,7 +511,9 @@ def propose_node_movement(ni, partition, out_neighbors, out_neighbor_weights, in
             new_M_r_row,
             new_M_r_col,
             num_blocks, block_degrees,
-            block_degrees_new)
+            block_degrees_new,
+            r,
+            s)
 
         # compute change in entropy / posterior
         delta_entropy = compute_delta_entropy(r, s,
@@ -705,16 +707,25 @@ def recompute_M(B, partition, out_neighbors):
             M[k1, k2] += count
     return M
 
+def compressed_compare(M, M2):
+    for i in range(M2.shape[0]):
+        for j in range(M2.shape[1]):
+            if compressed_array.getitem(M, i, j) != M2[i,j]:
+                outer,inner = compressed_array.hash_pointer(M, i,j)
+                print("    Mismatch at %d %d 0x%x 0x%x" % (i,j,outer,inner))
+                return False
+    return True
 
 def sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees):
-    M2 = recompute_M(M.shape[0], partition, out_neighbors)
+    B = len(block_degrees_out)
+    M2 = recompute_M(B, partition, out_neighbors)
     bd_out = np.sum(M2, axis=1)
     bd_in = np.sum(M2, axis=0)
     bd = np.add(bd_out, bd_in)
     
     if is_compressed(M):
         compressed_array.sanity_check(M)
-        if not (M == M2):
+        if not compressed_compare(M, M2):
             raise Exception("Sanity check of interblock edge count matrix failed.")
     else:
         if not np.array_equal(M, M2):
