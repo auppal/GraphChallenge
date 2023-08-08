@@ -3175,10 +3175,18 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   const long d_in_new_r = d_in[r] + dM_r_col_sum;
   const long d_in_new_s = d_in[s] - dM_r_col_sum;  
 
+#if 0
   const long Mrr = *(long *)PyArray_GETPTR2(M, r, r);
   const long Mrs = *(long *)PyArray_GETPTR2(M, r, s);
   const long Msr = *(long *)PyArray_GETPTR2(M, s, r);
   const long Mss = *(long *)PyArray_GETPTR2(M, s, s);
+#else
+  long Mrr, Mrs, Msr, Mss;
+  compressed_get_single(M, r, r, &Mrr);
+  compressed_get_single(M, r, s, &Mrs);
+  compressed_get_single(M, s, r, &Msr);
+  compressed_get_single(M, s, s, &Mss);
+#endif
   long Nrr = Mrr, Nrs = Mrs, Nsr = Msr, Nss = Mss;
   long Mij;
 
@@ -3224,7 +3232,11 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   cur_S_r_row -= xlogx(d_out[r]);  
   new_S_r_row -= xlogx(d_out_new_r);
   for (i=0; i<n_out; i++) {
-    Mij = *(long *)PyArray_GETPTR2(M, r, b_out[i]);    
+#if 0    
+    Mij = *(long *)PyArray_GETPTR2(M, r, b_out[i]);
+#else
+    compressed_get_single(M, r, b_out[i], &Mij);
+#endif
 
     if (b_out[i] == r) {
       Nrr -= count_out[i];
@@ -3292,7 +3304,11 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   new_S_s_row -= d_out_new_s * logx(d_out_new_s);
 
   for (i=0; i<n_out; i++) {
+#if 0    
     Mij = *(long *)PyArray_GETPTR2(M, s, b_out[i]);
+#else
+    compressed_get_single(M, s, b_out[i], &Mij);
+#endif
 
     if (b_out[i] == r) {
       Nsr += count_out[i];
@@ -3360,7 +3376,11 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   new_S_r_col -= xlogx(d_in_new_r);
 
   for (i=0; i<n_in; i++) {
+#if 0    
     Mij = *(long *)PyArray_GETPTR2(M, b_in[i], r);
+#else
+    compressed_get_single(M, b_in[i], r, &Mij);
+#endif    
 
     if (b_in[i] == r || b_in[i] == s) {
       continue;
@@ -3379,7 +3399,11 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   new_S_s_col -= xlogx(d_in_new_s);
 
   for (i=0; i<n_in; i++) {
+#if 0    
     Mij = *(long *)PyArray_GETPTR2(M, b_in[i], s);
+#else
+    compressed_get_single(M, b_in[i], s, &Mij);
+#endif    
     
     if (b_in[i] == r || b_in[i] == s) {
       continue;
@@ -3394,14 +3418,26 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
 
   /* Hastings correction */
   for (i=0; i<n_out; i++) {
+#if 0    
     long Mts = *(long *)PyArray_GETPTR2(M, b_out[i], s);
     long Mst = *(long *)PyArray_GETPTR2(M, s, b_out[i]);
+#else
+    long Mts, Mst;
+    compressed_get_single(M, b_out[i], s, &Mts);
+    compressed_get_single(M, s, b_out[i], &Mst);
+#endif    
     prob_fwd += count_out[i] * (Mts + Mst + 1) / (B + d[b_out[i]]);
   }
 
   for (i=0; i<n_in; i++) {
-    long Mst = *(long *)PyArray_GETPTR2(M, b_in[i], s);
-    long Mts = *(long *)PyArray_GETPTR2(M, s, b_in[i]);
+#if 0    
+    long Mts = *(long *)PyArray_GETPTR2(M, b_in[i], s);
+    long Mst = *(long *)PyArray_GETPTR2(M, s, b_in[i]);
+#else
+    long Mst, Mts;
+    compressed_get_single(M, b_in[i], s, &Mts);
+    compressed_get_single(M, s, b_in[i], &Mst);
+#endif    
     prob_fwd += count_in[i] * (Mts + Mst + 1) / (B + d[b_in[i]]);
   }
 
@@ -3409,7 +3445,13 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   const long d_new_s = d_out_new_s + d_in_new_s;
 
   for (i=0; i<n_out; i++) {
+#if 0    
     long Mtr, Mrt = *(long *)PyArray_GETPTR2(M, r, b_out[i]) - count_out[i];
+#else
+    long Mtr, Mrt;
+    compressed_get_single(M, r, b_out[i], &Mrt);
+    Mrt -= count_out[i];
+#endif    
     hash_val_t count = 0;
 
     if (b_out[i] == r) {
@@ -3421,17 +3463,32 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
       Mtr = Nsr;
     }
     else if (0 == hash_search(h_in, b_out[i], &count)) {
+#if 0      
       Mtr = *(long *)PyArray_GETPTR2(M, b_out[i], r) - count;
+#else
+      compressed_get_single(M, b_out[i], r, &Mtr);
+      Mtr -= count;
+#endif      
     }
     else {
+#if 0      
       Mtr = *(long *)PyArray_GETPTR2(M, b_out[i], r);
+#else
+      compressed_get_single(M, b_out[i], r, &Mtr);      
+#endif      
     }
 
     prob_back += count_out[i] * (Mrt + Mtr + 1) / (B + degree_substitute(d, b_out[i], r, s, d_new_r, d_new_s));
   }
 
   for (i=0; i<n_in; i++) {
+#if 0    
     long Mrt, Mtr = *(long *)PyArray_GETPTR2(M, b_in[i], r) - count_in[i];
+#else
+    long Mrt, Mtr;
+    compressed_get_single(M, b_in[i], r, &Mtr);
+    Mtr -= count_in[i];
+#endif    
     hash_val_t count = 0;
 
     if (b_in[i] == r) {
@@ -3443,10 +3500,19 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
       Mrt = Nrs;
     }
     else if (0 == hash_search(h_out, b_in[i], &count)) {
+#if 0      
       Mrt = *(long *)PyArray_GETPTR2(M, r, b_in[i]) - count;
+#else
+      compressed_get_single(M, r, b_in[i], &Mrt);
+      Mrt -= count;
+#endif      
     }
     else {
+#if 0      
       Mrt = *(long *)PyArray_GETPTR2(M, r, b_in[i]);
+#else
+      compressed_get_single(M, r, b_in[i], &Mrt);
+#endif      
     }
 
     prob_back += count_in[i] * (Mrt + Mtr + 1) / (B + degree_substitute(d, b_in[i], r, s, d_new_r, d_new_s));
