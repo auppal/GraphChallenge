@@ -3171,10 +3171,11 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   long d_in_new_r = d_in[r] + dM_r_col_sum;
   long d_in_new_s = d_in[s] - dM_r_col_sum;  
 
-  long Nrr = *(long *)PyArray_GETPTR2(M, r, r);
-  long Nrs = *(long *)PyArray_GETPTR2(M, r, s);
-  long Nsr = *(long *)PyArray_GETPTR2(M, s, r);
-  long Nss = *(long *)PyArray_GETPTR2(M, s, s);  
+  long Mrr = *(long *)PyArray_GETPTR2(M, r, r);
+  long Mrs = *(long *)PyArray_GETPTR2(M, r, s);
+  long Msr = *(long *)PyArray_GETPTR2(M, s, r);
+  long Mss = *(long *)PyArray_GETPTR2(M, s, s);
+  long Nrr = Mrr, Nrs = Mrs, Nsr = Msr, Nss = Mss;
   long Mij;
 
   /* Temporary */
@@ -3239,16 +3240,15 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   }
 
   /* Corner M[r,r] */
-  Mij = *(long *)PyArray_GETPTR2(M, r, r);
-  cur_S_r_row += Mij * logx(Mij);
-  cur_S_r_row -= Mij * logx(d_in[r]);
+  cur_S_r_row += Mrr * logx(Mrr);
+  cur_S_r_row -= Mrr * logx(d_in[r]);
 
-  cur_Srr += Mij * logx(Mij);
-  cur_Srr -= Mij * logx(d_in[r]);
-  cur_Srr -= Mij * logx(d_out[r]);
+  cur_Srr += Mrr * logx(Mrr);
+  cur_Srr -= Mrr * logx(d_in[r]);
+  cur_Srr -= Mrr * logx(d_out[r]);
 
-  cur_S_r_col += Mij * logx(Mij);
-  cur_S_r_col -= Mij * logx(d_out[r]);
+  cur_S_r_col += Mrr * logx(Mrr);
+  cur_S_r_col -= Mrr * logx(d_out[r]);
 
   Nrr -= r_row_offset;
   new_S_r_row += Nrr * logx(Nrr);
@@ -3262,16 +3262,15 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   new_Srr -= Nrr * logx(d_out_new_r);
 
   /* Corner M[r,s] */
-  Mij = *(long *)PyArray_GETPTR2(M, r, s);
-  cur_S_r_row += Mij * logx(Mij);
-  cur_S_r_row -= Mij * logx(d_in[s]);
+  cur_S_r_row += Mrs * logx(Mrs);
+  cur_S_r_row -= Mrs * logx(d_in[s]);
 
-  cur_Srs += Mij * logx(Mij);
-  cur_Srs -= Mij * logx(d_in[s]);
-  cur_Srs -= Mij * logx(d_out[r]);
+  cur_Srs += Mrs * logx(Mrs);
+  cur_Srs -= Mrs * logx(d_in[s]);
+  cur_Srs -= Mrs * logx(d_out[r]);
 
-  cur_S_s_col += Mij * logx(Mij);
-  cur_S_s_col -= Mij * logx(d_out[r]);
+  cur_S_s_col += Mrs * logx(Mrs);
+  cur_S_s_col -= Mrs * logx(d_out[r]);
 
   Nrs += r_row_offset;
   new_S_r_row += Nrs * logx(Nrs);
@@ -3309,16 +3308,15 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   }
 
   /* Corner M[s,r] */
-  Mij = *(long *)PyArray_GETPTR2(M, s, r);
-  cur_S_s_row += Mij * logx(Mij);
-  cur_S_s_row -= Mij * logx(d_in[r]);
+  cur_S_s_row += Msr * logx(Msr);
+  cur_S_s_row -= Msr * logx(d_in[r]);
 
-  cur_S_r_col += Mij * logx(Mij);
-  cur_S_r_col -= Mij * logx(d_out[s]);
+  cur_S_r_col += Msr * logx(Msr);
+  cur_S_r_col -= Msr * logx(d_out[s]);
 
-  cur_Ssr += Mij * logx(Mij);
-  cur_Ssr -= Mij * logx(d_in[r]);
-  cur_Ssr -= Mij * logx(d_out[s]);
+  cur_Ssr += Msr * logx(Msr);
+  cur_Ssr -= Msr * logx(d_in[r]);
+  cur_Ssr -= Msr * logx(d_out[s]);
 
   Nsr -= s_row_offset;
   new_S_s_row += Nsr * logx(Nsr);
@@ -3332,16 +3330,15 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   new_Ssr -= Nsr * logx(d_out_new_s);
 
   /* Corner M[s,s] */
-  Mij = *(long *)PyArray_GETPTR2(M, s, s);
-  cur_S_s_row += Mij * logx(Mij);
-  cur_S_s_row -= Mij * logx(d_in[s]);
+  cur_S_s_row += Mss * logx(Mss);
+  cur_S_s_row -= Mss * logx(d_in[s]);
 
-  cur_S_s_col += Mij * logx(Mij);
-  cur_S_s_col -= Mij * logx(d_out[s]);
+  cur_S_s_col += Mss * logx(Mss);
+  cur_S_s_col -= Mss * logx(d_out[s]);
 
-  cur_Sss += Mij * logx(Mij);
-  cur_Sss -= Mij * logx(d_in[s]);
-  cur_Sss -= Mij * logx(d_out[s]);
+  cur_Sss += Mss * logx(Mss);
+  cur_Sss -= Mss * logx(d_in[s]);
+  cur_Sss -= Mss * logx(d_out[s]);
 
   Nss += s_row_offset;
   new_S_s_row += Nss * logx(Nss);
