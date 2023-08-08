@@ -3122,6 +3122,7 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   long *b_out = NULL, *b_in = NULL;
   long *count_out = NULL, *count_in = NULL, n_out, n_in;
   double p_accept = 0.0, delta_entropy = 0.0, prob_back = 0.0, prob_fwd = 0.0, hastings = 0.0;
+  struct hash *h_out = NULL, *h_in = NULL;
 
   if (!M) {
     PyErr_SetString(PyExc_RuntimeError, "Invalid compressed array pointer");
@@ -3137,8 +3138,6 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
     goto done;
   }
 
-  struct hash *h_out = NULL, *h_in = NULL;
-  
   if (blocks_and_counts(partition, out_neighbors, out_neighbor_weights, n_out_neighbors, &b_out, &count_out, &n_out, &h_out) < 0) {
     PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts_failed");
     goto done;
@@ -3518,10 +3517,6 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
     prob_back += count_in[i] * (Mrt + Mtr + 1) / (B + degree_substitute(d, b_in[i], r, s, d_new_r, d_new_s));
   }
 
-  hash_destroy(h_in);
-  hash_destroy(h_out);
-
-
   double cur_S = -cur_S_r_row - cur_S_s_row - cur_S_r_col - cur_S_s_col
     + cur_Srr + cur_Srs + cur_Ssr + cur_Sss;
   double new_S = -new_S_r_row - new_S_s_row - new_S_r_col - new_S_s_col
@@ -3543,6 +3538,9 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   ret = Py_BuildValue("kkkdd", ni,r,s,delta_entropy,p_accept);
 
 done:
+  hash_destroy(h_in);
+  hash_destroy(h_out);
+  
   free(b_out);
   free(count_out);  
   free(b_in);
