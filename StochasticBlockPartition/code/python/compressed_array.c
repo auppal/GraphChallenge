@@ -1907,7 +1907,7 @@ bad:
 
 
 
-static int blocks_and_counts(const long *partition, const long *neighbors, const long *weights, long n, long **p_blocks, long **p_counts, long *p_n_blocks)
+static int blocks_and_counts(const long *partition, const long *neighbors, const long *weights, long n, long **p_blocks, long **p_counts, long *p_n_blocks, struct hash **p_h)
 {
   /* Reserve at least 2x elements, to avoid resizes due to 0.70 max
    * load factor. But reserve at least 16.
@@ -1936,7 +1936,12 @@ static int blocks_and_counts(const long *partition, const long *neighbors, const
   cnt = hash_keys(h, (unsigned long *) blocks, n);
   hash_vals(h, counts, n);
 
-  hash_destroy(h);
+  if (p_h) {
+    *p_h = h;
+  }
+  else {
+    hash_destroy(h);
+  }
 
   *p_blocks = blocks;
   *p_counts = counts;
@@ -1971,7 +1976,7 @@ static PyObject* blocks_and_counts_py(PyObject *self, PyObject *args)
 
   PyObject *ret = NULL;
 
-  if (blocks_and_counts(partition, neighbors, weights, n, &blocks, &counts, &n_block) < 0) {
+  if (blocks_and_counts(partition, neighbors, weights, n, &blocks, &counts, &n_block, NULL) < 0) {
     	PyErr_SetString(PyExc_RuntimeError, "hash_resize failed");
   }
   else {
@@ -3029,13 +3034,10 @@ done:
   return ret;
 }
 
-#if 0
-/* Unused */
 static inline double xlogx(double x)
 {
   return x > 0.0 ? x * log(x) : 0.0;
 }
-#endif
 
 static inline double logx(double x)
 {
@@ -3134,13 +3136,15 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
     ret = Py_BuildValue("kkkdd", ni,r,s,delta_entropy,p_accept);
     goto done;
   }
- 
-  if (blocks_and_counts(partition, out_neighbors, out_neighbor_weights, n_out_neighbors, &b_out, &count_out, &n_out) < 0) {
+
+  struct hash *h_out = NULL, *h_in = NULL;
+  
+  if (blocks_and_counts(partition, out_neighbors, out_neighbor_weights, n_out_neighbors, &b_out, &count_out, &n_out, &h_out) < 0) {
     PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts_failed");
     goto done;
   }
 
-  if (blocks_and_counts(partition, in_neighbors, in_neighbor_weights, n_in_neighbors, &b_in, &count_in, &n_in) < 0) {
+  if (blocks_and_counts(partition, in_neighbors, in_neighbor_weights, n_in_neighbors, &b_in, &count_in, &n_in, &h_in) < 0) {
     PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts_failed");    
     goto done;
   }
@@ -3155,7 +3159,7 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   double new_Srr = 0.0, new_Srs = 0.0, new_Ssr = 0.0, new_Sss = 0.0;
 
   /* Components of Hastings correction. */
-  double B = (double) PyArray_DIM(ar_d_out, 0);
+  const double B = (double) PyArray_DIM(ar_d_out, 0);
   long i;
 
   for (i=0; i<n_out; i++) {
@@ -3166,15 +3170,15 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
     dM_r_col_sum -= count_in[i];
   }
   
-  long d_out_new_r = d_out[r] + dM_r_row_sum;
-  long d_out_new_s = d_out[s] - dM_r_row_sum;
-  long d_in_new_r = d_in[r] + dM_r_col_sum;
-  long d_in_new_s = d_in[s] - dM_r_col_sum;  
+  const long d_out_new_r = d_out[r] + dM_r_row_sum;
+  const long d_out_new_s = d_out[s] - dM_r_row_sum;
+  const long d_in_new_r = d_in[r] + dM_r_col_sum;
+  const long d_in_new_s = d_in[s] - dM_r_col_sum;  
 
-  long Mrr = *(long *)PyArray_GETPTR2(M, r, r);
-  long Mrs = *(long *)PyArray_GETPTR2(M, r, s);
-  long Msr = *(long *)PyArray_GETPTR2(M, s, r);
-  long Mss = *(long *)PyArray_GETPTR2(M, s, s);
+  const long Mrr = *(long *)PyArray_GETPTR2(M, r, r);
+  const long Mrs = *(long *)PyArray_GETPTR2(M, r, s);
+  const long Msr = *(long *)PyArray_GETPTR2(M, s, r);
+  const long Mss = *(long *)PyArray_GETPTR2(M, s, s);
   long Nrr = Mrr, Nrs = Mrs, Nsr = Msr, Nss = Mss;
   long Mij;
 
@@ -3217,8 +3221,8 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
   }
 
   /* Entropy over M_r_row current, and proposed */
-  cur_S_r_row -= d_out[r] * logx(d_out[r]);  
-  new_S_r_row -= d_out_new_r * logx(d_out_new_r);
+  cur_S_r_row -= xlogx(d_out[r]);  
+  new_S_r_row -= xlogx(d_out_new_r);
   for (i=0; i<n_out; i++) {
     Mij = *(long *)PyArray_GETPTR2(M, r, b_out[i]);    
 
@@ -3231,55 +3235,55 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
       continue;
     }
 
-    cur_S_r_row += Mij * logx(Mij);
+    cur_S_r_row += xlogx(Mij);
     cur_S_r_row -= Mij * logx(d_in[b_out[i]]);
 
     Mij -= count_out[i];
-    new_S_r_row += Mij * logx(Mij);
+    new_S_r_row += xlogx(Mij);
     new_S_r_row -= Mij * logx(degree_substitute(d_in, b_out[i], r, s, d_in_new_r, d_in_new_s));
   }
 
   /* Corner M[r,r] */
-  cur_S_r_row += Mrr * logx(Mrr);
+  cur_S_r_row += xlogx(Mrr);
   cur_S_r_row -= Mrr * logx(d_in[r]);
 
-  cur_Srr += Mrr * logx(Mrr);
+  cur_Srr += xlogx(Mrr);
   cur_Srr -= Mrr * logx(d_in[r]);
   cur_Srr -= Mrr * logx(d_out[r]);
 
-  cur_S_r_col += Mrr * logx(Mrr);
+  cur_S_r_col += xlogx(Mrr);
   cur_S_r_col -= Mrr * logx(d_out[r]);
 
   Nrr -= r_row_offset;
-  new_S_r_row += Nrr * logx(Nrr);
+  new_S_r_row += xlogx(Nrr);
   new_S_r_row -= Nrr * logx(d_in_new_r);
 
   new_S_r_col += Nrr * logx(Nrr);
   new_S_r_col -= Nrr * logx(d_out_new_r);
 
-  new_Srr += Nrr * logx(Nrr);
+  new_Srr += xlogx(Nrr);
   new_Srr -= Nrr * logx(d_in_new_r);
   new_Srr -= Nrr * logx(d_out_new_r);
 
   /* Corner M[r,s] */
-  cur_S_r_row += Mrs * logx(Mrs);
+  cur_S_r_row += xlogx(Mrs);
   cur_S_r_row -= Mrs * logx(d_in[s]);
 
-  cur_Srs += Mrs * logx(Mrs);
+  cur_Srs += xlogx(Mrs);
   cur_Srs -= Mrs * logx(d_in[s]);
   cur_Srs -= Mrs * logx(d_out[r]);
 
-  cur_S_s_col += Mrs * logx(Mrs);
+  cur_S_s_col += xlogx(Mrs);
   cur_S_s_col -= Mrs * logx(d_out[r]);
 
   Nrs += r_row_offset;
-  new_S_r_row += Nrs * logx(Nrs);
+  new_S_r_row += xlogx(Nrs);
   new_S_r_row -= Nrs * logx(d_in_new_s);
 
-  new_S_s_col += Nrs * logx(Nrs);
+  new_S_s_col += xlogx(Nrs);
   new_S_s_col -= Nrs * logx(d_out_new_r);
 
-  new_Srs += Nrs * logx(Nrs);
+  new_Srs += xlogx(Nrs);
   new_Srs -= Nrs * logx(d_in_new_s);
   new_Srs -= Nrs * logx(d_out_new_r);
 
@@ -3299,61 +3303,61 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
       continue;
     }
 
-    cur_S_s_row += Mij * logx(Mij);
+    cur_S_s_row += xlogx(Mij);
     cur_S_s_row -= Mij * logx(d_in[b_out[i]]);
 
     Mij += count_out[i];
-    new_S_s_row += Mij * logx(Mij);
+    new_S_s_row += xlogx(Mij);
     new_S_s_row -= Mij * logx(degree_substitute(d_in, b_out[i], r, s, d_in_new_r, d_in_new_s));
   }
 
   /* Corner M[s,r] */
-  cur_S_s_row += Msr * logx(Msr);
+  cur_S_s_row += xlogx(Msr);
   cur_S_s_row -= Msr * logx(d_in[r]);
 
-  cur_S_r_col += Msr * logx(Msr);
+  cur_S_r_col += xlogx(Msr);
   cur_S_r_col -= Msr * logx(d_out[s]);
 
-  cur_Ssr += Msr * logx(Msr);
+  cur_Ssr += xlogx(Msr);
   cur_Ssr -= Msr * logx(d_in[r]);
   cur_Ssr -= Msr * logx(d_out[s]);
 
   Nsr -= s_row_offset;
-  new_S_s_row += Nsr * logx(Nsr);
+  new_S_s_row += xlogx(Nsr);
   new_S_s_row -= Nsr * logx(d_in_new_r);
 
-  new_S_r_col += Nsr * logx(Nsr);
+  new_S_r_col += xlogx(Nsr);
   new_S_r_col -= Nsr * logx(d_out_new_s);
 
-  new_Ssr += Nsr * logx(Nsr);
+  new_Ssr += xlogx(Nsr);
   new_Ssr -= Nsr * logx(d_in_new_r);
   new_Ssr -= Nsr * logx(d_out_new_s);
 
   /* Corner M[s,s] */
-  cur_S_s_row += Mss * logx(Mss);
+  cur_S_s_row += xlogx(Mss);
   cur_S_s_row -= Mss * logx(d_in[s]);
 
-  cur_S_s_col += Mss * logx(Mss);
+  cur_S_s_col += xlogx(Mss);
   cur_S_s_col -= Mss * logx(d_out[s]);
 
-  cur_Sss += Mss * logx(Mss);
+  cur_Sss += xlogx(Mss);
   cur_Sss -= Mss * logx(d_in[s]);
   cur_Sss -= Mss * logx(d_out[s]);
 
   Nss += s_row_offset;
-  new_S_s_row += Nss * logx(Nss);
+  new_S_s_row += xlogx(Nss);
   new_S_s_row -= Nss * logx(d_in_new_s);
 
-  new_S_s_col += Nss * logx(Nss);
+  new_S_s_col += xlogx(Nss);
   new_S_s_col -= Nss * logx(d_out_new_s);
 
-  new_Sss += Nss * logx(Nss);
+  new_Sss += xlogx(Nss);
   new_Sss -= Nss * logx(d_in_new_s);
   new_Sss -= Nss * logx(d_out_new_s);
 
   /* Entropy over M_r_col current, and proposed */
-  cur_S_r_col -= d_in[r] * logx(d_in[r]);
-  new_S_r_col -= d_in_new_r * logx(d_in_new_r);
+  cur_S_r_col -= xlogx(d_in[r]);
+  new_S_r_col -= xlogx(d_in_new_r);
 
   for (i=0; i<n_in; i++) {
     Mij = *(long *)PyArray_GETPTR2(M, b_in[i], r);
@@ -3362,17 +3366,17 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
       continue;
     }
 
-    cur_S_r_col += Mij * logx(Mij);
+    cur_S_r_col += xlogx(Mij);
     cur_S_r_col -= Mij * logx(d_out[b_in[i]]);
 
     Mij -= count_in[i];
-    new_S_r_col += Mij * logx(Mij);
+    new_S_r_col += xlogx(Mij);
     new_S_r_col -= Mij * logx(degree_substitute(d_out, b_in[i], r, s, d_out_new_r, d_out_new_s));    
   }
 
   /* Entropy over M_s_col current, and proposed */  
-  cur_S_s_col -= d_in[s] * logx(d_in[s]);
-  new_S_s_col -= d_in_new_s * logx(d_in_new_s);
+  cur_S_s_col -= xlogx(d_in[s]);
+  new_S_s_col -= xlogx(d_in_new_s);
 
   for (i=0; i<n_in; i++) {
     Mij = *(long *)PyArray_GETPTR2(M, b_in[i], s);
@@ -3380,11 +3384,11 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
     if (b_in[i] == r || b_in[i] == s) {
       continue;
     }
-    cur_S_s_col += Mij * logx(Mij);
+    cur_S_s_col += xlogx(Mij);
     cur_S_s_col -= Mij * logx(d_out[b_in[i]]);
 
     Mij += count_in[i];
-    new_S_s_col += Mij * logx(Mij);
+    new_S_s_col += xlogx(Mij);
     new_S_s_col -= Mij * logx(degree_substitute(d_out, b_in[i], r, s, d_out_new_r, d_out_new_s));    
   }
 
@@ -3401,37 +3405,8 @@ static PyObject* propose_node_movement(PyObject *self, PyObject *args)
     prob_fwd += count_in[i] * (Mts + Mst + 1) / (B + d[b_in[i]]);
   }
 
-  long d_new_r = d_out_new_r + d_in_new_r;
-  long d_new_s = d_out_new_s + d_in_new_s;
-
-  /* Reserve at least 2x elements, to avoid resizes due to 0.70 max
-   * load factor. But reserve at least 16.
-   */
-  size_t initial_width;
-
-  initial_width = (2 * n_in > 16) ? 2 * n_in : 16;
-  struct hash *h_in = hash_create(initial_width, 0);
-
-  initial_width = (2 * n_out > 16) ? 2 * n_out : 16;
-  struct hash *h_out = hash_create(initial_width, 0);
-
-  for (i=0; i<n_in; i++) {
-    if (hash_accum_single(h_in, b_in[i], count_in[i]) == 1) {
-      h_in = hash_resize(h_in);
-      if (!h_in) {
-	return NULL;
-      }
-    }
-  }
-
-  for (i=0; i<n_out; i++) {
-    if (hash_accum_single(h_out, b_out[i], count_out[i]) == 1) {
-      h_out = hash_resize(h_out);
-      if (!h_out) {
-	return NULL;
-      }
-    }
-  }
+  const long d_new_r = d_out_new_r + d_in_new_r;
+  const long d_new_s = d_out_new_s + d_in_new_s;
 
   for (i=0; i<n_out; i++) {
     long Mtr, Mrt = *(long *)PyArray_GETPTR2(M, r, b_out[i]) - count_out[i];
