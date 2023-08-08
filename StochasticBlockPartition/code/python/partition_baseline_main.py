@@ -504,8 +504,6 @@ def propose_node_movement(ni, partition, out_neighbors, out_neighbor_weights, in
         block_degrees_new[s] = block_degrees_out_new[s] + block_degrees_in_new[s]
         block_degrees_new[r] = block_degrees_out_new[r] + block_degrees_in_new[r]
 
-        block_degrees_new_check = block_degrees_out_new + block_degrees_in_new
-        
         # SHR: read block_degrees[t] where t is union of b_out and b_in
         Hastings_correction = compressed_array.hastings_correction(
             blocks_out, count_out, blocks_in, count_in,
