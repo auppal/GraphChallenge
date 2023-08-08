@@ -20,7 +20,7 @@ if os.getenv("CC") != "clang":
 module2 = Extension('compressed_array',
                     include_dirs=[np.get_include()],
                     sources=['compressed_array.c', 'shared_mem.c'],
-                    extra_compile_args=['-g', '-Og', '-march=native', '-ffast-math'],
+                    extra_compile_args=['-Wall', '-g', '-Og', '-march=native', '-ffast-math'],
                     libraries = compressed_array_libs,
                     library_dirs=['.'],
                     undef_macros = [ "NDEBUG" ]

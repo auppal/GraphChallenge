@@ -487,9 +487,9 @@ def propose_node_movement(ni, partition, out_neighbors, out_neighbor_weights, in
 
         # SHR: read M[r,:] M[s,:] M[:,r] M[:s]
         new_M_r_row, new_M_r_col, new_M_s_row, new_M_s_col, cur_M_r_row, cur_M_r_col, cur_M_s_row, cur_M_s_col = \
-            compressed_array.compute_new_rows_cols_interblock(M, r, s,
-                                                              blocks_out, count_out, blocks_in, count_in,
-                                                              self_edge_weight, 0)
+            compute_new_rows_cols_interblock_edge_count_matrix(M, r, s,
+                                                               blocks_out, count_out, blocks_in, count_in,
+                                                               self_edge_weight, 0)
 
         # SHR: read block_degrees_out[:], block_degrees_in[:], block_degrees[:]
         block_degrees_out_new = block_degrees_out.copy()
@@ -500,9 +500,12 @@ def propose_node_movement(ni, partition, out_neighbors, out_neighbor_weights, in
         block_degrees_out_new[s] += num_out_neighbor_edges
         block_degrees_in_new[r] -= num_in_neighbor_edges
         block_degrees_in_new[s] += num_in_neighbor_edges
-        block_degrees_new[s] = block_degrees_out[s] + block_degrees_in[s]
-        block_degrees_new[r] = block_degrees_out[r] + block_degrees_in[r]
 
+        block_degrees_new[s] = block_degrees_out_new[s] + block_degrees_in_new[s]
+        block_degrees_new[r] = block_degrees_out_new[r] + block_degrees_in_new[r]
+
+        block_degrees_new_check = block_degrees_out_new + block_degrees_in_new
+        
         # SHR: read block_degrees[t] where t is union of b_out and b_in
         Hastings_correction = compressed_array.hastings_correction(
             blocks_out, count_out, blocks_in, count_in,
@@ -510,7 +513,8 @@ def propose_node_movement(ni, partition, out_neighbors, out_neighbor_weights, in
             cur_M_s_col,
             new_M_r_row,
             new_M_r_col,
-            num_blocks, block_degrees,
+            num_blocks,
+            block_degrees,
             block_degrees_new,
             r,
             s)
@@ -634,7 +638,8 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
 
             if args.sanity_check:
                 sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)
-            (ni, r, s, delta_entropy, p_accept) = movement            
+
+            (ni, r, s, delta_entropy, p_accept) = movement
             accept = (random.random() <= p_accept)
 
             if not accept:
