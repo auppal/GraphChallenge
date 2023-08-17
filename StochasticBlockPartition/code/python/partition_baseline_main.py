@@ -159,47 +159,69 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
 
         # propose new blocks to merge with
         for proposal_idx in range(n_proposal):
-            s = propose(
-                r,
-                block_neighbors,
-                block_neighbor_weights,
-                block_partition, M, block_degrees, num_blocks,
-                1)
+            if 0:
+                s = propose(
+                    r,
+                    block_neighbors,
+                    block_neighbor_weights,
+                    block_partition, M, block_degrees, num_blocks,
+                    1)
 
-            s = int(s)
-            proposals[proposal_idx] = s
+                s = int(s)
+                proposals[proposal_idx] = s
 
-            # compute the two new rows and columns of the interblock edge count matrix
-            new_M_r_row, new_M_r_col, new_M_s_row, new_M_s_col, cur_M_r_row, cur_M_r_col, cur_M_s_row, cur_M_s_col = \
-                compressed_array.compute_new_rows_cols_interblock(M, r, s,
-                                                                   out_idx, out_weight,
-                                                                   in_idx, in_weight,
-                                                                   self_count,
-                                                                   1)
-            # compute change in entropy / posterior
-            block_degrees_out_new, block_degrees_in_new, block_degrees_new \
-                = compute_new_block_degrees(r,
-                                            s,
-                                            block_degrees_out,
-                                            block_degrees_in,
-                                            block_degrees,
-                                            num_out_block_edges,
-                                            num_in_block_edges,
-                                            num_block_edges)
+                # compute the two new rows and columns of the interblock edge count matrix
+                new_M_r_row, new_M_r_col, new_M_s_row, new_M_s_col, cur_M_r_row, cur_M_r_col, cur_M_s_row, cur_M_s_col = \
+                    compressed_array.compute_new_rows_cols_interblock(M, r, s,
+                                                                       out_idx, out_weight,
+                                                                       in_idx, in_weight,
+                                                                       self_count,
+                                                                       1)
+                # compute change in entropy / posterior
+                block_degrees_out_new = block_degrees_out.copy()
+                block_degrees_in_new = block_degrees_in.copy()
+                block_degrees_new = block_degrees.copy()
 
-            delta_entropy[proposal_idx] = compute_delta_entropy(r, s,
-                                                                cur_M_r_row,
-                                                                cur_M_s_row,
-                                                                cur_M_r_col,
-                                                                cur_M_s_col,
-                                                                new_M_r_row,
-                                                                new_M_s_row,
-                                                                new_M_r_col,
-                                                                new_M_s_col,
-                                                                block_degrees_out,
-                                                                block_degrees_in,
-                                                                block_degrees_out_new,
-                                                                block_degrees_in_new)
+                block_degrees_out_new[r] -= num_out_block_edges
+                block_degrees_out_new[s] += num_out_block_edges
+                block_degrees_in_new[r] -= num_in_block_edges
+                block_degrees_in_new[s] += num_in_block_edges
+
+                block_degrees_new[s] = block_degrees_out_new[s] + block_degrees_in_new[s]
+                block_degrees_new[r] = block_degrees_out_new[r] + block_degrees_in_new[r]
+
+                delta_entropy[proposal_idx] = compute_delta_entropy(r, s,
+                                                                    cur_M_r_row,
+                                                                    cur_M_s_row,
+                                                                    cur_M_r_col,
+                                                                    cur_M_s_col,
+                                                                    new_M_r_row,
+                                                                    new_M_s_row,
+                                                                    new_M_r_col,
+                                                                    new_M_s_col,
+                                                                    block_degrees_out,
+                                                                    block_degrees_in,
+                                                                    block_degrees_out_new,
+                                                                    block_degrees_in_new)
+            if 1:
+                s = -1
+                s,dS = compressed_array.propose_block_merge(M, r, s,
+                                                          out_idx, out_weight,
+                                                          in_idx, in_weight,
+                                                          block_neighbors,
+                                                          block_neighbor_weights,
+                                                          block_partition, num_blocks,
+                                                          block_degrees, block_degrees_out,
+                                                          block_degrees_in,
+                                                          num_out_block_edges,
+                                                          num_in_block_edges)
+                proposals[proposal_idx] = s                
+                delta_entropy[proposal_idx] = dS
+                if 0:
+                    if abs(dS - delta_entropy[proposal_idx]) > 1e-1:
+                        print(dS,delta_entropy[proposal_idx], dS - delta_entropy[proposal_idx])
+                        raise Exception("delta_entropy merge mismatch")
+
         mi = np.argmin(delta_entropy)
         best_entropy = delta_entropy[mi]
         n_proposals_evaluated += n_proposal
@@ -444,16 +466,16 @@ def propose_node_movement(ni, partition, out_neighbors, out_neighbor_weights, in
                           neighbors, neighbor_weights, self_edge_weights, beta):
 
     if is_compressed(M):
-        return compressed_array.propose_node_movement(ni,
-                                                      partition,
-                                                      out_neighbors, out_neighbor_weights,
-                                                      in_neighbors, in_neighbor_weights,
-                                                      M,
-                                                      num_blocks,
-                                                      block_degrees, block_degrees_out, block_degrees_in,
-                                                      num_out_neighbor_edges, num_in_neighbor_edges, num_neighbor_edges,
-                                                      neighbors, neighbor_weights,
-                                                      self_edge_weights, beta)
+        return compressed_array.propose_nodal_movement(ni,
+                                                       partition,
+                                                       out_neighbors, out_neighbor_weights,
+                                                       in_neighbors, in_neighbor_weights,
+                                                       M,
+                                                       num_blocks,
+                                                       block_degrees, block_degrees_out,block_degrees_in,
+                                                       num_out_neighbor_edges, num_in_neighbor_edges, num_neighbor_edges,
+                                                       neighbors, neighbor_weights,
+                                                       self_edge_weights, beta, -1)
     # SHR: read partition[ni]
     r = partition[ni]
 
@@ -538,6 +560,21 @@ def propose_node_movement(ni, partition, out_neighbors, out_neighbor_weights, in
         elif delta_entropy < -10.0:
             delta_entropy = -10.0
 
+        if 1:
+            ni,r,s,dS,pp = compressed_array.propose_nodal_movement(ni,
+                                                         partition,
+                                                         out_neighbors, out_neighbor_weights,
+                                                         in_neighbors, in_neighbor_weights,
+                                                         M,
+                                                         num_blocks,
+                                                         block_degrees, block_degrees_out, block_degrees_in,
+                                                         num_out_neighbor_edges, num_in_neighbor_edges, num_neighbor_edges,
+                                                         neighbors, neighbor_weights,
+                                                         self_edge_weights, beta, s)
+            if abs(dS - delta_entropy) > 1e-8:
+                print(dS, delta_entropy, abs(dS - delta_entropy))
+                raise Exception("delta_entropy move mismatch")
+            
         p_accept = np.min([np.exp(-beta * delta_entropy) * Hastings_correction, 1])
 
     # This function used to return a lot more:
@@ -587,6 +624,30 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
         compressed_array.inplace_apply_movement_uncompressed_interblock_matrix(M, r, s, blocks_out, count_out, blocks_in, count_in, block_degrees_out, block_degrees_in, block_degrees)
 
     return True
+
+def compute_data_entropy(M, d_out, d_in):
+    B = len(d_out)
+    S = 0.0
+    if is_compressed(M):    
+        for i in range(B):
+            k,v = take_nonzero_kv(compressed_array.take_dict_ref(M, i, 0))
+            entries = v * np.log(v / (d_out[i] * d_in[k]))
+            S -= np.sum(entries)
+        return S
+    else:
+        for i in range(B):        
+            k = M[i,:].nonzero()[0]
+            v = M[i,:][k]
+            entries = v * np.log(v / (d_out[i] * d_in[k]))
+            S -= np.sum(entries)
+    return S
+
+def take_nonzero_kv(row):
+    k,v = compressed_array.keys_values_dict(row)
+    mask = (v != 0)
+    k = k[mask]
+    v = v[mask]
+    return k,v
 
 def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args):
     max_num_nodal_itr = args.max_num_nodal_itr
@@ -650,9 +711,25 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
             if args.verbose > 3:
                 print("Move %5d from block %5d to block %5d." % (ni, r, s))
 
+            if 0:
+                cur_S = compute_data_entropy(M, block_degrees_out, block_degrees_in)                
+                den_cur_S = densify_entropy(num_blocks, partition, out_neighbors, block_degrees_out, block_degrees_in)
+
             move_node(ni, r, s, partition,
                       out_neighbors, in_neighbors, self_edge_weights, M,
                       block_degrees_out, block_degrees_in, block_degrees)
+
+            if 0:
+                new_S = compute_data_entropy(M, block_degrees_out, block_degrees_in)
+                den_new_S = densify_entropy(num_blocks, partition, out_neighbors, block_degrees_out, block_degrees_in)
+
+                dS = np.clip(new_S - cur_S, -10.0, +10.0)
+                den_dS = np.clip(den_new_S - den_cur_S, -10.0, +10.0)
+                if abs(dS - delta_entropy) > 1e-9:
+                    print("Actual vs estimate      : ", dS, delta_entropy, abs(dS - delta_entropy))
+                    print("Actual vs new estimate  : ", dS, delta_entropy_inline, abs(dS - delta_entropy_inline))
+                    print("Densify vs new estimate : ", den_dS, delta_entropy_inline, abs(den_dS - delta_entropy_inline))
+                    raise Exception("delta_entropy_actual mismatch")
 
         if args.mpi == 1:
             partition_next = partition.copy()
@@ -739,7 +816,12 @@ def sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_deg
             raise Exception("Sanity check of block_degrees_in failed.")
         if not np.array_equal(block_degrees, bd):
             raise Exception("Sanity check of block_degrees failed.")
-    
+
+def densify_entropy(B, partition, out_neighbors, d_out, d_in):
+    M = recompute_M(B, partition, out_neighbors)
+    assert(not is_compressed(M))
+    return compute_data_entropy(M, d_out, d_in)
+
 
 def nodal_moves_parallel_defunct(n_thread_move, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args):
     global syms
@@ -1158,7 +1240,8 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     best_merges = delta_entropy_for_each_block.argsort()
 
     num_blocks_to_merge = num_blocks - num_target_blocks
-    (partition_t, num_blocks_t) = carry_out_best_merges(delta_entropy_for_each_block, best_merges,
+    (partition_t, num_blocks_t) = carry_out_best_merges(delta_entropy_for_each_block,
+                                                        best_merges,
                                                         best_merge_for_each_block, partition,
                                                         num_blocks, num_blocks_to_merge)
     # force the next partition to be shared
