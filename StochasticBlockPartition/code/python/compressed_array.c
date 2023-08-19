@@ -57,12 +57,12 @@ static inline size_t hash_get_alloc_size(const struct hash *h)
   return sizeof(struct hash) + h->width * sizeof(hash_key_t) + h->width * sizeof(hash_val_t);
 }
 
-static inline hash_key_t *hash_get_keys(struct hash *h)
+static inline hash_key_t *restrict hash_get_keys(const struct hash *h)
 {
   return (hash_key_t *) ((uintptr_t) h + sizeof(struct hash));
 }
 
-static inline hash_val_t *hash_get_vals(struct hash *h)
+static inline hash_val_t *restrict hash_get_vals(const struct hash *h)
 {
   return (hash_val_t *) ((uintptr_t) h + sizeof(struct hash) + h->width * sizeof(hash_key_t));
 }
@@ -198,8 +198,8 @@ struct hash *hash_copy(const struct hash *y, int shared_mem)
 
   h->width = y->width;
   h->cnt = y->cnt;
-  hash_key_t *y_keys = hash_get_keys((struct hash *) y);
-  hash_val_t *y_vals = hash_get_vals((struct hash *) y);
+  hash_key_t *y_keys = hash_get_keys(y);
+  hash_val_t *y_vals = hash_get_vals(y);
   h->internal_refcnt = 0;
 
   hash_key_t *keys = hash_get_keys(h);
@@ -217,7 +217,7 @@ int hash_outer_copy(struct hash_outer *to, const struct hash_outer *from)
 }
 
 void hash_print(struct hash *h);
-int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v);
+static inline int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v);
 #define RESIZE_DEBUG (0)
 
 static inline struct hash *hash_resize(struct hash *h)
@@ -244,8 +244,8 @@ static inline struct hash *hash_resize(struct hash *h)
 #endif
 
     long ins = 0;
-    hash_key_t *keys = hash_get_keys((struct hash *) h);
-    hash_val_t *vals = hash_get_vals((struct hash *) h);
+    hash_key_t *keys = hash_get_keys(h);
+    hash_val_t *vals = hash_get_vals(h);
     for (i=0; i<h->width; i++) {
       if (keys[i] != EMPTY_KEY) {
 	//fprintf(stderr, " %ld ", keys[i]);
@@ -271,14 +271,14 @@ static inline struct hash *hash_resize(struct hash *h)
   return h;
 }
 
-static int hash_resize_needed(const struct hash *h)
+static inline int hash_resize_needed(const struct hash *h)
 {
   /* Return whether a resize is needed. */
   size_t limit = hash_get_limit(h);
   return h->cnt >= limit ? 1 : 0;
 }
 
-int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v)
+static inline int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v)
 {
   /* To avoid a subtle logic bug, first check for existance.
    * Beacuse not every insertion will cause an increase in cnt.
@@ -306,7 +306,7 @@ int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v)
 }
 
 
-int hash_accum_single(struct hash *h, hash_key_t k, hash_val_t c)
+static inline int hash_accum_single(struct hash *h, hash_key_t k, hash_val_t c)
 {
   /* To avoid a subtle logic bug, first check for existance.
    * Beacuse not every insertion will cause an increase in cnt.
@@ -362,8 +362,8 @@ static inline int hash_search(const struct hash *h, hash_key_t k, hash_val_t *v)
   size_t i, width = h->width;
   hash_key_t kh = hash(k);
 
-  const hash_key_t *keys = hash_get_keys((struct hash *) h);
-  const hash_val_t *vals = hash_get_vals((struct hash *) h);
+  const hash_key_t *keys = hash_get_keys(h);
+  const hash_val_t *vals = hash_get_vals(h);
 
   for (i=0; i<width; i++) {
     size_t idx = (kh + i) % width;
@@ -380,7 +380,7 @@ static inline int hash_search(const struct hash *h, hash_key_t k, hash_val_t *v)
   return -1;
 }
 
-static inline void hash_search_multi(const struct hash *h, const unsigned long *keys, long *vals, size_t n)
+static inline void hash_search_multi(const struct hash *restrict h, const unsigned long *restrict keys, long *restrict vals, size_t n)
 {
   size_t i;
   for (i=0; i<n; i++) {
@@ -398,8 +398,8 @@ static inline hash_val_t hash_sum(const struct hash *h)
 {
   size_t i;
   hash_val_t s = 0;
-  const hash_key_t *keys = hash_get_keys((struct hash *) h);
-  const hash_val_t *vals = hash_get_vals((struct hash *) h);
+  const hash_key_t *keys = hash_get_keys(h);
+  const hash_val_t *vals = hash_get_vals(h);
 
   for (i=0; i<h->width; i++) {
     if (keys[i] != EMPTY_KEY) {
@@ -411,7 +411,7 @@ static inline hash_val_t hash_sum(const struct hash *h)
 }
 
 
-static inline size_t hash_keys(const struct hash *h, unsigned long *keys, size_t max_cnt)
+static inline size_t hash_keys(const struct hash *restrict h, unsigned long *restrict keys, size_t max_cnt)
 {
   const hash_key_t *h_keys = hash_get_keys((struct hash *) h);
   size_t i, width = h->width, cnt = 0;
@@ -429,11 +429,11 @@ static inline size_t hash_keys(const struct hash *h, unsigned long *keys, size_t
   return cnt;
 }
 
-size_t hash_vals(const struct hash *h, long *vals, size_t max_cnt)
+static inline size_t hash_vals(const struct hash *restrict h, long *restrict vals, size_t max_cnt)
 {
   size_t i, width = h->width, cnt = 0;
-  hash_key_t *h_keys = hash_get_keys((struct hash *) h);
-  hash_val_t *h_vals = hash_get_vals((struct hash *) h);
+  hash_key_t *h_keys = hash_get_keys(h);
+  hash_val_t *h_vals = hash_get_vals(h);
 
   for (i=0; i<width; i++) {
     if (h_keys[i] != EMPTY_KEY) {
@@ -467,8 +467,8 @@ void hash_print(struct hash *h)
 int hash_eq(const struct hash *x, const struct hash *y)
 {
   size_t i;
-  hash_key_t *x_keys = hash_get_keys((struct hash *) x);
-  hash_val_t *x_vals = hash_get_vals((struct hash *) x);
+  hash_key_t *x_keys = hash_get_keys(x);
+  hash_val_t *x_vals = hash_get_vals(x);
 
   for (i=0; i<x->width; i++) {
     if (x_keys[i] != EMPTY_KEY) {
@@ -481,8 +481,8 @@ int hash_eq(const struct hash *x, const struct hash *y)
     }
   }
 
-  hash_key_t *y_keys = hash_get_keys((struct hash *) y);
-  hash_val_t *y_vals = hash_get_vals((struct hash *) y);
+  hash_key_t *y_keys = hash_get_keys(y);
+  hash_val_t *y_vals = hash_get_vals(y);
 
   for (i=0; i<y->width; i++) {
     if (y_keys[i] != EMPTY_KEY) {
@@ -503,8 +503,8 @@ int hash_eq(const struct hash *x, const struct hash *y)
 static inline void hash_accum_constant(const struct hash *h, size_t C)
 {
   size_t i, width = h->width;
-  hash_key_t *keys = hash_get_keys((struct hash *) h);
-  hash_val_t *vals = hash_get_vals((struct hash *) h);
+  hash_key_t *keys = hash_get_keys(h);
+  hash_val_t *vals = hash_get_vals(h);
 
   for (i=0; i<width; i++) {
     if (keys[i] != EMPTY_KEY) {
@@ -518,7 +518,7 @@ static inline void hash_accum_constant(const struct hash *h, size_t C)
  * It is not strictly correct to use int64_t instead of hash_key_t.
  * But it is done here for expedience.
  */
-static inline struct hash *hash_accum_multi(struct hash *h, const unsigned long *keys, const long *vals, size_t n_keys, int scale)
+static inline struct hash *hash_accum_multi(struct hash *restrict h, const unsigned long *restrict keys, const long *restrict vals, size_t n_keys, int scale)
 {
   size_t j, i;
 
@@ -596,25 +596,21 @@ struct compressed_array *compressed_array_create(size_t n_nodes, size_t initial_
   x->rows = shared_calloc(x->n_row, sizeof(x->rows[0]));
 
   if (!x->rows) {
-    free(x);
-    return NULL;
+    goto bad;
   }
 
   x->cols = shared_calloc(x->n_col, sizeof(x->cols[0]));
 
   if (!x->cols) {
-    shared_free(x->rows, x->n_row * sizeof(x->rows[0]));
-    free(x);
-    return NULL;
+    goto bad;
   }
-
+  
   for (i=0; i<n_nodes; i++) {
     int rc1 = hash_outer_init(&x->rows[i], initial_width);
     int rc2 = hash_outer_init(&x->cols[i], initial_width);
 
     if (rc1 || rc2) {
       fprintf(stderr, "compressed_array_create: hash_create failed\n");
-      return NULL;
       break;
     }
   }
@@ -624,20 +620,19 @@ struct compressed_array *compressed_array_create(size_t n_nodes, size_t initial_
       hash_outer_destroy(&x->rows[i]);
       hash_outer_destroy(&x->cols[i]);
     }
+    goto bad;
+  }
+
+  return x;
+  
+bad:
+  if (x) {
     shared_free(x->rows, x->n_row * sizeof(x->rows[0]));
     shared_free(x->cols, x->n_col * sizeof(x->cols[0]));
     free(x);
-    fprintf(stderr, "compressed_array_create return NULL\n");
-    return NULL;
   }
-
-  /* XXX */
-#if 0  
-  for (i=0; i<n_nodes; i++) {
-    fprintf(stderr, "created cols[%ld].h = %p\n", i, x->cols[i].h);
-  }
-#endif
-  return x;
+  fprintf(stderr, "compressed_array_create return NULL\n");
+  return NULL;
 }
 
 void compressed_array_destroy(struct compressed_array *x)
@@ -750,7 +745,7 @@ static inline void compressed_set_single(struct compressed_array *x, uint64_t i,
 
 int hash_accum_resize(struct hash_outer *ho, hash_key_t k, hash_val_t C)
 {
-  struct hash *oldh, *newh;
+  struct hash *restrict oldh, *restrict newh;
 
   struct hash_outer hoa_cur;
   struct hash_outer hoa_new, cur;
@@ -1837,7 +1832,7 @@ static PyObject* inplace_apply_movement_compressed_interblock_matrix(PyObject *s
     return NULL;
   }
 
-  struct compressed_array *M = PyCapsule_GetPointer(obj_M, "compressed_array");
+  struct compressed_array *restrict M = PyCapsule_GetPointer(obj_M, "compressed_array");
 
   if (!M) {
     PyErr_SetString(PyExc_RuntimeError, "NULL pointer to compresed array");
@@ -1852,16 +1847,16 @@ static PyObject* inplace_apply_movement_compressed_interblock_matrix(PyObject *s
   const PyObject *ar_d_in = PyArray_FROM_OTF(obj_d_in, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_d = PyArray_FROM_OTF(obj_d, NPY_LONG, NPY_IN_ARRAY);
 
-  const uint64_t *b_out = (const uint64_t *) PyArray_DATA(ar_b_out);
-  const int64_t *count_out = (const int64_t *) PyArray_DATA(ar_count_out);
-  const uint64_t *b_in = (const uint64_t *) PyArray_DATA(ar_b_in);
-  const int64_t *count_in = (const int64_t *) PyArray_DATA(ar_count_in);
-  atomic_long * d_out = (atomic_long *) PyArray_DATA(ar_d_out);
-  atomic_long * d_in = (atomic_long *) PyArray_DATA(ar_d_in);
-  atomic_long * d = (atomic_long *) PyArray_DATA(ar_d);
+  const uint64_t *restrict b_out = (const uint64_t *) PyArray_DATA(ar_b_out);
+  const int64_t *restrict count_out = (const int64_t *) PyArray_DATA(ar_count_out);
+  const uint64_t *restrict b_in = (const uint64_t *) PyArray_DATA(ar_b_in);
+  const int64_t *restrict count_in = (const int64_t *) PyArray_DATA(ar_count_in);
+  atomic_long *restrict d_out = (atomic_long *) PyArray_DATA(ar_d_out);
+  atomic_long *restrict d_in = (atomic_long *) PyArray_DATA(ar_d_in);
+  atomic_long *restrict d = (atomic_long *) PyArray_DATA(ar_d);
 
-  long n_out= (long) PyArray_DIM(ar_b_out, 0);
-  long n_in = (long) PyArray_DIM(ar_b_in, 0);
+  const long n_out= (long) PyArray_DIM(ar_b_out, 0);
+  const long n_in = (long) PyArray_DIM(ar_b_in, 0);
 
   long i;
   int64_t dM_r_row_sum = 0, dM_r_col_sum = 0;
@@ -2336,16 +2331,16 @@ static PyObject* inplace_apply_movement_uncompressed_interblock_matrix(PyObject 
   const PyObject *ar_d_in = PyArray_FROM_OTF(obj_d_in, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_d = PyArray_FROM_OTF(obj_d, NPY_LONG, NPY_IN_ARRAY);
 
-  const long *b_out = (const long *) PyArray_DATA(ar_b_out);
-  const long *count_out = (const long *) PyArray_DATA(ar_count_out);
-  const long *b_in = (const long *) PyArray_DATA(ar_b_in);
-  const long *count_in = (const long *) PyArray_DATA(ar_count_in);
-  atomic_long * d_out = (atomic_long *) PyArray_DATA(ar_d_out);
-  atomic_long * d_in = (atomic_long *) PyArray_DATA(ar_d_in);
-  atomic_long * d = (atomic_long *) PyArray_DATA(ar_d);
+  const long *restrict b_out = (const long *) PyArray_DATA(ar_b_out);
+  const long *restrict count_out = (const long *) PyArray_DATA(ar_count_out);
+  const long *restrict b_in = (const long *) PyArray_DATA(ar_b_in);
+  const long *restrict count_in = (const long *) PyArray_DATA(ar_count_in);
+  atomic_long *restrict d_out = (atomic_long *) PyArray_DATA(ar_d_out);
+  atomic_long *restrict d_in = (atomic_long *) PyArray_DATA(ar_d_in);
+  atomic_long *restrict d = (atomic_long *) PyArray_DATA(ar_d);
 
-  long n_out= (long) PyArray_DIM(ar_b_out, 0);
-  long n_in = (long) PyArray_DIM(ar_b_in, 0);
+  const long n_out= (long) PyArray_DIM(ar_b_out, 0);
+  const long n_in = (long) PyArray_DIM(ar_b_in, 0);
   long i;
 
   int64_t dM_r_row_sum = 0, dM_r_col_sum = 0;
@@ -3104,8 +3099,8 @@ static inline long degree_substitute(const long *d, long i, long r, long s, long
   return d[i];
 }
 
-static void compute_delta_entropy(PyObject *Mu,
-				  struct compressed_array *M,
+static void compute_delta_entropy(PyObject *restrict Mu,
+				  struct compressed_array *restrict M,
 				  const long r,
 				  const long s,
 				  const long *restrict b_out,
@@ -3440,28 +3435,28 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
   const PyObject *ar_d_out = PyArray_FROM_OTF(obj_block_degrees_out, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_d_in = PyArray_FROM_OTF(obj_block_degrees_in, NPY_LONG, NPY_IN_ARRAY);      
 
-  const long *partition = (const long  *) PyArray_DATA(ar_partition);
-  const long *out_neighbors = (const long *) PyArray_DATA(ar_out_neighbors);
-  const long *out_neighbor_weights = (const long *) PyArray_DATA(ar_out_neighbor_weights);
-  const long *in_neighbors = (const long *) PyArray_DATA(ar_in_neighbors);
-  const long *in_neighbor_weights = (const long *) PyArray_DATA(ar_in_neighbor_weights);
-  const long *neighbors = (const long *) PyArray_DATA(ar_neighbors);
-  const long *neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
+  const long *restrict partition = (const long  *) PyArray_DATA(ar_partition);
+  const long *restrict out_neighbors = (const long *) PyArray_DATA(ar_out_neighbors);
+  const long *restrict out_neighbor_weights = (const long *) PyArray_DATA(ar_out_neighbor_weights);
+  const long *restrict in_neighbors = (const long *) PyArray_DATA(ar_in_neighbors);
+  const long *restrict in_neighbor_weights = (const long *) PyArray_DATA(ar_in_neighbor_weights);
+  const long *restrict neighbors = (const long *) PyArray_DATA(ar_neighbors);
+  const long *restrict neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
 
-  long N = (long) PyArray_DIM(ar_partition, 0);
-  long n_neighbors= (long) PyArray_DIM(ar_neighbors, 0);
+  const long N = (long) PyArray_DIM(ar_partition, 0);
+  const long n_neighbors= (long) PyArray_DIM(ar_neighbors, 0);
 
-  struct compressed_array *M = PyCapsule_GetPointer(obj_M, "compressed_array");
-  PyObject *Mu = NULL;
+  struct compressed_array *restrict M = PyCapsule_GetPointer(obj_M, "compressed_array");
+  PyObject *restrict Mu = NULL;
   
   if (!M) {
     PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
     Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
   }
 
-  const long *d = (const long *) PyArray_DATA(ar_d);
-  const long *d_out = (const long *) PyArray_DATA(ar_d_out);
-  const long *d_in = (const long *) PyArray_DATA(ar_d_in);
+  const long *restrict d = (const long *) PyArray_DATA(ar_d);
+  const long *restrict d_out = (const long *) PyArray_DATA(ar_d_out);
+  const long *restrict d_in = (const long *) PyArray_DATA(ar_d_in);
   
   PyObject *ret;
 
@@ -3490,24 +3485,21 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
   if (!Mu) {
     compressed_take_keys_values(M, r, 0, (unsigned long **) &b_out, &count_out, &n_out);
     compressed_take_keys_values(M, r, 1, (unsigned long **) &b_in, &count_in, &n_in);
-
-    compute_delta_entropy(Mu, M, r, s, b_out, count_out, n_out, b_in, count_in, n_in, d_out, d_in, d, d_out_new_r, d_out_new_s, d_in_new_r, d_in_new_s, 1, &delta_entropy, &Nrr, &Nrs, &Nsr, &Nss);
   }
   else {
-    long n_out_neighbors= (long) PyArray_DIM(ar_out_neighbors, 0);
+    const long n_out_neighbors= (long) PyArray_DIM(ar_out_neighbors, 0);
     if (blocks_and_counts(partition, out_neighbors, out_neighbor_weights, n_out_neighbors, &b_out, &count_out, &n_out, NULL) < 0) {
       PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts_failed");
       return NULL;
     }
-    long n_in_neighbors= (long) PyArray_DIM(ar_in_neighbors, 0);
+    const long n_in_neighbors= (long) PyArray_DIM(ar_in_neighbors, 0);
     if (blocks_and_counts(partition, in_neighbors, in_neighbor_weights, n_in_neighbors, &b_in, &count_in, &n_in, NULL) < 0) {
       PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts_failed");
       return NULL;
     }
-
-    compute_delta_entropy(Mu, M, r, s, b_out, count_out, n_out, b_in, count_in, n_in, d_out, d_in, d, d_out_new_r, d_out_new_s, d_in_new_r, d_in_new_s, 1, &delta_entropy, &Nrr, &Nrs, &Nsr, &Nss);
   }  
-  
+
+  compute_delta_entropy(Mu, M, r, s, b_out, count_out, n_out, b_in, count_in, n_in, d_out, d_in, d, d_out_new_r, d_out_new_s, d_in_new_r, d_in_new_s, 1, &delta_entropy, &Nrr, &Nrs, &Nsr, &Nss);  
 
   free(b_out);
   free(count_out);  
@@ -3559,8 +3551,8 @@ static PyObject *propose_nodal_movement(PyObject *self, PyObject *args)
   const PyObject *ar_in_neighbors = PyArray_FROM_OTF(obj_in_neighbors, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_in_neighbor_weights = PyArray_FROM_OTF(obj_in_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
 
-  struct compressed_array *Mc = PyCapsule_GetPointer(obj_M, "compressed_array");
-  PyObject *Mu = NULL;
+  struct compressed_array *restrict Mc = PyCapsule_GetPointer(obj_M, "compressed_array");
+  PyObject *restrict Mu = NULL;
   
   if (!Mc) {
     PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
@@ -3574,23 +3566,23 @@ static PyObject *propose_nodal_movement(PyObject *self, PyObject *args)
   const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_neighbor_weights = PyArray_FROM_OTF(obj_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
 
-  const long *partition = (const long  *) PyArray_DATA(ar_partition);
-  const long *out_neighbors = (const long *) PyArray_DATA(ar_out_neighbors);
-  const long *out_neighbor_weights = (const long *) PyArray_DATA(ar_out_neighbor_weights);
-  const long *in_neighbors = (const long *) PyArray_DATA(ar_in_neighbors);
-  const long *in_neighbor_weights = (const long *) PyArray_DATA(ar_in_neighbor_weights);
+  const long *restrict partition = (const long  *) PyArray_DATA(ar_partition);
+  const long *restrict out_neighbors = (const long *) PyArray_DATA(ar_out_neighbors);
+  const long *restrict out_neighbor_weights = (const long *) PyArray_DATA(ar_out_neighbor_weights);
+  const long *restrict in_neighbors = (const long *) PyArray_DATA(ar_in_neighbors);
+  const long *restrict in_neighbor_weights = (const long *) PyArray_DATA(ar_in_neighbor_weights);
 
-  const long *d = (const long *) PyArray_DATA(ar_d);
-  const long *d_out = (const long *) PyArray_DATA(ar_d_out);
-  const long *d_in = (const long *) PyArray_DATA(ar_d_in);
+  const long *restrict d = (const long *) PyArray_DATA(ar_d);
+  const long *restrict d_out = (const long *) PyArray_DATA(ar_d_out);
+  const long *restrict d_in = (const long *) PyArray_DATA(ar_d_in);
 
-  const long *neighbors = (const long *) PyArray_DATA(ar_neighbors);
-  const long *neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
+  const long *restrict neighbors = (const long *) PyArray_DATA(ar_neighbors);
+  const long *restrict neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
 
-  long n_out_neighbors = (long) PyArray_DIM(ar_out_neighbors, 0);
-  long n_in_neighbors = (long) PyArray_DIM(ar_in_neighbors, 0);  
-  long n_neighbors = (long) PyArray_DIM(ar_neighbors, 0);
-  long N = (long) PyArray_DIM(ar_partition, 0);
+  const long n_out_neighbors = (long) PyArray_DIM(ar_out_neighbors, 0);
+  const long n_in_neighbors = (long) PyArray_DIM(ar_in_neighbors, 0);  
+  const long n_neighbors = (long) PyArray_DIM(ar_neighbors, 0);
+  const long N = (long) PyArray_DIM(ar_partition, 0);
 
   PyObject *ret = NULL;
   
@@ -3599,7 +3591,7 @@ static PyObject *propose_nodal_movement(PyObject *self, PyObject *args)
   double p_accept = 0.0, delta_entropy = 0.0, prob_back = 0.0, prob_fwd = 0.0, hastings = 0.0;
   struct hash *h_out = NULL, *h_in = NULL;
 
-  long r = partition[ni];
+  const long r = partition[ni];
 
   if (s == -1) {
     s = propose_new_partition(r, neighbors, neighbor_weights, partition,
@@ -3817,12 +3809,12 @@ static PyObject* rebuild_M(PyObject *self, PyObject *args)
   const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_weights = PyArray_FROM_OTF(obj_weights, NPY_LONG, NPY_IN_ARRAY);
 
-  const uint64_t *partition = (const uint64_t *) PyArray_DATA(ar_partition);
-  const uint64_t *neighbors = (const uint64_t *) PyArray_DATA(ar_neighbors);
-  const uint64_t *weights = (const uint64_t *) PyArray_DATA(ar_weights);
+  const uint64_t *restrict partition = (const uint64_t *) PyArray_DATA(ar_partition);
+  const uint64_t *restrict neighbors = (const uint64_t *) PyArray_DATA(ar_neighbors);
+  const uint64_t *restrict weights = (const uint64_t *) PyArray_DATA(ar_weights);
 
   long i;
-  long n = (long) PyArray_DIM(ar_neighbors, 0);
+  const long n = (long) PyArray_DIM(ar_neighbors, 0);
 
   uint64_t k1 = partition[vid_start];
 
