@@ -3569,23 +3569,23 @@ static PyObject *propose_nodal_movement(PyObject *self, PyObject *args)
   const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_neighbor_weights = PyArray_FROM_OTF(obj_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
 
-  const long *partition = (const long  *) PyArray_DATA(ar_partition);
-  const long *out_neighbors = (const long *) PyArray_DATA(ar_out_neighbors);
-  const long *out_neighbor_weights = (const long *) PyArray_DATA(ar_out_neighbor_weights);
-  const long *in_neighbors = (const long *) PyArray_DATA(ar_in_neighbors);
-  const long *in_neighbor_weights = (const long *) PyArray_DATA(ar_in_neighbor_weights);
+  const long *restrict partition = (const long  *) PyArray_DATA(ar_partition);
+  const long *restrict out_neighbors = (const long *) PyArray_DATA(ar_out_neighbors);
+  const long *restrict out_neighbor_weights = (const long *) PyArray_DATA(ar_out_neighbor_weights);
+  const long *restrict in_neighbors = (const long *) PyArray_DATA(ar_in_neighbors);
+  const long *restrict in_neighbor_weights = (const long *) PyArray_DATA(ar_in_neighbor_weights);
 
-  const long *d = (const long *) PyArray_DATA(ar_d);
-  const long *d_out = (const long *) PyArray_DATA(ar_d_out);
-  const long *d_in = (const long *) PyArray_DATA(ar_d_in);
+  const long *restrict d = (const long *) PyArray_DATA(ar_d);
+  const long *restrict d_out = (const long *) PyArray_DATA(ar_d_out);
+  const long *restrict d_in = (const long *) PyArray_DATA(ar_d_in);
 
-  const long *neighbors = (const long *) PyArray_DATA(ar_neighbors);
-  const long *neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
+  const long *restrict neighbors = (const long *) PyArray_DATA(ar_neighbors);
+  const long *restrict neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
 
-  long n_out_neighbors = (long) PyArray_DIM(ar_out_neighbors, 0);
-  long n_in_neighbors = (long) PyArray_DIM(ar_in_neighbors, 0);  
-  long n_neighbors = (long) PyArray_DIM(ar_neighbors, 0);
-  long N = (long) PyArray_DIM(ar_partition, 0);
+  const long n_out_neighbors = (long) PyArray_DIM(ar_out_neighbors, 0);
+  const long n_in_neighbors = (long) PyArray_DIM(ar_in_neighbors, 0);  
+  const long n_neighbors = (long) PyArray_DIM(ar_neighbors, 0);
+  const long N = (long) PyArray_DIM(ar_partition, 0);
 
   PyObject *ret = NULL;
   
@@ -3594,7 +3594,7 @@ static PyObject *propose_nodal_movement(PyObject *self, PyObject *args)
   double p_accept = 0.0, delta_entropy = 0.0, prob_back = 0.0, prob_fwd = 0.0, hastings = 0.0;
   struct hash *h_out = NULL, *h_in = NULL;
 
-  long r = partition[ni];
+  const long r = partition[ni];
 
   if (s == -1) {
     s = propose_new_partition(r, neighbors, neighbor_weights, partition,
