@@ -745,7 +745,7 @@ static inline void compressed_set_single(struct compressed_array *x, uint64_t i,
 
 int hash_accum_resize(struct hash_outer *ho, hash_key_t k, hash_val_t C)
 {
-  struct hash *oldh, *newh;
+  struct hash *restrict oldh, *restrict newh;
 
   struct hash_outer hoa_cur;
   struct hash_outer hoa_new, cur;
@@ -1832,7 +1832,7 @@ static PyObject* inplace_apply_movement_compressed_interblock_matrix(PyObject *s
     return NULL;
   }
 
-  struct compressed_array *M = PyCapsule_GetPointer(obj_M, "compressed_array");
+  struct compressed_array *restrict M = PyCapsule_GetPointer(obj_M, "compressed_array");
 
   if (!M) {
     PyErr_SetString(PyExc_RuntimeError, "NULL pointer to compresed array");
@@ -1847,16 +1847,16 @@ static PyObject* inplace_apply_movement_compressed_interblock_matrix(PyObject *s
   const PyObject *ar_d_in = PyArray_FROM_OTF(obj_d_in, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_d = PyArray_FROM_OTF(obj_d, NPY_LONG, NPY_IN_ARRAY);
 
-  const uint64_t *b_out = (const uint64_t *) PyArray_DATA(ar_b_out);
-  const int64_t *count_out = (const int64_t *) PyArray_DATA(ar_count_out);
-  const uint64_t *b_in = (const uint64_t *) PyArray_DATA(ar_b_in);
-  const int64_t *count_in = (const int64_t *) PyArray_DATA(ar_count_in);
-  atomic_long * d_out = (atomic_long *) PyArray_DATA(ar_d_out);
-  atomic_long * d_in = (atomic_long *) PyArray_DATA(ar_d_in);
-  atomic_long * d = (atomic_long *) PyArray_DATA(ar_d);
+  const uint64_t *restrict b_out = (const uint64_t *) PyArray_DATA(ar_b_out);
+  const int64_t *restrict count_out = (const int64_t *) PyArray_DATA(ar_count_out);
+  const uint64_t *restrict b_in = (const uint64_t *) PyArray_DATA(ar_b_in);
+  const int64_t *restrict count_in = (const int64_t *) PyArray_DATA(ar_count_in);
+  atomic_long *restrict d_out = (atomic_long *) PyArray_DATA(ar_d_out);
+  atomic_long *restrict d_in = (atomic_long *) PyArray_DATA(ar_d_in);
+  atomic_long *restrict d = (atomic_long *) PyArray_DATA(ar_d);
 
-  long n_out= (long) PyArray_DIM(ar_b_out, 0);
-  long n_in = (long) PyArray_DIM(ar_b_in, 0);
+  const long n_out= (long) PyArray_DIM(ar_b_out, 0);
+  const long n_in = (long) PyArray_DIM(ar_b_in, 0);
 
   long i;
   int64_t dM_r_row_sum = 0, dM_r_col_sum = 0;
@@ -2331,16 +2331,16 @@ static PyObject* inplace_apply_movement_uncompressed_interblock_matrix(PyObject 
   const PyObject *ar_d_in = PyArray_FROM_OTF(obj_d_in, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_d = PyArray_FROM_OTF(obj_d, NPY_LONG, NPY_IN_ARRAY);
 
-  const long *b_out = (const long *) PyArray_DATA(ar_b_out);
-  const long *count_out = (const long *) PyArray_DATA(ar_count_out);
-  const long *b_in = (const long *) PyArray_DATA(ar_b_in);
-  const long *count_in = (const long *) PyArray_DATA(ar_count_in);
-  atomic_long * d_out = (atomic_long *) PyArray_DATA(ar_d_out);
-  atomic_long * d_in = (atomic_long *) PyArray_DATA(ar_d_in);
-  atomic_long * d = (atomic_long *) PyArray_DATA(ar_d);
+  const long *restrict b_out = (const long *) PyArray_DATA(ar_b_out);
+  const long *restrict count_out = (const long *) PyArray_DATA(ar_count_out);
+  const long *restrict b_in = (const long *) PyArray_DATA(ar_b_in);
+  const long *restrict count_in = (const long *) PyArray_DATA(ar_count_in);
+  atomic_long *restrict d_out = (atomic_long *) PyArray_DATA(ar_d_out);
+  atomic_long *restrict d_in = (atomic_long *) PyArray_DATA(ar_d_in);
+  atomic_long *restrict d = (atomic_long *) PyArray_DATA(ar_d);
 
-  long n_out= (long) PyArray_DIM(ar_b_out, 0);
-  long n_in = (long) PyArray_DIM(ar_b_in, 0);
+  const long n_out= (long) PyArray_DIM(ar_b_out, 0);
+  const long n_in = (long) PyArray_DIM(ar_b_in, 0);
   long i;
 
   int64_t dM_r_row_sum = 0, dM_r_col_sum = 0;
