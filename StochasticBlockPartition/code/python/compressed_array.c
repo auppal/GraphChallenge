@@ -596,25 +596,21 @@ struct compressed_array *compressed_array_create(size_t n_nodes, size_t initial_
   x->rows = shared_calloc(x->n_row, sizeof(x->rows[0]));
 
   if (!x->rows) {
-    free(x);
-    return NULL;
+    goto bad;
   }
 
   x->cols = shared_calloc(x->n_col, sizeof(x->cols[0]));
 
   if (!x->cols) {
-    shared_free(x->rows, x->n_row * sizeof(x->rows[0]));
-    free(x);
-    return NULL;
+    goto bad;
   }
-
+  
   for (i=0; i<n_nodes; i++) {
     int rc1 = hash_outer_init(&x->rows[i], initial_width);
     int rc2 = hash_outer_init(&x->cols[i], initial_width);
 
     if (rc1 || rc2) {
       fprintf(stderr, "compressed_array_create: hash_create failed\n");
-      return NULL;
       break;
     }
   }
@@ -624,20 +620,19 @@ struct compressed_array *compressed_array_create(size_t n_nodes, size_t initial_
       hash_outer_destroy(&x->rows[i]);
       hash_outer_destroy(&x->cols[i]);
     }
+    goto bad;
+  }
+
+  return x;
+  
+bad:
+  if (x) {
     shared_free(x->rows, x->n_row * sizeof(x->rows[0]));
     shared_free(x->cols, x->n_col * sizeof(x->cols[0]));
     free(x);
-    fprintf(stderr, "compressed_array_create return NULL\n");
-    return NULL;
   }
-
-  /* XXX */
-#if 0  
-  for (i=0; i<n_nodes; i++) {
-    fprintf(stderr, "created cols[%ld].h = %p\n", i, x->cols[i].h);
-  }
-#endif
-  return x;
+  fprintf(stderr, "compressed_array_create return NULL\n");
+  return NULL;
 }
 
 void compressed_array_destroy(struct compressed_array *x)
