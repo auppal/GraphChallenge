@@ -57,12 +57,12 @@ static inline size_t hash_get_alloc_size(const struct hash *h)
   return sizeof(struct hash) + h->width * sizeof(hash_key_t) + h->width * sizeof(hash_val_t);
 }
 
-static inline hash_key_t *hash_get_keys(struct hash *h)
+static inline hash_key_t *hash_get_keys(const struct hash *h)
 {
   return (hash_key_t *) ((uintptr_t) h + sizeof(struct hash));
 }
 
-static inline hash_val_t *hash_get_vals(struct hash *h)
+static inline hash_val_t *hash_get_vals(const struct hash *h)
 {
   return (hash_val_t *) ((uintptr_t) h + sizeof(struct hash) + h->width * sizeof(hash_key_t));
 }
@@ -198,8 +198,8 @@ struct hash *hash_copy(const struct hash *y, int shared_mem)
 
   h->width = y->width;
   h->cnt = y->cnt;
-  hash_key_t *y_keys = hash_get_keys((struct hash *) y);
-  hash_val_t *y_vals = hash_get_vals((struct hash *) y);
+  hash_key_t *y_keys = hash_get_keys(y);
+  hash_val_t *y_vals = hash_get_vals(y);
   h->internal_refcnt = 0;
 
   hash_key_t *keys = hash_get_keys(h);
@@ -217,7 +217,7 @@ int hash_outer_copy(struct hash_outer *to, const struct hash_outer *from)
 }
 
 void hash_print(struct hash *h);
-int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v);
+static inline int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v);
 #define RESIZE_DEBUG (0)
 
 static inline struct hash *hash_resize(struct hash *h)
@@ -244,8 +244,8 @@ static inline struct hash *hash_resize(struct hash *h)
 #endif
 
     long ins = 0;
-    hash_key_t *keys = hash_get_keys((struct hash *) h);
-    hash_val_t *vals = hash_get_vals((struct hash *) h);
+    hash_key_t *keys = hash_get_keys(h);
+    hash_val_t *vals = hash_get_vals(h);
     for (i=0; i<h->width; i++) {
       if (keys[i] != EMPTY_KEY) {
 	//fprintf(stderr, " %ld ", keys[i]);
@@ -271,14 +271,14 @@ static inline struct hash *hash_resize(struct hash *h)
   return h;
 }
 
-static int hash_resize_needed(const struct hash *h)
+static inline int hash_resize_needed(const struct hash *h)
 {
   /* Return whether a resize is needed. */
   size_t limit = hash_get_limit(h);
   return h->cnt >= limit ? 1 : 0;
 }
 
-int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v)
+static inline int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v)
 {
   /* To avoid a subtle logic bug, first check for existance.
    * Beacuse not every insertion will cause an increase in cnt.
@@ -306,7 +306,7 @@ int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v)
 }
 
 
-int hash_accum_single(struct hash *h, hash_key_t k, hash_val_t c)
+static inline int hash_accum_single(struct hash *h, hash_key_t k, hash_val_t c)
 {
   /* To avoid a subtle logic bug, first check for existance.
    * Beacuse not every insertion will cause an increase in cnt.
@@ -362,8 +362,8 @@ static inline int hash_search(const struct hash *h, hash_key_t k, hash_val_t *v)
   size_t i, width = h->width;
   hash_key_t kh = hash(k);
 
-  const hash_key_t *keys = hash_get_keys((struct hash *) h);
-  const hash_val_t *vals = hash_get_vals((struct hash *) h);
+  const hash_key_t *keys = hash_get_keys(h);
+  const hash_val_t *vals = hash_get_vals(h);
 
   for (i=0; i<width; i++) {
     size_t idx = (kh + i) % width;
@@ -398,8 +398,8 @@ static inline hash_val_t hash_sum(const struct hash *h)
 {
   size_t i;
   hash_val_t s = 0;
-  const hash_key_t *keys = hash_get_keys((struct hash *) h);
-  const hash_val_t *vals = hash_get_vals((struct hash *) h);
+  const hash_key_t *keys = hash_get_keys(h);
+  const hash_val_t *vals = hash_get_vals(h);
 
   for (i=0; i<h->width; i++) {
     if (keys[i] != EMPTY_KEY) {
@@ -429,11 +429,11 @@ static inline size_t hash_keys(const struct hash *h, unsigned long *keys, size_t
   return cnt;
 }
 
-size_t hash_vals(const struct hash *h, long *vals, size_t max_cnt)
+static inline size_t hash_vals(const struct hash *h, long *vals, size_t max_cnt)
 {
   size_t i, width = h->width, cnt = 0;
-  hash_key_t *h_keys = hash_get_keys((struct hash *) h);
-  hash_val_t *h_vals = hash_get_vals((struct hash *) h);
+  hash_key_t *h_keys = hash_get_keys(h);
+  hash_val_t *h_vals = hash_get_vals(h);
 
   for (i=0; i<width; i++) {
     if (h_keys[i] != EMPTY_KEY) {
@@ -467,8 +467,8 @@ void hash_print(struct hash *h)
 int hash_eq(const struct hash *x, const struct hash *y)
 {
   size_t i;
-  hash_key_t *x_keys = hash_get_keys((struct hash *) x);
-  hash_val_t *x_vals = hash_get_vals((struct hash *) x);
+  hash_key_t *x_keys = hash_get_keys(x);
+  hash_val_t *x_vals = hash_get_vals(x);
 
   for (i=0; i<x->width; i++) {
     if (x_keys[i] != EMPTY_KEY) {
@@ -481,8 +481,8 @@ int hash_eq(const struct hash *x, const struct hash *y)
     }
   }
 
-  hash_key_t *y_keys = hash_get_keys((struct hash *) y);
-  hash_val_t *y_vals = hash_get_vals((struct hash *) y);
+  hash_key_t *y_keys = hash_get_keys(y);
+  hash_val_t *y_vals = hash_get_vals(y);
 
   for (i=0; i<y->width; i++) {
     if (y_keys[i] != EMPTY_KEY) {
@@ -503,8 +503,8 @@ int hash_eq(const struct hash *x, const struct hash *y)
 static inline void hash_accum_constant(const struct hash *h, size_t C)
 {
   size_t i, width = h->width;
-  hash_key_t *keys = hash_get_keys((struct hash *) h);
-  hash_val_t *vals = hash_get_vals((struct hash *) h);
+  hash_key_t *keys = hash_get_keys(h);
+  hash_val_t *vals = hash_get_vals(h);
 
   for (i=0; i<width; i++) {
     if (keys[i] != EMPTY_KEY) {
