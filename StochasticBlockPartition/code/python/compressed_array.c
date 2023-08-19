@@ -57,12 +57,12 @@ static inline size_t hash_get_alloc_size(const struct hash *h)
   return sizeof(struct hash) + h->width * sizeof(hash_key_t) + h->width * sizeof(hash_val_t);
 }
 
-static inline hash_key_t *hash_get_keys(const struct hash *h)
+static inline hash_key_t *restrict hash_get_keys(const struct hash *h)
 {
   return (hash_key_t *) ((uintptr_t) h + sizeof(struct hash));
 }
 
-static inline hash_val_t *hash_get_vals(const struct hash *h)
+static inline hash_val_t *restrict hash_get_vals(const struct hash *h)
 {
   return (hash_val_t *) ((uintptr_t) h + sizeof(struct hash) + h->width * sizeof(hash_key_t));
 }
@@ -380,7 +380,7 @@ static inline int hash_search(const struct hash *h, hash_key_t k, hash_val_t *v)
   return -1;
 }
 
-static inline void hash_search_multi(const struct hash *h, const unsigned long *keys, long *vals, size_t n)
+static inline void hash_search_multi(const struct hash *restrict h, const unsigned long *restrict keys, long *restrict vals, size_t n)
 {
   size_t i;
   for (i=0; i<n; i++) {
@@ -411,7 +411,7 @@ static inline hash_val_t hash_sum(const struct hash *h)
 }
 
 
-static inline size_t hash_keys(const struct hash *h, unsigned long *keys, size_t max_cnt)
+static inline size_t hash_keys(const struct hash *restrict h, unsigned long *restrict keys, size_t max_cnt)
 {
   const hash_key_t *h_keys = hash_get_keys((struct hash *) h);
   size_t i, width = h->width, cnt = 0;
@@ -429,7 +429,7 @@ static inline size_t hash_keys(const struct hash *h, unsigned long *keys, size_t
   return cnt;
 }
 
-static inline size_t hash_vals(const struct hash *h, long *vals, size_t max_cnt)
+static inline size_t hash_vals(const struct hash *restrict h, long *restrict vals, size_t max_cnt)
 {
   size_t i, width = h->width, cnt = 0;
   hash_key_t *h_keys = hash_get_keys(h);
@@ -518,7 +518,7 @@ static inline void hash_accum_constant(const struct hash *h, size_t C)
  * It is not strictly correct to use int64_t instead of hash_key_t.
  * But it is done here for expedience.
  */
-static inline struct hash *hash_accum_multi(struct hash *h, const unsigned long *keys, const long *vals, size_t n_keys, int scale)
+static inline struct hash *hash_accum_multi(struct hash *restrict h, const unsigned long *restrict keys, const long *restrict vals, size_t n_keys, int scale)
 {
   size_t j, i;
 
