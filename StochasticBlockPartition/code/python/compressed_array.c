@@ -3099,8 +3099,8 @@ static inline long degree_substitute(const long *d, long i, long r, long s, long
   return d[i];
 }
 
-static void compute_delta_entropy(PyObject *Mu,
-				  struct compressed_array *M,
+static void compute_delta_entropy(PyObject *restrict Mu,
+				  struct compressed_array *restrict M,
 				  const long r,
 				  const long s,
 				  const long *restrict b_out,
@@ -3435,28 +3435,28 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
   const PyObject *ar_d_out = PyArray_FROM_OTF(obj_block_degrees_out, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_d_in = PyArray_FROM_OTF(obj_block_degrees_in, NPY_LONG, NPY_IN_ARRAY);      
 
-  const long *partition = (const long  *) PyArray_DATA(ar_partition);
-  const long *out_neighbors = (const long *) PyArray_DATA(ar_out_neighbors);
-  const long *out_neighbor_weights = (const long *) PyArray_DATA(ar_out_neighbor_weights);
-  const long *in_neighbors = (const long *) PyArray_DATA(ar_in_neighbors);
-  const long *in_neighbor_weights = (const long *) PyArray_DATA(ar_in_neighbor_weights);
-  const long *neighbors = (const long *) PyArray_DATA(ar_neighbors);
-  const long *neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
+  const long *restrict partition = (const long  *) PyArray_DATA(ar_partition);
+  const long *restrict out_neighbors = (const long *) PyArray_DATA(ar_out_neighbors);
+  const long *restrict out_neighbor_weights = (const long *) PyArray_DATA(ar_out_neighbor_weights);
+  const long *restrict in_neighbors = (const long *) PyArray_DATA(ar_in_neighbors);
+  const long *restrict in_neighbor_weights = (const long *) PyArray_DATA(ar_in_neighbor_weights);
+  const long *restrict neighbors = (const long *) PyArray_DATA(ar_neighbors);
+  const long *restrict neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
 
-  long N = (long) PyArray_DIM(ar_partition, 0);
-  long n_neighbors= (long) PyArray_DIM(ar_neighbors, 0);
+  const long N = (long) PyArray_DIM(ar_partition, 0);
+  const long n_neighbors= (long) PyArray_DIM(ar_neighbors, 0);
 
-  struct compressed_array *M = PyCapsule_GetPointer(obj_M, "compressed_array");
-  PyObject *Mu = NULL;
+  struct compressed_array *restrict M = PyCapsule_GetPointer(obj_M, "compressed_array");
+  PyObject *restrict Mu = NULL;
   
   if (!M) {
     PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
     Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
   }
 
-  const long *d = (const long *) PyArray_DATA(ar_d);
-  const long *d_out = (const long *) PyArray_DATA(ar_d_out);
-  const long *d_in = (const long *) PyArray_DATA(ar_d_in);
+  const long *restrict d = (const long *) PyArray_DATA(ar_d);
+  const long *restrict d_out = (const long *) PyArray_DATA(ar_d_out);
+  const long *restrict d_in = (const long *) PyArray_DATA(ar_d_in);
   
   PyObject *ret;
 
@@ -3489,12 +3489,12 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
     compute_delta_entropy(Mu, M, r, s, b_out, count_out, n_out, b_in, count_in, n_in, d_out, d_in, d, d_out_new_r, d_out_new_s, d_in_new_r, d_in_new_s, 1, &delta_entropy, &Nrr, &Nrs, &Nsr, &Nss);
   }
   else {
-    long n_out_neighbors= (long) PyArray_DIM(ar_out_neighbors, 0);
+    const long n_out_neighbors= (long) PyArray_DIM(ar_out_neighbors, 0);
     if (blocks_and_counts(partition, out_neighbors, out_neighbor_weights, n_out_neighbors, &b_out, &count_out, &n_out, NULL) < 0) {
       PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts_failed");
       return NULL;
     }
-    long n_in_neighbors= (long) PyArray_DIM(ar_in_neighbors, 0);
+    const long n_in_neighbors= (long) PyArray_DIM(ar_in_neighbors, 0);
     if (blocks_and_counts(partition, in_neighbors, in_neighbor_weights, n_in_neighbors, &b_in, &count_in, &n_in, NULL) < 0) {
       PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts_failed");
       return NULL;
@@ -3554,8 +3554,8 @@ static PyObject *propose_nodal_movement(PyObject *self, PyObject *args)
   const PyObject *ar_in_neighbors = PyArray_FROM_OTF(obj_in_neighbors, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_in_neighbor_weights = PyArray_FROM_OTF(obj_in_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
 
-  struct compressed_array *Mc = PyCapsule_GetPointer(obj_M, "compressed_array");
-  PyObject *Mu = NULL;
+  struct compressed_array *restrict Mc = PyCapsule_GetPointer(obj_M, "compressed_array");
+  PyObject *restrict Mu = NULL;
   
   if (!Mc) {
     PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
