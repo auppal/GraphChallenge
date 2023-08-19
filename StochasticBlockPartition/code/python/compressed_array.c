@@ -735,7 +735,6 @@ static inline void compressed_set_single(struct compressed_array *x, uint64_t i,
 
   if (hash_resize_needed(x->rows[i].h)) {
     x->rows[i].h = hash_resize(x->rows[i].h);
-
   }
 
   if (hash_resize_needed(x->cols[j].h)) {
@@ -2517,6 +2516,8 @@ static long propose_new_partition(long r, const long *neighbors, const long *nei
   /* proposals by random draw from neighbors of
    * partition[rand_neighbor]
    */
+
+  long sum_row, sum_col;
   
   if (Mu) {
     size_t default_width = 16;
@@ -2532,32 +2533,43 @@ static long propose_new_partition(long r, const long *neighbors, const long *nei
       goto done;
     }
     
-    npy_intp N = PyArray_DIM(Mu, 0);    
-    long *Mu_row_p = PyArray_GETPTR2(Mu, u, 0);
-    long *Mu_col_p = PyArray_GETPTR2(Mu, 0, u);
-
+    const npy_intp N = PyArray_DIM(Mu, 0);    
+    long *restrict Mu_row_p = PyArray_GETPTR2(Mu, u, 0);
+    long *restrict Mu_col_p = PyArray_GETPTR2(Mu, 0, u);
     long i;
+
+    sum_row = 0;
+    sum_col = 0;
 
     for (i=0; i<N; i++) {
       if (Mu_row_p[i] != 0) {
 	hash_set_single(Mu_row, i, Mu_row_p[i]);
+	if (hash_resize_needed(Mu_row)) {
+	  Mu_row = hash_resize(Mu_row);
+	}
+	sum_row += Mu_row_p[i];
       }
     }
 
     for (i=0; i<N; i++) {
       if (Mu_col_p[i] != 0) {
 	hash_set_single(Mu_col, i, Mu_col_p[i]);
+	if (hash_resize_needed(Mu_col)) {
+	  Mu_col = hash_resize(Mu_col);
+	}
+	sum_col += Mu_col_p[i];
       }
     }
   }
   else {
     Mu_row = compressed_take(M, u, 0);
     Mu_col = compressed_take(M, u, 1);
+    sum_row = hash_sum(Mu_row);
+    sum_col = hash_sum(Mu_col);
   }
 
   hash_val_t Mu_row_r = 0, Mu_col_r = 0;
-  long sum_row = hash_sum(Mu_row);
-  long sum_col = hash_sum(Mu_col);  
+
   long sum_tot = sum_row + sum_col;
 
   if (agg_move) {
