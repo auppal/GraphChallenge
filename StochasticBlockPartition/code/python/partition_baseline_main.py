@@ -327,6 +327,11 @@ def propose_node_movement_wrapper(tup):
     worker_n_moves = 0
     pop_cnt = 0
 
+    if 0:
+        propose_node_fn = propose_node_movement
+    else:
+        propose_node_fn = compressed_array.propose_nodal_movement
+    
     # r is current_block, s is proposal
     if args.blocking == 1:
         for ni in range(start, stop, step):
@@ -337,14 +342,15 @@ def propose_node_movement_wrapper(tup):
 
             args.critical == 0 and acquire_locks(locks)
 
-            movement = propose_node_movement(ni, partition,
-                                             out_neighbors[ni][:, 0], out_neighbors[ni][:, 1],
-                                             in_neighbors[ni][:, 0], in_neighbors[ni][:, 1],
-                                             M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
-                                             vertex_num_out_neighbor_edges[ni], vertex_num_in_neighbor_edges[ni], vertex_num_neighbor_edges[ni],
-                                             vertex_neighbors[ni][:, 0],
-                                             vertex_neighbors[ni][:, 1],                                             
-                                             self_edge_weights, args.beta)
+            movement = propose_node_fn(ni, partition,
+                                       out_neighbors[ni][:, 0], out_neighbors[ni][:, 1],
+                                       in_neighbors[ni][:, 0], in_neighbors[ni][:, 1],
+                                       M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
+                                       vertex_num_out_neighbor_edges[ni],
+                                       vertex_num_in_neighbor_edges[ni], vertex_num_neighbor_edges[ni],
+                                       vertex_neighbors[ni][:, 0],
+                                       vertex_neighbors[ni][:, 1],                                             
+                                       self_edge_weights, args.beta, -1)
 
             #(ni2, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
             (ni2, r, s, delta_entropy, p_accept) = movement            
@@ -381,14 +387,15 @@ def propose_node_movement_wrapper(tup):
 
         queue = collections.deque()
         for ni in range(start, stop, step):        
-            movement = propose_node_movement(ni, partition,
-                                             out_neighbors[ni][:, 0], out_neighbors[ni][:, 1],
-                                             in_neighbors[ni][:, 0], in_neighbors[ni][:, 1],
-                                             M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
-                                             vertex_num_out_neighbor_edges[ni], vertex_num_in_neighbor_edges[ni], vertex_num_neighbor_edges[ni],
-                                             vertex_neighbors[ni][:, 0],
-                                             vertex_neighbors[ni][:, 1],                                             
-                                             self_edge_weights, args.beta)
+            movement = propose_node_fn(ni, partition,
+                                       out_neighbors[ni][:, 0], out_neighbors[ni][:, 1],
+                                       in_neighbors[ni][:, 0], in_neighbors[ni][:, 1],
+                                       M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
+                                       vertex_num_out_neighbor_edges[ni], vertex_num_in_neighbor_edges[ni],
+                                       vertex_num_neighbor_edges[ni],
+                                       vertex_neighbors[ni][:, 0],
+                                       vertex_neighbors[ni][:, 1],                                             
+                                       self_edge_weights, args.beta, -1)
             (ni2, r, s, delta_entropy, p_accept) = movement            
             accept = (np.random.uniform() <= p_accept)
             if accept:
@@ -422,61 +429,44 @@ def propose_node_movement_wrapper(tup):
     return rank,mypid,update_id,start,stop,step,worker_n_moves,worker_delta_entropy,pop_cnt
 
 
-
+# Python version only used for testing and debugging.
 def propose_node_movement(ni, partition, out_neighbors, out_neighbor_weights, in_neighbors, in_neighbor_weights, M, num_blocks,
                           block_degrees, block_degrees_out, block_degrees_in,
                           num_out_neighbor_edges, num_in_neighbor_edges, num_neighbor_edges,
-                          neighbors, neighbor_weights, self_edge_weights, beta):
-
-    if is_compressed(M):
-        return compressed_array.propose_nodal_movement(ni,
-                                                       partition,
-                                                       out_neighbors, out_neighbor_weights,
-                                                       in_neighbors, in_neighbor_weights,
-                                                       M,
-                                                       num_blocks,
-                                                       block_degrees, block_degrees_out,block_degrees_in,
-                                                       num_out_neighbor_edges, num_in_neighbor_edges, num_neighbor_edges,
-                                                       neighbors, neighbor_weights,
-                                                       self_edge_weights, beta, -1)
-    # SHR: read partition[ni]
+                          neighbors, neighbor_weights, self_edge_weights, beta, forced_proposal=-1):
     r = partition[ni]
 
-    # SHR: read u = partition[rand_neighbor]
-    # SHR: read row M[u,:] col M[:,u]
+    if forced_proposal == -1:
+        if not is_compressed(M):
+            propose_partition = propose_new_partition
+        else:
+            propose_parition = compressed_array.propose_new_partition
 
-    if not is_compressed(M):
-        propose = propose_new_partition
+        s = propose_parition(
+            r,
+            neighbors,
+            neighbor_weights,
+            partition,
+            M, block_degrees, num_blocks, 0)
     else:
-        propose = compressed_array.propose_new_partition
-
-    s = propose(
-        r,
-        neighbors,
-        neighbor_weights,
-        partition,
-        M, block_degrees, num_blocks, 0)
+        s = forced_proposal
 
     if s == r:
         # Re-trying until s != r does not improve the performance.
         (ni, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = ni, r, int(s), 0.0, False, None, None, None, None, None, None
         p_accept = 0.0
     else:
-        # SHR: read partition[out_neighbors[ni]]
-        # SHR: read partition[in_neighbors[ni]]
         blocks_out,count_out = compressed_array.blocks_and_counts(partition, out_neighbors, out_neighbor_weights)
         blocks_in,count_in = compressed_array.blocks_and_counts(partition, in_neighbors, in_neighbor_weights)
 
         # compute the two new rows and columns of the interblock edge count matrix
         self_edge_weight = self_edge_weights[ni]
 
-        # SHR: read M[r,:] M[s,:] M[:,r] M[:s]
         new_M_r_row, new_M_r_col, new_M_s_row, new_M_s_col, cur_M_r_row, cur_M_r_col, cur_M_s_row, cur_M_s_col = \
             compute_new_rows_cols_interblock_edge_count_matrix(M, r, s,
                                                                blocks_out, count_out, blocks_in, count_in,
                                                                self_edge_weight, 0)
 
-        # SHR: read block_degrees_out[:], block_degrees_in[:], block_degrees[:]
         block_degrees_out_new = block_degrees_out.copy()
         block_degrees_in_new = block_degrees_in.copy()
         block_degrees_new = block_degrees.copy()
@@ -489,7 +479,6 @@ def propose_node_movement(ni, partition, out_neighbors, out_neighbor_weights, in
         block_degrees_new[s] = block_degrees_out_new[s] + block_degrees_in_new[s]
         block_degrees_new[r] = block_degrees_out_new[r] + block_degrees_in_new[r]
 
-        # SHR: read block_degrees[t] where t is union of b_out and b_in
         Hastings_correction = compressed_array.hastings_correction(
             blocks_out, count_out, blocks_in, count_in,
             cur_M_s_row,
@@ -633,7 +622,12 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
     else:
         start_vert = 0
         stop_vert = N
-        
+
+    if 0:
+        propose_node_fn = propose_node_movement
+    else:
+        propose_node_fn = compressed_array.propose_nodal_movement
+
     for itr in range(max_num_nodal_itr):
         num_nodal_moves = 0
         itr_delta_entropy[itr] = 0
@@ -646,17 +640,18 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
             L = range(start_vert, stop_vert)
 
         update_id_cnt = 0
-        
+
         for i in L:
-            movement = propose_node_movement(i, partition,
-                                             out_neighbors[i][:, 0], out_neighbors[i][:, 1],
-                                             in_neighbors[i][:, 0], in_neighbors[i][:, 1],
-                                             M, num_blocks,
-                                             block_degrees, block_degrees_out, block_degrees_in,
-                                             vertex_num_out_neighbor_edges[i], vertex_num_in_neighbor_edges[i], vertex_num_neighbor_edges[i],
-                                             vertex_neighbors[i][:, 0],
-                                             vertex_neighbors[i][:, 1],                                             
-                                             self_edge_weights, args.beta)
+            movement = propose_node_fn(i, partition,
+                                       out_neighbors[i][:, 0], out_neighbors[i][:, 1],
+                                       in_neighbors[i][:, 0], in_neighbors[i][:, 1],
+                                       M, num_blocks,
+                                       block_degrees, block_degrees_out, block_degrees_in,
+                                       vertex_num_out_neighbor_edges[i], vertex_num_in_neighbor_edges[i],
+                                       vertex_num_neighbor_edges[i],
+                                       vertex_neighbors[i][:, 0],
+                                       vertex_neighbors[i][:, 1],
+                                       self_edge_weights, args.beta, -1)
 
             if args.sanity_check:
                 sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)

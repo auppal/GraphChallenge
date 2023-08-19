@@ -2485,9 +2485,13 @@ static long multinomial_choice(const long *a, long n, const long *p)
 static long propose_new_partition(long r, const long *neighbors, const long *neighbor_weights,
 				  const long *partition,
 				  struct compressed_array *M,
+				  PyObject *Mu,
 				  const long *d, long n_neighbors, long N, long B, long agg_move)
 {
   long s = r, u, rand_neighbor;
+
+  struct hash *Mu_row = NULL;
+  struct hash *Mu_col = NULL;
 
   if (!agg_move) {
     /* For unit weight graphs all probabilities are 1. */
@@ -2518,9 +2522,43 @@ static long propose_new_partition(long r, const long *neighbors, const long *nei
   /* proposals by random draw from neighbors of
    * partition[rand_neighbor]
    */
+  
+  if (Mu) {
+    size_t default_width = 16;
+    Mu_row = hash_create(default_width, 0);
 
-  struct hash *Mu_row = compressed_take(M, u, 0);
-  struct hash *Mu_col = compressed_take(M, u, 1);
+    if (!Mu_row) {
+      goto done;
+    }
+    
+    Mu_col = hash_create(default_width, 0);
+
+    if (!Mu_col) {
+      goto done;
+    }
+    
+    npy_intp N = PyArray_DIM(Mu, 0);    
+    long *Mu_row_p = PyArray_GETPTR2(Mu, u, 0);
+    long *Mu_col_p = PyArray_GETPTR2(Mu, 0, u);
+
+    long i;
+
+    for (i=0; i<N; i++) {
+      if (Mu_row_p[i] != 0) {
+	hash_set_single(Mu_row, i, Mu_row_p[i]);
+      }
+    }
+
+    for (i=0; i<N; i++) {
+      if (Mu_col_p[i] != 0) {
+	hash_set_single(Mu_col, i, Mu_col_p[i]);
+      }
+    }
+  }
+  else {
+    Mu_row = compressed_take(M, u, 0);
+    Mu_col = compressed_take(M, u, 1);
+  }
 
   hash_val_t Mu_row_r = 0, Mu_col_r = 0;
   long sum_row = hash_sum(Mu_row);
@@ -2580,6 +2618,11 @@ static long propose_new_partition(long r, const long *neighbors, const long *nei
   s = -1;
   
 done:
+  if (Mu) {
+    hash_destroy(Mu_row);
+    hash_destroy(Mu_col);
+  }
+  
   return s;
 }
 
@@ -2599,8 +2642,14 @@ static PyObject* propose_new_partition_py(PyObject *self, PyObject *args)
   const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_d = PyArray_FROM_OTF(obj_d, NPY_LONG, NPY_IN_ARRAY);
 
-  struct compressed_array *M = PyCapsule_GetPointer(obj_M, "compressed_array");
-  
+  struct compressed_array *M = NULL;
+  PyObject *Mu = NULL;
+
+  if ((M = PyCapsule_GetPointer(obj_M, "compressed_array")) == NULL) {
+    PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
+    Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
+  }
+
   const long *neighbors = (const long *) PyArray_DATA(ar_neighbors);
   const long *neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
   const long *partition = (const long  *) PyArray_DATA(ar_partition);
@@ -2612,7 +2661,7 @@ static PyObject* propose_new_partition_py(PyObject *self, PyObject *args)
   PyObject *ret;
 
   long s = propose_new_partition(r, neighbors, neighbor_weights, partition,
-				 M, d, n_neighbors, N, B, agg_move);
+				 M, Mu, d, n_neighbors, N, B, agg_move);
 
   if (s < 0) {
     PyErr_SetString(PyExc_RuntimeError, "multinomial choice for both conditions failed");
@@ -3418,11 +3467,11 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
 
   if (s == -1) {
     s = propose_new_partition(r, neighbors, neighbor_weights, partition,
-			      M, d, n_neighbors, N, num_blocks, 1);
+			      M, Mu, d, n_neighbors, N, num_blocks, 1);
   }
 
   if (s < 0) {
-    PyErr_SetString(PyExc_RuntimeError, "multinomial choice for both conditions failed");
+    PyErr_SetString(PyExc_RuntimeError, "propose_new_partition failed");
     return NULL;
   }
 
@@ -3554,9 +3603,14 @@ static PyObject *propose_nodal_movement(PyObject *self, PyObject *args)
 
   if (s == -1) {
     s = propose_new_partition(r, neighbors, neighbor_weights, partition,
-			      Mc, d, n_neighbors, N, num_blocks, 0);
+			      Mc, Mu, d, n_neighbors, N, num_blocks, 0);
   }
 
+  if (s < 0) {
+    PyErr_SetString(PyExc_RuntimeError, "propose_new_partition failed");
+    return NULL;
+  }
+  
   if (s == r) {
     ret = Py_BuildValue("kkkdd", ni,r,s,delta_entropy,p_accept);
     goto done;
