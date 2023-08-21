@@ -1901,7 +1901,7 @@ bad:
 
 
 
-static int blocks_and_counts(const long *partition, const long *neighbors, const long *weights, long n, long **p_blocks, long **p_counts, long *p_n_blocks, struct hash **p_h)
+static int blocks_and_counts(const long *restrict partition, const long *restrict neighbors, const long *restrict weights, long n, long *restrict *p_blocks, long *restrict *p_counts, long *p_n_blocks, struct hash *restrict *p_h)
 {
   /* Reserve at least 2x elements, to avoid resizes due to 0.70 max
    * load factor. But reserve at least 16.
@@ -3529,77 +3529,38 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
   return ret;
 }
 
-
-static PyObject *propose_nodal_movement(PyObject *self, PyObject *args)
+int propose_node_movement(
+  long ni,
+  long s,
+  struct compressed_array *restrict Mc,
+  PyObject *restrict Mu,
+  const long *restrict partition,
+  const long *restrict out_neighbors,
+  const long *restrict out_neighbor_weights,
+  const long *restrict in_neighbors,
+  const long *restrict in_neighbor_weights,
+  const long *restrict d,
+  const long *restrict d_out,
+  const long *restrict d_in,
+  const long *restrict neighbors,
+  const long *restrict neighbor_weights,
+  const long n_out_neighbors,
+  const long n_in_neighbors,
+  const long n_neighbors,
+  const long N,
+  const long num_blocks,
+  const double B,
+  const double beta,
+  long *p_ni,
+  long *p_r,
+  long *p_s,
+  double *p_delta_entropy,
+  double *p_prob_accept
+)
 {
-  PyObject *obj_partition,
-    *obj_out_neighbors, *obj_out_neighbor_weights, *obj_in_neighbors, *obj_in_neighbor_weights,
-    *obj_M,
-    *obj_block_degrees, *obj_block_degrees_out, *obj_block_degrees_in,
-    *obj_neighbors, *obj_neighbor_weights, *obj_self_edge_weights;
-
-  long ni, num_out_neighbor_edges, num_in_neighbor_edges, num_neighbor_edges, num_blocks, s;
-  double beta;
-  /* self_edge_weights is a defaultdict, unused for now */
-  if (!PyArg_ParseTuple(args, "lOOOOOOlOOOlllOOOdl",
-			&ni,
-			&obj_partition,
-			&obj_out_neighbors, &obj_out_neighbor_weights,
-			&obj_in_neighbors, &obj_in_neighbor_weights,
-			&obj_M,
-			&num_blocks,
-			&obj_block_degrees, &obj_block_degrees_out, &obj_block_degrees_in,
-			&num_out_neighbor_edges, &num_in_neighbor_edges, &num_neighbor_edges,
-			&obj_neighbors, &obj_neighbor_weights,
-			&obj_self_edge_weights, &beta, &s))
-  {
-    PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
-    return NULL;
-  }
-
-  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_out_neighbors = PyArray_FROM_OTF(obj_out_neighbors, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_out_neighbor_weights = PyArray_FROM_OTF(obj_out_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_in_neighbors = PyArray_FROM_OTF(obj_in_neighbors, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_in_neighbor_weights = PyArray_FROM_OTF(obj_in_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
-
-  struct compressed_array *restrict Mc = PyCapsule_GetPointer(obj_M, "compressed_array");
-  PyObject *restrict Mu = NULL;
-  
-  if (!Mc) {
-    PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
-    Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
-  }
-
-  /* d, d_out, d_in have size num_blocks */
-  const PyObject *ar_d = PyArray_FROM_OTF(obj_block_degrees, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_d_out = PyArray_FROM_OTF(obj_block_degrees_out, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_d_in = PyArray_FROM_OTF(obj_block_degrees_in, NPY_LONG, NPY_IN_ARRAY);    
-  const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_neighbor_weights = PyArray_FROM_OTF(obj_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
-
-  const long *restrict partition = (const long  *) PyArray_DATA(ar_partition);
-  const long *restrict out_neighbors = (const long *) PyArray_DATA(ar_out_neighbors);
-  const long *restrict out_neighbor_weights = (const long *) PyArray_DATA(ar_out_neighbor_weights);
-  const long *restrict in_neighbors = (const long *) PyArray_DATA(ar_in_neighbors);
-  const long *restrict in_neighbor_weights = (const long *) PyArray_DATA(ar_in_neighbor_weights);
-
-  const long *restrict d = (const long *) PyArray_DATA(ar_d);
-  const long *restrict d_out = (const long *) PyArray_DATA(ar_d_out);
-  const long *restrict d_in = (const long *) PyArray_DATA(ar_d_in);
-
-  const long *restrict neighbors = (const long *) PyArray_DATA(ar_neighbors);
-  const long *restrict neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
-
-  const long n_out_neighbors = (long) PyArray_DIM(ar_out_neighbors, 0);
-  const long n_in_neighbors = (long) PyArray_DIM(ar_in_neighbors, 0);  
-  const long n_neighbors = (long) PyArray_DIM(ar_neighbors, 0);
-  const long N = (long) PyArray_DIM(ar_partition, 0);
-
-  PyObject *ret = NULL;
-  
-  long *b_out = NULL, *b_in = NULL;
-  long *count_out = NULL, *count_in = NULL, n_out, n_in;
+  int rc = -1;
+  long *restrict b_out = NULL, *restrict b_in = NULL;
+  long *restrict count_out = NULL, *restrict count_in = NULL, n_out, n_in;
   double p_accept = 0.0, delta_entropy = 0.0, prob_back = 0.0, prob_fwd = 0.0, hastings = 0.0;
   struct hash *h_out = NULL, *h_in = NULL;
 
@@ -3611,29 +3572,23 @@ static PyObject *propose_nodal_movement(PyObject *self, PyObject *args)
   }
 
   if (s < 0) {
-    PyErr_SetString(PyExc_RuntimeError, "propose_new_partition failed");
-    return NULL;
+    return -1;
   }
   
   if (s == r) {
-    ret = Py_BuildValue("kkkdd", ni,r,s,delta_entropy,p_accept);
+    rc = 0;
     goto done;
   }
 
   if (blocks_and_counts(partition, out_neighbors, out_neighbor_weights, n_out_neighbors, &b_out, &count_out, &n_out, &h_out) < 0) {
-    PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts_failed");
     goto done;
   }
 
   if (blocks_and_counts(partition, in_neighbors, in_neighbor_weights, n_in_neighbors, &b_in, &count_in, &n_in, &h_in) < 0) {
-    PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts_failed");    
     goto done;
   }
   
   int64_t dM_r_row_sum = 0, dM_r_col_sum = 0;
-
-  /* Components of Hastings correction. */
-  const double B = (double) PyArray_DIM(ar_d_out, 0);
   long i;
 
   for (i=0; i<n_out; i++) {
@@ -3776,9 +3731,15 @@ static PyObject *propose_nodal_movement(PyObject *self, PyObject *args)
   if (p_accept > 1.0)
     p_accept = 1.0;
 
-  ret = Py_BuildValue("kkkdd", ni,r,s,delta_entropy,p_accept);
+  rc = 0;
 
 done:
+  *p_ni = ni;
+  *p_r = r;
+  *p_s = s;
+  *p_delta_entropy = delta_entropy;
+  *p_prob_accept = p_accept;
+  
   hash_destroy(h_in);
   hash_destroy(h_out);
   
@@ -3786,6 +3747,116 @@ done:
   free(count_out);  
   free(b_in);
   free(count_in);
+
+  return rc;
+}
+
+
+static PyObject *propose_nodal_movement_py(PyObject *self, PyObject *args)
+{
+  PyObject *obj_partition,
+    *obj_out_neighbors, *obj_out_neighbor_weights, *obj_in_neighbors, *obj_in_neighbor_weights,
+    *obj_M,
+    *obj_block_degrees, *obj_block_degrees_out, *obj_block_degrees_in,
+    *obj_neighbors, *obj_neighbor_weights, *obj_self_edge_weights;
+
+  long ni, num_out_neighbor_edges, num_in_neighbor_edges, num_neighbor_edges, num_blocks, s;
+  double beta;
+  /* self_edge_weights is a defaultdict, unused for now */
+  if (!PyArg_ParseTuple(args, "lOOOOOOlOOOlllOOOdl",
+			&ni,
+			&obj_partition,
+			&obj_out_neighbors, &obj_out_neighbor_weights,
+			&obj_in_neighbors, &obj_in_neighbor_weights,
+			&obj_M,
+			&num_blocks,
+			&obj_block_degrees, &obj_block_degrees_out, &obj_block_degrees_in,
+			&num_out_neighbor_edges, &num_in_neighbor_edges, &num_neighbor_edges,
+			&obj_neighbors, &obj_neighbor_weights,
+			&obj_self_edge_weights, &beta, &s))
+  {
+    PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
+    return NULL;
+  }
+
+  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_out_neighbors = PyArray_FROM_OTF(obj_out_neighbors, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_out_neighbor_weights = PyArray_FROM_OTF(obj_out_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_in_neighbors = PyArray_FROM_OTF(obj_in_neighbors, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_in_neighbor_weights = PyArray_FROM_OTF(obj_in_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
+
+  struct compressed_array *restrict Mc = PyCapsule_GetPointer(obj_M, "compressed_array");
+  PyObject *restrict Mu = NULL;
+  
+  if (!Mc) {
+    PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
+    Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
+  }
+
+  /* d, d_out, d_in have size num_blocks */
+  const PyObject *ar_d = PyArray_FROM_OTF(obj_block_degrees, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d_out = PyArray_FROM_OTF(obj_block_degrees_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d_in = PyArray_FROM_OTF(obj_block_degrees_in, NPY_LONG, NPY_IN_ARRAY);    
+  const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_neighbor_weights = PyArray_FROM_OTF(obj_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
+
+  const long *restrict partition = (const long  *) PyArray_DATA(ar_partition);
+  const long *restrict out_neighbors = (const long *) PyArray_DATA(ar_out_neighbors);
+  const long *restrict out_neighbor_weights = (const long *) PyArray_DATA(ar_out_neighbor_weights);
+  const long *restrict in_neighbors = (const long *) PyArray_DATA(ar_in_neighbors);
+  const long *restrict in_neighbor_weights = (const long *) PyArray_DATA(ar_in_neighbor_weights);
+
+  const long *restrict d = (const long *) PyArray_DATA(ar_d);
+  const long *restrict d_out = (const long *) PyArray_DATA(ar_d_out);
+  const long *restrict d_in = (const long *) PyArray_DATA(ar_d_in);
+
+  const long *restrict neighbors = (const long *) PyArray_DATA(ar_neighbors);
+  const long *restrict neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
+
+  const long n_out_neighbors = (long) PyArray_DIM(ar_out_neighbors, 0);
+  const long n_in_neighbors = (long) PyArray_DIM(ar_in_neighbors, 0);  
+  const long n_neighbors = (long) PyArray_DIM(ar_neighbors, 0);
+  const long N = (long) PyArray_DIM(ar_partition, 0);
+  const double B = (double) PyArray_DIM(ar_d_out, 0);
+
+  PyObject *ret = NULL;
+  long r;
+  double delta_entropy, prob_accept;
+  
+  if (propose_node_movement(
+	ni,
+	s,
+	Mc,
+	Mu,
+	partition,
+	out_neighbors,
+	out_neighbor_weights,
+	in_neighbors,
+	in_neighbor_weights,
+	d,
+	d_out,
+	d_in,
+	neighbors,
+	neighbor_weights,
+	n_out_neighbors,
+	n_in_neighbors,
+	n_neighbors,
+	N,
+	num_blocks,
+	B,
+	beta,
+	&ni,
+	&r,
+	&s,
+	&delta_entropy,
+	&prob_accept) < 0)
+    {
+      PyErr_SetString(PyExc_RuntimeError, "propose_node_movement failed");
+    }
+  else
+    {
+      ret = Py_BuildValue("kkkdd", ni,r,s,delta_entropy,prob_accept);
+    }
 
   Py_DECREF(ar_partition);
   Py_DECREF(ar_out_neighbors);
@@ -4009,7 +4080,7 @@ static PyMethodDef compressed_array_methods[] =
    { "combine_key_value_pairs", combine_key_value_pairs_py, METH_VARARGS, "" },
    { "hastings_correction", hastings_correction_py, METH_VARARGS, "" },
    { "propose_new_partition", propose_new_partition_py, METH_VARARGS, "" },
-   { "propose_nodal_movement", propose_nodal_movement, METH_VARARGS, "" },
+   { "propose_nodal_movement", propose_nodal_movement_py, METH_VARARGS, "" },
    { "propose_block_merge", propose_block_merge, METH_VARARGS, "" },
    { "rebuild_M", rebuild_M, METH_VARARGS, "" },
    { "rebuild_M_compressed", rebuild_M_compressed, METH_VARARGS, "" },
