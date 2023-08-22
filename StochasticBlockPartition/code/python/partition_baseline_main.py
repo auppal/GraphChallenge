@@ -1316,8 +1316,14 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
     vertex_num_out_neighbor_edges = np.empty(N, dtype=int)
     vertex_num_neighbor_edges = np.empty(N, dtype=int)
 
-    # XXX I think it is ok to apply unique to each node's neighbors. But it may be an issue if it messes up the neighbor selection probabilities.
-    vertex_neighbors = [np.unique(np.concatenate((out_neighbors[i], in_neighbors[i])), axis=0) for i in range(N)]
+    # It is important that the edge counts be added together for verts
+    # that are in both in_neighbors and out_neighbors.
+
+    vertex_neighbors = [np.array(compressed_array.combine_key_value_pairs(
+        in_neighbors[i][:,0],
+        in_neighbors[i][:,1],
+        out_neighbors[i][:,0],
+        out_neighbors[i][:,1])).T for i in range(N)]
 
     for i in range(N):
         vertex_num_out_neighbor_edges[i] = sum(out_neighbors[i][:,1])
