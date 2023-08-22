@@ -47,10 +47,12 @@ def random_permutation(iterable, r=None):
 def find_self_edge_weights(N, out_neighbors):
     self_edge_weights = defaultdict(int)
     for i in range(N):
-        if i in out_neighbors[i][:,0]:
-            raise Exception("self_edge_weights currently unsupported due to native code propose_node_movement")
-            self_edge_weights[i] = np.sum(out_neighbors[i][np.where(
-                out_neighbors[i][:, 0] == i), 1])
+        if i in out_neighbors[i][0, :]:
+            print("self",i,out_neighbors[i][0, :])
+            self_edge_weights[i] = np.sum(out_neighbors[i][1, np.where(
+                out_neighbors[i][0, :] == i)])
+            if self_edge_weights[i] > 0:
+                raise Exception("self_edge_weights currently unsupported due to native code propose_node_movement")
     return self_edge_weights
 
 def acquire_locks_nowait(locks):
@@ -277,12 +279,14 @@ def propose_node_movement_defunct_wrapper(tup):
 
     for current_node in range(start, stop, step):
         res = propose_node_movement(current_node, partition,
-                                    out_neighbors[current_node][:, 0], out_neighbors[current_node][:, 1],
-                                    in_neighbors[current_node][:, 0], in_neighbors[current_node][:, 1],
+                                    out_neighbors[current_node][0, :],
+                                    out_neighbors[current_node][1, :],
+                                    in_neighbors[current_node][0, :],
+                                    in_neighbors[current_node][1, :],
                                     M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
                                     vertex_num_out_neighbor_edges[current_node], vertex_num_in_neighbor_edges[current_node], vertex_num_neighbor_edges[current_node],
-                                    vertex_neighbors[current_node][:, 0],
-                                    vertex_neighbors[current_node][:, 1],
+                                    vertex_neighbors[current_node][0, :],
+                                    vertex_neighbors[current_node][1, :],
                                     self_edge_weights, args.beta)
 
         (ni, current_block, proposal, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = res
@@ -343,13 +347,15 @@ def propose_node_movement_wrapper(tup):
             args.critical == 0 and acquire_locks(locks)
 
             movement = propose_node_fn(ni, partition,
-                                       out_neighbors[ni][:, 0], out_neighbors[ni][:, 1],
-                                       in_neighbors[ni][:, 0], in_neighbors[ni][:, 1],
+                                       out_neighbors[ni][0, :],
+                                       out_neighbors[ni][1, :],
+                                       in_neighbors[ni][0, :],
+                                       in_neighbors[ni][1, :],
                                        M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
                                        vertex_num_out_neighbor_edges[ni],
                                        vertex_num_in_neighbor_edges[ni], vertex_num_neighbor_edges[ni],
-                                       vertex_neighbors[ni][:, 0],
-                                       vertex_neighbors[ni][:, 1],                                             
+                                       vertex_neighbors[ni][0, :],
+                                       vertex_neighbors[ni][1, :],                                             
                                        self_edge_weights, args.beta, -1)
 
             #(ni2, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
@@ -388,13 +394,15 @@ def propose_node_movement_wrapper(tup):
         queue = collections.deque()
         for ni in range(start, stop, step):        
             movement = propose_node_fn(ni, partition,
-                                       out_neighbors[ni][:, 0], out_neighbors[ni][:, 1],
-                                       in_neighbors[ni][:, 0], in_neighbors[ni][:, 1],
+                                       out_neighbors[ni][0, :],
+                                       out_neighbors[ni][1, :],
+                                       in_neighbors[ni][0, :],
+                                       in_neighbors[ni][1, :],
                                        M, num_blocks, block_degrees, block_degrees_out, block_degrees_in,
                                        vertex_num_out_neighbor_edges[ni], vertex_num_in_neighbor_edges[ni],
                                        vertex_num_neighbor_edges[ni],
-                                       vertex_neighbors[ni][:, 0],
-                                       vertex_neighbors[ni][:, 1],                                             
+                                       vertex_neighbors[ni][0, :],
+                                       vertex_neighbors[ni][1, :],                                             
                                        self_edge_weights, args.beta, -1)
             (ni2, r, s, delta_entropy, p_accept) = movement            
             accept = (np.random.uniform() <= p_accept)
@@ -430,7 +438,8 @@ def propose_node_movement_wrapper(tup):
 
 
 # Python version only used for testing and debugging.
-def propose_node_movement(ni, partition, out_neighbors, out_neighbor_weights, in_neighbors, in_neighbor_weights, M, num_blocks,
+def propose_node_movement(ni, partition, out_neighbors, out_neighbor_weights,
+                          n_neighbors, in_neighbor_weights, M, num_blocks,
                           block_degrees, block_degrees_out, block_degrees_in,
                           num_out_neighbor_edges, num_in_neighbor_edges, num_neighbor_edges,
                           neighbors, neighbor_weights, self_edge_weights, beta, forced_proposal=-1):
@@ -563,9 +572,11 @@ def move_node(ni, r, s, partition,out_neighbors, in_neighbors, self_edge_weights
             return False
 
     blocks_out,count_out = compressed_array.blocks_and_counts(partition,
-                                                              out_neighbors[ni][:, 0], out_neighbors[ni][:, 1])
+                                                              out_neighbors[ni][0, :],
+                                                              out_neighbors[ni][1, :])
     blocks_in,count_in = compressed_array.blocks_and_counts(partition,
-                                                            in_neighbors[ni][:, 0], in_neighbors[ni][:, 1])
+                                                            in_neighbors[ni][0, :],
+                                                            in_neighbors[ni][1, :])
     partition[ni] = s
 
     release_locks(vertex_locks)
@@ -643,14 +654,16 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
 
         for i in L:
             movement = propose_node_fn(i, partition,
-                                       out_neighbors[i][:, 0], out_neighbors[i][:, 1],
-                                       in_neighbors[i][:, 0], in_neighbors[i][:, 1],
+                                       out_neighbors[i][0, :],
+                                       out_neighbors[i][1, :],
+                                       in_neighbors[i][0, :],
+                                       in_neighbors[i][1, :],
                                        M, num_blocks,
                                        block_degrees, block_degrees_out, block_degrees_in,
                                        vertex_num_out_neighbor_edges[i], vertex_num_in_neighbor_edges[i],
                                        vertex_num_neighbor_edges[i],
-                                       vertex_neighbors[i][:, 0],
-                                       vertex_neighbors[i][:, 1],
+                                       vertex_neighbors[i],
+                                       vertex_neighbors[i],
                                        self_edge_weights, args.beta, -1)
 
             if args.sanity_check:
@@ -741,7 +754,7 @@ def recompute_M(B, partition, out_neighbors):
         k1 = partition[v]
         if len(out_neighbors[v]) > 0:
             k2,count = compressed_array.blocks_and_counts(
-                partition, out_neighbors[v][:, 0], out_neighbors[v][:, 1])
+                partition, out_neighbors[v][0, :], out_neighbors[v][1, :])
             M[k1, k2] += count
     return M
 
@@ -1316,18 +1329,19 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
     vertex_num_out_neighbor_edges = np.empty(N, dtype=int)
     vertex_num_neighbor_edges = np.empty(N, dtype=int)
 
+
     # It is important that the edge counts be added together for verts
     # that are in both in_neighbors and out_neighbors.
 
     vertex_neighbors = [np.array(compressed_array.combine_key_value_pairs(
-        in_neighbors[i][:,0],
-        in_neighbors[i][:,1],
-        out_neighbors[i][:,0],
-        out_neighbors[i][:,1])).T for i in range(N)]
+        in_neighbors[i][0, :],
+        in_neighbors[i][1, :],
+        out_neighbors[i][0, :],
+        out_neighbors[i][1, :])) for i in range(N)]
 
     for i in range(N):
-        vertex_num_out_neighbor_edges[i] = sum(out_neighbors[i][:,1])
-        vertex_num_in_neighbor_edges[i] = sum(in_neighbors[i][:,1])
+        vertex_num_out_neighbor_edges[i] = sum(out_neighbors[i][1, :])
+        vertex_num_in_neighbor_edges[i] = sum(in_neighbors[i][1, :])
         vertex_num_neighbor_edges[i] = vertex_num_out_neighbor_edges[i] + vertex_num_in_neighbor_edges[i]
 
 
@@ -1749,10 +1763,10 @@ def incremental_streaming(args):
                 vertex_num_in_neighbor_edges = np.empty(N, dtype=int)
                 vertex_num_out_neighbor_edges = np.empty(N, dtype=int)
                 vertex_num_neighbor_edges = np.empty(N, dtype=int)
-                vertex_neighbors = [np.unique(np.concatenate((out_neighbors[i], in_neighbors[i])), axis=0) for i in range(N)]
+                vertex_neighbors = [np.unique(np.concatenate((out_neighbors[i], in_neighbors[i])), axis=1) for i in range(N)]
                 for i in range(N):
-                    vertex_num_out_neighbor_edges[i] = sum(out_neighbors[i][:,1])
-                    vertex_num_in_neighbor_edges[i] = sum(in_neighbors[i][:,1])
+                    vertex_num_out_neighbor_edges[i] = sum(out_neighbors[i][1, :])
+                    vertex_num_in_neighbor_edges[i] = sum(in_neighbors[i][1, :])
                     vertex_num_neighbor_edges[i] = vertex_num_out_neighbor_edges[i] + vertex_num_in_neighbor_edges[i]
                 #delta_entropy_threshold = delta_entropy_threshold1 = 5e-4
                 delta_entropy_threshold = 1e-4
