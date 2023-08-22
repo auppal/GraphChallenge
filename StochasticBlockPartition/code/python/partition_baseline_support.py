@@ -149,17 +149,20 @@ def load_graph(input_filename, load_true_partition, strm_piece_num=None, out_nei
         out_neighbors[from_idx].append([to_idx, edge_weight])
         in_neighbors [to_idx].append([from_idx, edge_weight])
 
-    # convert each neighbor list to neighbor numpy arrays for faster access
+    # Convert each neighbor list to neighbor numpy arrays for faster access.
+    # Each element starts off as a list of [node_id, weight] pairs.
+    # But we want vertex ids grouped together contigously.
+    # Do that by taking a view transpose, then a copy.
     for i in range(N):
         if len(out_neighbors[i]) > 0:
-            out_neighbors[i] = np.array(out_neighbors[i], dtype=int)
+            out_neighbors[i] = np.array(out_neighbors[i], dtype=int).T.copy()
         else:
-            out_neighbors[i] = np.array(out_neighbors[i], dtype=int).reshape((0,2))
+            out_neighbors[i] = np.array(out_neighbors[i], dtype=int).reshape((2,0))
     for i in range(N):
         if len(in_neighbors[i]) > 0:
-            in_neighbors[i] = np.array(in_neighbors[i], dtype=int)
+            in_neighbors[i] = np.array(in_neighbors[i], dtype=int).T.copy()
         else:
-            in_neighbors[i] = np.array(in_neighbors[i], dtype=int).reshape((0,2))
+            in_neighbors[i] = np.array(in_neighbors[i], dtype=int).reshape((2,0))
 
     E = sum(len(v) for v in out_neighbors)  # number of edges
 
@@ -234,14 +237,14 @@ def decimate_graph(out_neighbors, in_neighbors, true_partition, decimation, deci
     N = np.int64(len(in_neighbors))
 
     for i in range(N):
-        xx = (in_neighbors[i][:,0] % decimation) == decimated_piece
-        in_neighbors[i] = in_neighbors[i][xx, :]
-        xx = (out_neighbors[i][:,0] % decimation) == decimated_piece
-        out_neighbors[i] = out_neighbors[i][xx, :]
+        xx = (in_neighbors[i][0,:] % decimation) == decimated_piece
+        in_neighbors[i] = in_neighbors[i][:,xx]
+        xx = (out_neighbors[i][0,:] % decimation) == decimated_piece
+        out_neighbors[i] = out_neighbors[i][:,xx]
 
     for i in range(N):
-        in_neighbors[i][:,0] = in_neighbors[i][:,0] / decimation
-        out_neighbors[i][:,0] = out_neighbors[i][:,0] / decimation
+        in_neighbors[i][0,:] = in_neighbors[i][0,:] / decimation
+        out_neighbors[i][0,:] = out_neighbors[i][0,:] / decimation
 
     return out_neighbors, in_neighbors, N, E, true_partition
 
@@ -328,7 +331,7 @@ def initialize_edge_counts(out_neighbors, B, b, args):
     if not use_compressed:
         M = shared_memory_empty((B,B), dtype=mydtype)
         for v in range(len(out_neighbors)):
-            compressed_array.rebuild_M(b, v, v, out_neighbors[v][:, 0], out_neighbors[v][:, 1], M)
+            compressed_array.rebuild_M(b, v, v, out_neighbors[v][0, :], out_neighbors[v][1, :], M)
 
         np.sum(M, axis=1, out=d_out)
         np.sum(M, axis=0, out=d_in)
@@ -352,7 +355,7 @@ def initialize_edge_counts(out_neighbors, B, b, args):
         width=12
         M = compressed_array.create(B, width)
         for v in range(len(out_neighbors)):
-            compressed_array.rebuild_M_compressed(b, v, v, out_neighbors[v][:, 0], out_neighbors[v][:, 1], M, d_out, d_in)
+            compressed_array.rebuild_M_compressed(b, v, v, out_neighbors[v][0, :], out_neighbors[v][1, :], M, d_out, d_in)
         nz_count = compressed_array.nonzero_count(M)
         np.add(d_out, d_in, out=d)
         density = nz_count / (B ** 2.)
@@ -1011,51 +1014,6 @@ def prepare_for_partition_on_next_num_blocks(S, b, M, d, d_out, d_in, B, hist, B
 
     hist = old_b, old_M, old_d, old_d_out, old_d_in, old_S, old_B
     return b, M, d, d_out, d_in, B, B_to_merge, hist, optimal_B_found
-
-
-def plot_graph_with_partition(out_neighbors, b, graph_object=None, pos=None):
-    """Plot the graph with force directed layout and color/shape each node according to its block assignment
-
-        Parameters
-        ----------
-        out_neighbors : list of ndarray; list length is N, the number of nodes
-                    each element of the list is a ndarray of out neighbors, where the first column is the node indices
-                    and the second column the corresponding edge weights
-        b : ndarray (int)
-                    array of block assignment for each node
-        graph_object : graph tool object, optional
-                    if a graph object already exists, use it to plot the graph
-        pos : ndarray (float) shape = (#nodes, 2), optional
-                    if node positions are given, plot the graph using them
-
-        Returns
-        -------
-        graph_object : graph tool object
-                    the graph tool object containing the graph and the node position info"""
-
-    if len(out_neighbors) <= 5000:
-        if graph_object is None:
-            graph_object = gt.Graph()
-            edge_list = [(i, j) for i in range(len(out_neighbors)) if len(out_neighbors[i]) > 0 for j in
-                         out_neighbors[i][:, 0]]
-            graph_object.add_edge_list(edge_list)
-            if pos is None:
-                graph_object.vp['pos'] = gt.sfdp_layout(graph_object)
-            else:
-                graph_object.vp['pos'] = graph_object.new_vertex_property("vector<float>")
-                for v in graph_object.vertices():
-                    graph_object.vp['pos'][v] = pos[graph_object.vertex_index[v], :]
-        block_membership = graph_object.new_vertex_property("int")
-        vertex_shape = graph_object.new_vertex_property("int")
-        block_membership.a = b[0:len(out_neighbors)]
-        vertex_shape.a = np.mod(block_membership.a, 10)
-        gt.graph_draw(graph_object, inline=True, output_size=(400, 400), pos=graph_object.vp['pos'],
-                      vertex_shape=vertex_shape,
-                      vertex_fill_color=block_membership, edge_pen_width=0.1, edge_marker_size=1, vertex_size=7)
-    else:
-        print('That\'s a big graph!')
-    return graph_object
-
 
 def evaluate_partition(true_b, alg_b):
     """Evaluate the output partition against the truth partition and report the correctness metrics.
