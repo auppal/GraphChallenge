@@ -355,7 +355,7 @@ def propose_node_movement_wrapper(tup):
                                        vertex_num_out_neighbor_edges[ni],
                                        vertex_num_in_neighbor_edges[ni], vertex_num_neighbor_edges[ni],
                                        vertex_neighbors[ni][0, :],
-                                       vertex_neighbors[ni][1, :],                                             
+                                       vertex_neighbors[ni][1, :],
                                        self_edge_weights, args.beta, -1)
 
             #(ni2, r, s, delta_entropy, p_accept, new_M_r_row, new_M_s_row, new_M_r_col, new_M_s_col, block_degrees_out_new, block_degrees_in_new) = movement
@@ -402,7 +402,7 @@ def propose_node_movement_wrapper(tup):
                                        vertex_num_out_neighbor_edges[ni], vertex_num_in_neighbor_edges[ni],
                                        vertex_num_neighbor_edges[ni],
                                        vertex_neighbors[ni][0, :],
-                                       vertex_neighbors[ni][1, :],                                             
+                                       vertex_neighbors[ni][1, :],
                                        self_edge_weights, args.beta, -1)
             (ni2, r, s, delta_entropy, p_accept) = movement            
             accept = (np.random.uniform() <= p_accept)
@@ -662,8 +662,8 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
                                        block_degrees, block_degrees_out, block_degrees_in,
                                        vertex_num_out_neighbor_edges[i], vertex_num_in_neighbor_edges[i],
                                        vertex_num_neighbor_edges[i],
-                                       vertex_neighbors[i],
-                                       vertex_neighbors[i],
+                                       vertex_neighbors[i][0, :],
+                                       vertex_neighbors[i][1, :],
                                        self_edge_weights, args.beta, -1)
 
             if args.sanity_check:
