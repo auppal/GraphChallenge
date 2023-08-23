@@ -1971,7 +1971,7 @@ static PyObject* blocks_and_counts_py(PyObject *self, PyObject *args)
   PyObject *ret = NULL;
 
   if (blocks_and_counts(partition, neighbors, weights, n, &blocks, &counts, &n_block, NULL) < 0) {
-    	PyErr_SetString(PyExc_RuntimeError, "hash_resize failed");
+    	PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts failed");
   }
   else {
     npy_intp dims[] = {n_block};
@@ -3555,7 +3555,13 @@ int propose_node_movement(
   long *p_r,
   long *p_s,
   double *p_delta_entropy,
-  double *p_prob_accept
+  double *p_prob_accept,
+  long **p_blocks_out,
+  long **p_count_out,
+  long *p_n_out,
+  long **p_blocks_in,
+  long **p_count_in,
+  long *p_n_in
 )
 {
   int rc = -1;
@@ -3739,15 +3745,46 @@ done:
   *p_s = s;
   *p_delta_entropy = delta_entropy;
   *p_prob_accept = p_accept;
-  
-  hash_destroy(h_in);
-  hash_destroy(h_out);
-  
-  free(b_out);
-  free(count_out);  
-  free(b_in);
-  free(count_in);
 
+  hash_destroy(h_in);
+  hash_destroy(h_out);  
+
+  if (rc == 0 && p_blocks_in) {
+    *p_blocks_in = b_in;
+  }
+  else {
+    free(b_in);
+  }
+
+  if (rc == 0 && p_count_in) {
+    *p_count_in = count_in;
+  }
+  else {
+    free(count_in);
+  }
+
+  if (rc == 0 && p_blocks_out) {
+    *p_blocks_out = b_out;
+  }
+  else {
+    free(b_out);
+  }
+
+  if (rc == 0 && p_count_out) {
+    *p_count_out = count_out;
+  }
+  else {
+    free(count_out);
+  }
+
+  if (p_n_out) {
+    *p_n_out = n_out;
+  }
+
+  if (p_n_in) {
+    *p_n_in = n_in;
+  }
+  
   return rc;
 }
 
@@ -3849,7 +3886,13 @@ static PyObject *propose_nodal_movement_py(PyObject *self, PyObject *args)
 	&r,
 	&s,
 	&delta_entropy,
-	&prob_accept) < 0)
+	&prob_accept,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,	
+	NULL) < 0)
     {
       PyErr_SetString(PyExc_RuntimeError, "propose_node_movement failed");
     }
@@ -3869,6 +3912,210 @@ static PyObject *propose_nodal_movement_py(PyObject *self, PyObject *args)
   Py_DECREF(ar_d_out);
   Py_DECREF(ar_d_in);
 
+  return ret;
+}
+
+static PyObject *nodal_moves_sequential(PyObject *self, PyObject *args)
+{
+  PyObject
+    *obj_partition,
+    *obj_graph_out_neighbors,
+    *obj_graph_in_neighbors,
+    *obj_M,
+    *obj_block_degrees,
+    *obj_block_degrees_out,
+    *obj_block_degrees_in,
+    *obj_self_edge_weights,
+    *obj_vertex_num_out_neighbor_edges,
+    *obj_vertex_num_in_neighbor_edges,
+    *obj_vertex_num_neighbor_edges,
+    *obj_graph_neighbors;
+
+  long n_verts, n_blocks;
+  double delta_entropy_threshold, overall_entropy_cur, beta, min_nodal_moves_ratio;
+  /* self_edge_weights is a defaultdict, unused for now */
+  if (!PyArg_ParseTuple(args, "ddOOOOOlOOlOOOOOdd",
+			&delta_entropy_threshold,
+			&overall_entropy_cur,
+			&obj_partition,
+			&obj_M,
+			&obj_block_degrees_out,
+			&obj_block_degrees_in,
+			&obj_block_degrees,
+			&n_blocks,
+			&obj_graph_out_neighbors,
+			&obj_graph_in_neighbors,
+			&n_verts,
+			&obj_vertex_num_out_neighbor_edges,
+			&obj_vertex_num_in_neighbor_edges,
+			&obj_vertex_num_neighbor_edges,
+			&obj_graph_neighbors,
+			&obj_self_edge_weights,
+			&beta,
+			&min_nodal_moves_ratio
+		       ))
+  {
+    PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
+    return NULL;
+  }
+
+
+  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
+ 
+
+  struct compressed_array *restrict Mc = PyCapsule_GetPointer(obj_M, "compressed_array");
+  PyObject *restrict Mu = NULL;
+  
+  if (!Mc) {
+    PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
+    Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
+  }
+
+  /* d, d_out, d_in have size num_blocks */
+  const PyObject *ar_d = PyArray_FROM_OTF(obj_block_degrees, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d_out = PyArray_FROM_OTF(obj_block_degrees_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d_in = PyArray_FROM_OTF(obj_block_degrees_in, NPY_LONG, NPY_IN_ARRAY);    
+
+  long *restrict partition = (long  *) PyArray_DATA(ar_partition);
+  
+
+  long *restrict d = (long *) PyArray_DATA(ar_d);
+  long *restrict d_out = (long *) PyArray_DATA(ar_d_out);
+  long *restrict d_in = (long *) PyArray_DATA(ar_d_in);
+
+  const long N = (long) PyArray_DIM(ar_partition, 0);
+  const double B = (double) PyArray_DIM(ar_d_out, 0);
+  
+  long ni;
+  PyObject *ret = NULL;
+
+  long num_nodal_moves = 0;
+  double accum_delta_entropy = 0.0;
+
+  for (ni=0; ni<n_verts; ni++) {
+    const PyObject *ar_out_neighbor_elm = PyList_GetItem(obj_graph_out_neighbors, ni);
+    const long n_out_neighbors = (long) PyArray_DIM(ar_out_neighbor_elm, 1);
+    const long *restrict out_neighbors = PyArray_GETPTR2(ar_out_neighbor_elm, 0, 0);
+    const long *restrict out_neighbor_weights = PyArray_GETPTR2(ar_out_neighbor_elm, 1, 0);
+
+    const PyObject *ar_in_neighbor_elm = PyList_GetItem(obj_graph_in_neighbors, ni);
+    const long n_in_neighbors = (long) PyArray_DIM(ar_in_neighbor_elm, 1);
+    const long *restrict in_neighbors = PyArray_GETPTR2(ar_in_neighbor_elm, 0, 0);
+    const long *restrict in_neighbor_weights = PyArray_GETPTR2(ar_in_neighbor_elm, 1, 0);
+
+    const PyObject *ar_neighbor_elm = PyList_GetItem(obj_graph_neighbors, ni);
+    const long n_neighbors = (long) PyArray_DIM(ar_neighbor_elm, 1);
+    const long *restrict neighbors = PyArray_GETPTR2(ar_neighbor_elm, 0, 0);
+    const long *restrict neighbor_weights = PyArray_GETPTR2(ar_neighbor_elm, 1, 0);
+
+    long r, s = -1;
+    double delta_entropy, prob_accept;
+    long n_out, n_in;
+    long *b_out, *count_out, *b_in, *count_in;
+    
+#if 0
+    fprintf(stderr, "c out_n:        [");
+    if (ni == 0) {
+      for (long i=0; i<n_out_neighbors; i++) {
+	fprintf(stderr, " %ld ", out_neighbors[i]);
+      }
+    }
+    fprintf(stderr, "]\n");
+#endif    
+
+    if (propose_node_movement(
+	  ni,
+	  s,
+	  Mc,
+	  Mu,
+	  partition,
+	  out_neighbors,
+	  out_neighbor_weights,
+	  in_neighbors,
+	  in_neighbor_weights,
+	  d,
+	  d_out,
+	  d_in,
+	  neighbors,
+	  neighbor_weights,
+	  n_out_neighbors,
+	  n_in_neighbors,
+	  n_neighbors,
+	  N,
+	  n_blocks,
+	  B,
+	  beta,
+	  &ni,
+	  &r,
+	  &s,
+	  &delta_entropy,
+	  &prob_accept,
+	  &b_out,
+	  &count_out,
+	  &n_out,
+	  &b_in,
+	  &count_in,
+	  &n_in) < 0)
+      {
+	PyErr_SetString(PyExc_RuntimeError, "propose_node_movement failed");
+	return NULL;
+      }
+
+    double u = random_uniform();
+
+    //fprintf(stderr, "u = %lf p = %lf\n", u, prob_accept);
+
+    int accept = u <= prob_accept;
+    
+    if (!accept) {
+      free(b_out);      
+      free(count_out);
+      free(b_in);      
+      free(count_in);
+      continue;
+    }
+
+    if (Mu) {
+      long i;
+      int64_t dM_r_row_sum = 0, dM_r_col_sum = 0;
+  
+      for (i=0; i<n_out; i++) {
+	dM_r_row_sum -= count_out[i];    
+	atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(Mu, r, b_out[i]), -count_out[i], memory_order_relaxed);
+	atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(Mu, s, b_out[i]), +count_out[i], memory_order_relaxed);
+      }
+
+      for (i=0; i<n_in; i++) {
+	dM_r_col_sum -= count_in[i];
+	atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(Mu, b_in[i], r), -count_in[i], memory_order_relaxed);
+	atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(Mu, b_in[i], s), +count_in[i], memory_order_relaxed);
+      }
+  
+      d_out[r] += dM_r_row_sum;
+      d_out[s] -= dM_r_row_sum;
+      d_in[r]  += dM_r_col_sum;
+      d_in[s]  -= dM_r_col_sum;
+      d[r] = d_out[r] + d_in[r];
+      d[s] = d_out[s] + d_in[s];
+
+      partition[ni] = s;
+      
+      num_nodal_moves++;
+      accum_delta_entropy += delta_entropy;
+    }
+
+    free(b_out);
+    free(count_out);
+    free(b_in);    
+    free(count_in);
+  }
+
+  Py_DECREF(ar_partition);
+  Py_DECREF(ar_d_out);
+  Py_DECREF(ar_d_in);
+  Py_DECREF(ar_d);  
+  
+  ret = Py_BuildValue("kd", num_nodal_moves, accum_delta_entropy);
   return ret;
 }
 
@@ -4082,6 +4329,7 @@ static PyMethodDef compressed_array_methods[] =
    { "propose_new_partition", propose_new_partition_py, METH_VARARGS, "" },
    { "propose_nodal_movement", propose_nodal_movement_py, METH_VARARGS, "" },
    { "propose_block_merge", propose_block_merge, METH_VARARGS, "" },
+   { "nodal_moves_sequential", nodal_moves_sequential, METH_VARARGS, "" },   
    { "rebuild_M", rebuild_M, METH_VARARGS, "" },
    { "rebuild_M_compressed", rebuild_M_compressed, METH_VARARGS, "" },
    { "nonzero_count", nonzero_count, METH_VARARGS, "" },

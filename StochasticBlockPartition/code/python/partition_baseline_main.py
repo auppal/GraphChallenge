@@ -634,6 +634,28 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
         start_vert = 0
         stop_vert = N
 
+
+    if 1:
+        for itr in range(max_num_nodal_itr):
+            num_nodal_moves,delta_entropy = compressed_array.nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args.beta, args.min_nodal_moves_ratio)
+            total_num_nodal_moves_itr += num_nodal_moves
+            itr_delta_entropy[itr] += delta_entropy
+
+            if args.verbose:
+                print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}"
+                      .format(itr, num_nodal_moves,
+                              itr_delta_entropy[itr] / float(
+                                  overall_entropy_cur)))
+
+            if num_nodal_moves <= (N * args.min_nodal_moves_ratio):
+                break
+
+            if itr >= (delta_entropy_moving_avg_window - 1):
+                if (-np.mean(itr_delta_entropy[(itr - delta_entropy_moving_avg_window + 1):itr]) < (
+                        delta_entropy_threshold * overall_entropy_cur)):
+                        break
+        return total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees
+
     if 0:
         propose_node_fn = propose_node_movement
     else:
@@ -679,28 +701,9 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
             num_nodal_moves += 1
             itr_delta_entropy[itr] += delta_entropy
 
-            if args.verbose > 3:
-                print("Move %5d from block %5d to block %5d." % (ni, r, s))
-
-            if 0:
-                cur_S = compute_data_entropy(M, block_degrees_out, block_degrees_in)                
-                den_cur_S = densify_entropy(num_blocks, partition, out_neighbors, block_degrees_out, block_degrees_in)
-
             move_node(ni, r, s, partition,
                       out_neighbors, in_neighbors, self_edge_weights, M,
                       block_degrees_out, block_degrees_in, block_degrees)
-
-            if 0:
-                new_S = compute_data_entropy(M, block_degrees_out, block_degrees_in)
-                den_new_S = densify_entropy(num_blocks, partition, out_neighbors, block_degrees_out, block_degrees_in)
-
-                dS = np.clip(new_S - cur_S, -10.0, +10.0)
-                den_dS = np.clip(den_new_S - den_cur_S, -10.0, +10.0)
-                if abs(dS - delta_entropy) > 1e-9:
-                    print("Actual vs estimate      : ", dS, delta_entropy, abs(dS - delta_entropy))
-                    print("Actual vs new estimate  : ", dS, delta_entropy_inline, abs(dS - delta_entropy_inline))
-                    print("Densify vs new estimate : ", den_dS, delta_entropy_inline, abs(den_dS - delta_entropy_inline))
-                    raise Exception("delta_entropy_actual mismatch")
 
         if args.mpi == 1:
             partition_next = partition.copy()
