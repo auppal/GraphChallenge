@@ -161,16 +161,7 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
 
         # propose new blocks to merge with
         for proposal_idx in range(n_proposal):
-            if not is_compressed(M):
-                s = propose_new_partition(r,
-                                          block_neighbors,
-                                          block_neighbor_weights,
-                                          block_partition, M, block_degrees, num_blocks,
-                                          1)
-            else:
-                s = -1
-
-            s,dS = compressed_array.propose_block_merge(M, r, s,
+            s,dS = compressed_array.propose_block_merge(M, r, -1,
                                                         out_idx, out_weight,
                                                         in_idx, in_weight,
                                                         block_neighbors,
