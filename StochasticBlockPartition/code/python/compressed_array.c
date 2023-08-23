@@ -3931,10 +3931,12 @@ static PyObject *nodal_moves_sequential(PyObject *self, PyObject *args)
     *obj_vertex_num_neighbor_edges,
     *obj_graph_neighbors;
 
-  long n_verts, n_blocks;
+  long n_blocks, start_vert, stop_vert;
   double delta_entropy_threshold, overall_entropy_cur, beta, min_nodal_moves_ratio;
   /* self_edge_weights is a defaultdict, unused for now */
-  if (!PyArg_ParseTuple(args, "ddOOOOOlOOlOOOOOdd",
+  if (!PyArg_ParseTuple(args, "llddOOOOOlOOOOOOOdd",
+			&start_vert,
+			&stop_vert,
 			&delta_entropy_threshold,
 			&overall_entropy_cur,
 			&obj_partition,
@@ -3945,7 +3947,6 @@ static PyObject *nodal_moves_sequential(PyObject *self, PyObject *args)
 			&n_blocks,
 			&obj_graph_out_neighbors,
 			&obj_graph_in_neighbors,
-			&n_verts,
 			&obj_vertex_num_out_neighbor_edges,
 			&obj_vertex_num_in_neighbor_edges,
 			&obj_vertex_num_neighbor_edges,
@@ -3991,8 +3992,9 @@ static PyObject *nodal_moves_sequential(PyObject *self, PyObject *args)
 
   long num_nodal_moves = 0;
   double accum_delta_entropy = 0.0;
+  int rc = 0;
 
-  for (ni=0; ni<n_verts; ni++) {
+  for (ni=start_vert; ni<stop_vert; ni++) {
     const PyObject *ar_out_neighbor_elm = PyList_GetItem(obj_graph_out_neighbors, ni);
     const long n_out_neighbors = (long) PyArray_DIM(ar_out_neighbor_elm, 1);
     const long *restrict out_neighbors = PyArray_GETPTR2(ar_out_neighbor_elm, 0, 0);
@@ -4012,16 +4014,6 @@ static PyObject *nodal_moves_sequential(PyObject *self, PyObject *args)
     double delta_entropy, prob_accept;
     long n_out, n_in;
     long *b_out, *count_out, *b_in, *count_in;
-    
-#if 0
-    fprintf(stderr, "c out_n:        [");
-    if (ni == 0) {
-      for (long i=0; i<n_out_neighbors; i++) {
-	fprintf(stderr, " %ld ", out_neighbors[i]);
-      }
-    }
-    fprintf(stderr, "]\n");
-#endif    
 
     if (propose_node_movement(
 	  ni,
@@ -4062,59 +4054,81 @@ static PyObject *nodal_moves_sequential(PyObject *self, PyObject *args)
       }
 
     double u = random_uniform();
-
-    //fprintf(stderr, "u = %lf p = %lf\n", u, prob_accept);
-
     int accept = u <= prob_accept;
     
     if (!accept) {
-      free(b_out);      
+      free(b_out);
       free(count_out);
-      free(b_in);      
+      free(b_in); 
       free(count_in);
       continue;
     }
 
+    long i;
+    int64_t dM_r_row_sum = 0, dM_r_col_sum = 0;
+
     if (Mu) {
-      long i;
-      int64_t dM_r_row_sum = 0, dM_r_col_sum = 0;
-  
       for (i=0; i<n_out; i++) {
-	dM_r_row_sum -= count_out[i];    
-	atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(Mu, r, b_out[i]), -count_out[i], memory_order_relaxed);
-	atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(Mu, s, b_out[i]), +count_out[i], memory_order_relaxed);
+	dM_r_row_sum -= count_out[i];
+	*(long *) PyArray_GETPTR2(Mu, r, b_out[i]) -= count_out[i];
+	*(long *) PyArray_GETPTR2(Mu, s, b_out[i]) += count_out[i];
       }
 
       for (i=0; i<n_in; i++) {
 	dM_r_col_sum -= count_in[i];
-	atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(Mu, b_in[i], r), -count_in[i], memory_order_relaxed);
-	atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(Mu, b_in[i], s), +count_in[i], memory_order_relaxed);
+	*(long *) PyArray_GETPTR2(Mu, b_in[i], r) -= count_in[i];
+	*(long *) PyArray_GETPTR2(Mu, b_in[i], s) += count_in[i];
       }
-  
-      d_out[r] += dM_r_row_sum;
-      d_out[s] -= dM_r_row_sum;
-      d_in[r]  += dM_r_col_sum;
-      d_in[s]  -= dM_r_col_sum;
-      d[r] = d_out[r] + d_in[r];
-      d[s] = d_out[s] + d_in[s];
+    }
+    else {
+      rc = -1;
+      for (i=0; i<n_out; i++) {
+	dM_r_row_sum -= count_out[i];
+	if (compressed_accum_single(Mc, r, b_out[i], -count_out[i])) { goto bad; }
+	if (compressed_accum_single(Mc, s, b_out[i], +count_out[i])) { goto bad; }
+      }
 
-      partition[ni] = s;
-      
-      num_nodal_moves++;
-      accum_delta_entropy += delta_entropy;
+      for (i=0; i<n_in; i++) {
+	dM_r_col_sum -= count_in[i];
+	if (compressed_accum_single(Mc, b_in[i], r, -count_in[i])) { goto bad; }
+	if (compressed_accum_single(Mc, b_in[i], s, +count_in[i])) { goto bad; }
+      }
+      rc = 0;
     }
 
+    d_out[r] += dM_r_row_sum;
+    d_out[s] -= dM_r_row_sum;
+    d_in[r]  += dM_r_col_sum;
+    d_in[s]  -= dM_r_col_sum;
+    d[r] = d_out[r] + d_in[r];
+    d[s] = d_out[s] + d_in[s];
+
+    partition[ni] = s;
+      
+    num_nodal_moves++;
+    accum_delta_entropy += delta_entropy;
+
+  bad:
     free(b_out);
     free(count_out);
     free(b_in);    
     free(count_in);
+
+    if (rc < 0) {
+      break;
+    }
   }
 
   Py_DECREF(ar_partition);
   Py_DECREF(ar_d_out);
   Py_DECREF(ar_d_in);
-  Py_DECREF(ar_d);  
-  
+  Py_DECREF(ar_d);
+
+  if (rc < 0) {
+    PyErr_SetString(PyExc_RuntimeError, "nodal_moves_sequential failed");    
+    return NULL;
+  }
+
   ret = Py_BuildValue("kd", num_nodal_moves, accum_delta_entropy);
   return ret;
 }

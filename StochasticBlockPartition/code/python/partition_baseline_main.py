@@ -637,7 +637,7 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
 
     if 1:
         for itr in range(max_num_nodal_itr):
-            num_nodal_moves,delta_entropy = compressed_array.nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args.beta, args.min_nodal_moves_ratio)
+            num_nodal_moves,delta_entropy = compressed_array.nodal_moves_sequential(start_vert, stop_vert, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args.beta, args.min_nodal_moves_ratio)
             total_num_nodal_moves_itr += num_nodal_moves
             itr_delta_entropy[itr] += delta_entropy
 
