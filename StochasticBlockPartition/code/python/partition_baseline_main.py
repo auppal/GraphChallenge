@@ -120,12 +120,12 @@ def compute_best_block_merge_wrapper(tup):
     delta_entropy_for_each_block = syms['delta_entropy_for_each_block']
     args = syms['args']
     compressed_array.seed()
-    compute_best_block_merge(blocks, num_blocks, interblock_edge_count, best_merge_for_each_block, delta_entropy_for_each_block, block_partition, block_degrees, args.n_proposal, block_degrees_out, block_degrees_in, args)
+    compute_best_block_merge(blocks, num_blocks, interblock_edge_count, best_merge_for_each_block, delta_entropy_for_each_block, block_partition, block_degrees, block_degrees_out, block_degrees_in, args)
     return
 
 
-def compute_best_block_merge(blocks, num_blocks, M, best_merge_for_each_block, delta_entropy_for_each_block, block_partition, block_degrees, n_proposal, block_degrees_out, block_degrees_in, args):
-    n_proposal = 10
+def compute_best_block_merge(blocks, num_blocks, M, best_merge_for_each_block, delta_entropy_for_each_block, block_partition, block_degrees, block_degrees_out, block_degrees_in, args):
+    n_proposal = args.merge_proposals_per_block
 
     for r in blocks:
         # Index of non-zero block entries and their associated weights
@@ -1160,7 +1160,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     else:
         compute_best_block_merge(merge_block_iterator, num_blocks, M,
                                  best_merge_for_each_block, delta_entropy_for_each_block,
-                                 block_partition, block_degrees, args.n_proposal, block_degrees_out, block_degrees_in, args)
+                                 block_partition, block_degrees, block_degrees_out, block_degrees_in, args)
         n_proposals_evaluated += len(merge_block_iterator)
 
     # During MPI operation, not every entry in best_merge_for_each_block
@@ -1377,8 +1377,6 @@ def find_optimal_partition(out_neighbors, in_neighbors, N, E, self_edge_weights,
     else:
         # resume search from a previous partition state
         (hist, num_blocks, overall_entropy, partition, interblock_edge_count,block_degrees_out,block_degrees_in,block_degrees,golden_ratio_bracket_established,delta_entropy_threshold,num_blocks_to_merge,optimal_num_blocks_found,n_proposals_evaluated,total_num_nodal_moves) = alg_state
-
-    args.n_proposal = 1
 
     while not optimal_num_blocks_found:
         # Using multiple target_blocks can be useful if you want to estimate the derivative of entropy to try to more quickly find a convergence.
@@ -2087,6 +2085,7 @@ if __name__ == '__main__':
     parser.add_argument("-s", "--sort", type=int, required=False, default=0)
     parser.add_argument("-S", "--seed", type=int, required=False, default=-1)
     parser.add_argument("--mpi", type=int, required=False, default=0)
+    parser.add_argument("--merge-proposals-per-block", type=int, required=False, default=10)
     parser.add_argument("input_filename", nargs="?", type=str, default="../../data/static/simulated_blockmodel_graph_500_nodes")
 
     # Debugging options
