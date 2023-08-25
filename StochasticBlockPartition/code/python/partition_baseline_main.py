@@ -116,36 +116,29 @@ def compute_best_block_merge_wrapper(tup):
     block_degrees = syms['block_degrees']
     block_degrees_out = syms['block_degrees_out']
     block_degrees_in = syms['block_degrees_in']
+    best_merge_for_each_block = syms['best_merge_for_each_block']
+    delta_entropy_for_each_block = syms['delta_entropy_for_each_block']
     args = syms['args']
     compressed_array.seed()
-    return compute_best_block_merge(blocks, num_blocks, interblock_edge_count, block_partition, block_degrees, args.n_proposal, block_degrees_out, block_degrees_in, args)
+    compute_best_block_merge(blocks, num_blocks, interblock_edge_count, best_merge_for_each_block, delta_entropy_for_each_block, block_partition, block_degrees, args.n_proposal, block_degrees_out, block_degrees_in, args)
+    return
 
 
-def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degrees, n_proposal, block_degrees_out, block_degrees_in, args):
-    best_overall_merge = [-1 for i in blocks]
-    best_overall_delta_entropy = [np.Inf for i in blocks]
-    n_proposals_evaluated = 0
+def compute_best_block_merge(blocks, num_blocks, M, best_merge_for_each_block, delta_entropy_for_each_block, block_partition, block_degrees, n_proposal, block_degrees_out, block_degrees_in, args):
     n_proposal = 10
 
-    if not is_compressed(M):
-        propose = propose_new_partition
-    else:
-        propose = compressed_array.propose_new_partition
-
-    for current_block_idx,r in enumerate(blocks):
-        if r is None:
-            break
-
+    for r in blocks:
         # Index of non-zero block entries and their associated weights
         in_idx, in_weight = take_nonzero(M, r, 1, sort = False)
         out_idx, out_weight = take_nonzero(M, r, 0, sort = False)
 
-        block_neighbors = np.concatenate((in_idx, out_idx))
-        block_neighbor_weights = np.concatenate((in_weight, out_weight))
-        
-        num_out_block_edges = out_weight.sum()
-        num_in_block_edges = in_weight.sum()
-        num_block_edges = num_out_block_edges + num_in_block_edges
+        block_neighbors,block_neighbor_weights = \
+            np.array(compressed_array.combine_key_value_pairs(
+                in_idx, in_weight,
+                out_idx, out_weight))
+        num_out_block_edges = block_degrees_out[r]
+        num_in_block_edges = block_degrees_in[r]
+        num_block_edges = num_out_block_edges + num_in_block_edges            
 
         if num_block_edges == 0:
             # Nothing to do
@@ -173,20 +166,14 @@ def compute_best_block_merge(blocks, num_blocks, M, block_partition, block_degre
                                                         num_in_block_edges)
             proposals[proposal_idx] = s   
             delta_entropy[proposal_idx] = dS
-            if 0:
-                if abs(dS - delta_entropy[proposal_idx]) > 1e-1:
-                    print(dS,delta_entropy[proposal_idx], dS - delta_entropy[proposal_idx])
-                    raise Exception("delta_entropy merge mismatch")
 
         mi = np.argmin(delta_entropy)
         best_entropy = delta_entropy[mi]
-        n_proposals_evaluated += n_proposal
-
-        if best_entropy < best_overall_delta_entropy[current_block_idx]:
-            best_overall_merge[current_block_idx] = proposals[mi]
-            best_overall_delta_entropy[current_block_idx] = best_entropy
-
-    return blocks, best_overall_merge, best_overall_delta_entropy, n_proposals_evaluated
+        
+        if best_entropy < delta_entropy_for_each_block[r]:
+            best_merge_for_each_block[r] = proposals[mi]
+            delta_entropy_for_each_block[r] = best_entropy
+    return
 
 
 propose_node_movement_profile_stats = []
@@ -1140,8 +1127,10 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         merge_start_time = timeit.default_timer()
         print("\nMerging down blocks from {} to {} at time {:4.4f}{}".format(num_blocks, num_target_blocks, merge_start_time - t_prog_start, rank_str))
 
-    best_merge_for_each_block = np.ones(num_blocks, dtype=int) * -1  # initialize to no merge
-    delta_entropy_for_each_block = np.ones(num_blocks) * np.Inf  # initialize criterion
+    best_merge_for_each_block = shared_memory_empty((num_blocks,), dtype='int64')
+    delta_entropy_for_each_block = shared_memory_empty((num_blocks,), dtype='float64')
+    best_merge_for_each_block[:] = -1
+    delta_entropy_for_each_block[:] = np.Inf
     block_partition = np.arange(num_blocks)
     n_merges += 1
 
@@ -1157,26 +1146,22 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         syms['block_degrees'] = block_degrees
         syms['block_degrees_out'] = block_degrees_out
         syms['block_degrees_in'] = block_degrees_in
+        syms['best_merge_for_each_block'] = best_merge_for_each_block
+        syms['delta_entropy_for_each_block'] = delta_entropy_for_each_block
         syms['args'] = args
 
         pool_size = min(n_thread_merge, num_blocks)
 
         pool = Pool(n_thread_merge)
-        for current_blocks,best_merge,best_delta_entropy,fresh_proposals_evaluated in pool.imap_unordered(compute_best_block_merge_wrapper, [((i,),num_blocks) for i in merge_block_iterator]):
-            for current_block_idx,current_block in enumerate(current_blocks):
-                best_merge_for_each_block[current_block] = best_merge[current_block_idx]
-                delta_entropy_for_each_block[current_block] = best_delta_entropy[current_block_idx]
-            n_proposals_evaluated += fresh_proposals_evaluated                
+        for j in pool.imap_unordered(compute_best_block_merge_wrapper, [((i,),num_blocks) for i in merge_block_iterator]):
+            pass
         pool.close()
+        n_proposals_evaluated += len(merge_block_iterator)        
     else:
-        current_blocks,best_merge,best_delta_entropy,fresh_proposals_evaluated \
-            = compute_best_block_merge(merge_block_iterator, num_blocks, M,
-                                       block_partition, block_degrees, args.n_proposal, block_degrees_out, block_degrees_in, args)
-        n_proposals_evaluated += fresh_proposals_evaluated
-        for current_block_idx,current_block in enumerate(current_blocks):
-            if current_block is not None:
-                best_merge_for_each_block[current_block] = best_merge[current_block_idx]
-                delta_entropy_for_each_block[current_block] = best_delta_entropy[current_block_idx]
+        compute_best_block_merge(merge_block_iterator, num_blocks, M,
+                                 best_merge_for_each_block, delta_entropy_for_each_block,
+                                 block_partition, block_degrees, args.n_proposal, block_degrees_out, block_degrees_in, args)
+        n_proposals_evaluated += len(merge_block_iterator)
 
     # During MPI operation, not every entry in best_merge_for_each_block
     # and delta_entropy_for_each_block will have been filled in.
