@@ -2455,6 +2455,8 @@ static PyObject *seed()
 }
 #endif
 
+#if 0
+/* Unused */
 static long multinomial_choice(const long *a, long n, const long *p)
 {
   long i, u, csum = 0, csum_tot = 0;
@@ -2475,24 +2477,84 @@ static long multinomial_choice(const long *a, long n, const long *p)
 
   return a[i];
 }
+#endif
 
-static long propose_new_partition(long r, const long *neighbors, const long *neighbor_weights,
+
+static long multinomial_choice_two_piece(const long *choices_x, const long *probs_x, long n_x,
+					 const long *choices_y, const long *probs_y, long n_y)
+{
+  long i, u, csum_x = 0, csum_y = 0, csum_tot, n, c = 0;
+  const long *choices, *probs;
+
+  for (i=0; i<n_x; i++) {
+    csum_x += probs_x[i];
+  }
+
+  for (i=0; i<n_y; i++) {
+    csum_y += probs_y[i];
+  }
+
+  csum_tot = csum_x + csum_y;
+
+  double r = random_uniform();
+  u = r * csum_tot;
+
+  if (u < csum_x) {
+    choices = choices_x;
+    probs = probs_x;
+    n = n_x;
+  }
+  else {
+    u -= csum_x;
+    choices = choices_y;
+    probs = probs_y;
+    n = n_y;
+  }
+  
+  for (i=0; i<n; i++) {
+    c += probs[i];
+    if (u < c) {
+      break;
+    }
+  }
+
+  return choices[i];
+}
+
+
+static long propose_new_partition(long r,
+				  const long *in_neighbors,
+				  const long *in_neighbor_weights,
+				  long n_in_neighbors,
+				  const long *out_neighbors,
+				  const long *out_neighbor_weights,
+				  long n_out_neighbors,
 				  const long *partition,
 				  struct compressed_array *M,
 				  PyObject *Mu,
-				  const long *d, long n_neighbors, long N, long B, long agg_move)
+				  const long *d, long N, long B, long agg_move)
 {
   long s = r, u, rand_neighbor;
 
   struct hash *Mu_row = NULL;
   struct hash *Mu_col = NULL;
 
+  long n_neighbors = n_in_neighbors + n_out_neighbors;
+  
   if (!agg_move) {
     /* For unit weight graphs all probabilities are 1. */
-    rand_neighbor = neighbors[(int) (random_uniform() * n_neighbors)];
+    rand_neighbor = (int) (random_uniform() * n_neighbors);
+    if (rand_neighbor < n_in_neighbors) {
+      rand_neighbor = in_neighbors[rand_neighbor];
+    }
+    else {
+      rand_neighbor -= n_out_neighbors;
+      rand_neighbor = out_neighbors[rand_neighbor];
+    }
   }
   else {
-    rand_neighbor = multinomial_choice(neighbors, n_neighbors, neighbor_weights);
+    rand_neighbor = multinomial_choice_two_piece(in_neighbors, in_neighbor_weights, n_in_neighbors,
+						 out_neighbors, out_neighbor_weights, n_out_neighbors);
   }
 
   u = partition[rand_neighbor];
@@ -2635,17 +2697,22 @@ done:
 
 static PyObject* propose_new_partition_py(PyObject *self, PyObject *args)
 {
-  PyObject *obj_neighbors, *obj_neighbor_weights, *obj_partition, *obj_M, *obj_d;
+  PyObject *obj_in_neighbors, *obj_in_neighbor_weights,
+    *obj_out_neighbors, *obj_out_neighbor_weights,
+    *obj_partition, *obj_M, *obj_d;
   long r, B, agg_move;
 
-  if (!PyArg_ParseTuple(args, "lOOOOOll", &r, &obj_neighbors, &obj_neighbor_weights,
+  if (!PyArg_ParseTuple(args, "lOOOOOll", &r, &obj_in_neighbors, &obj_in_neighbor_weights,
+			&obj_out_neighbors, &obj_out_neighbor_weights,
 			&obj_partition, &obj_M, &obj_d, &B, &agg_move)) {
     PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
     return NULL;
   }
 
-  const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_neighbor_weights = PyArray_FROM_OTF(obj_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_in_neighbors = PyArray_FROM_OTF(obj_in_neighbors, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_in_neighbor_weights = PyArray_FROM_OTF(obj_in_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_out_neighbors = PyArray_FROM_OTF(obj_out_neighbors, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_out_neighbor_weights = PyArray_FROM_OTF(obj_out_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);  
   const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_d = PyArray_FROM_OTF(obj_d, NPY_LONG, NPY_IN_ARRAY);
 
@@ -2657,26 +2724,34 @@ static PyObject* propose_new_partition_py(PyObject *self, PyObject *args)
     Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
   }
 
-  const long *neighbors = (const long *) PyArray_DATA(ar_neighbors);
-  const long *neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
+  const long *in_neighbors = (const long *) PyArray_DATA(ar_in_neighbors);
+  const long *in_neighbor_weights = (const long *) PyArray_DATA(ar_in_neighbor_weights);
+  const long *out_neighbors = (const long *) PyArray_DATA(ar_out_neighbors);
+  const long *out_neighbor_weights = (const long *) PyArray_DATA(ar_out_neighbor_weights);  
   const long *partition = (const long  *) PyArray_DATA(ar_partition);
   const long *d = (const long *) PyArray_DATA(ar_d);
 
-  long n_neighbors= (long) PyArray_DIM(ar_neighbors, 0);
+  long n_in_neighbors= (long) PyArray_DIM(ar_in_neighbors, 0);
+  long n_out_neighbors= (long) PyArray_DIM(ar_out_neighbors, 0);  
   long N = (long) PyArray_DIM(ar_partition, 0);
 
   PyObject *ret;
 
-  long s = propose_new_partition(r, neighbors, neighbor_weights, partition,
-				 M, Mu, d, n_neighbors, N, B, agg_move);
+  long s = propose_new_partition(r,
+				 in_neighbors, in_neighbor_weights, n_in_neighbors,
+				 out_neighbors, out_neighbor_weights, n_out_neighbors,
+				 partition,
+				 M, Mu, d, N, B, agg_move);
 
   if (s < 0) {
     PyErr_SetString(PyExc_RuntimeError, "multinomial choice for both conditions failed");
     return NULL;
   }
 
-  Py_DECREF(ar_neighbors);
-  Py_DECREF(ar_neighbor_weights);
+  Py_DECREF(ar_in_neighbors);
+  Py_DECREF(ar_in_neighbor_weights);
+  Py_DECREF(ar_out_neighbors);
+  Py_DECREF(ar_out_neighbor_weights);  
   Py_DECREF(ar_partition);
   Py_DECREF(ar_d);
 
@@ -3419,19 +3494,16 @@ static void compute_delta_entropy(PyObject *restrict Mu,
 
 static PyObject *propose_block_merge(PyObject *self, PyObject *args)
 {
-  PyObject *obj_neighbors, *obj_neighbor_weights,
-    *obj_out_neighbors, *obj_out_neighbor_weights, *obj_in_neighbors, *obj_in_neighbor_weights,    
+  PyObject *obj_out_neighbors, *obj_out_neighbor_weights, *obj_in_neighbors, *obj_in_neighbor_weights,    
     *obj_partition, *obj_M,
     *obj_block_degrees, *obj_block_degrees_out, *obj_block_degrees_in;
   long r, s, num_blocks, num_out_block_edges, num_in_block_edges;
 
-  if (!PyArg_ParseTuple(args, "OllOOOOOOOlOOOll", &obj_M, &r, &s,
+  if (!PyArg_ParseTuple(args, "OllOOOOOlOOO", &obj_M, &r, &s,
 			&obj_out_neighbors, &obj_out_neighbor_weights,
 			&obj_in_neighbors, &obj_in_neighbor_weights,			
-			&obj_neighbors, &obj_neighbor_weights,
 			&obj_partition, &num_blocks,
-			&obj_block_degrees, &obj_block_degrees_out, &obj_block_degrees_in,
-			&num_out_block_edges, &num_in_block_edges)) {
+			&obj_block_degrees, &obj_block_degrees_out, &obj_block_degrees_in)) {
     PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
     return NULL;
   }
@@ -3440,8 +3512,6 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
   const PyObject *ar_out_neighbor_weights = PyArray_FROM_OTF(obj_out_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_in_neighbors = PyArray_FROM_OTF(obj_in_neighbors, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_in_neighbor_weights = PyArray_FROM_OTF(obj_in_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_neighbor_weights = PyArray_FROM_OTF(obj_neighbor_weights, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_d = PyArray_FROM_OTF(obj_block_degrees, NPY_LONG, NPY_IN_ARRAY);
   const PyObject *ar_d_out = PyArray_FROM_OTF(obj_block_degrees_out, NPY_LONG, NPY_IN_ARRAY);
@@ -3452,11 +3522,10 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
   const long *restrict out_neighbor_weights = (const long *) PyArray_DATA(ar_out_neighbor_weights);
   const long *restrict in_neighbors = (const long *) PyArray_DATA(ar_in_neighbors);
   const long *restrict in_neighbor_weights = (const long *) PyArray_DATA(ar_in_neighbor_weights);
-  const long *restrict neighbors = (const long *) PyArray_DATA(ar_neighbors);
-  const long *restrict neighbor_weights = (const long *) PyArray_DATA(ar_neighbor_weights);
-
+  
   const long N = (long) PyArray_DIM(ar_partition, 0);
-  const long n_neighbors= (long) PyArray_DIM(ar_neighbors, 0);
+  const long n_in_neighbors= (long) PyArray_DIM(ar_in_neighbors, 0);
+  const long n_out_neighbors= (long) PyArray_DIM(ar_out_neighbors, 0);  
 
   struct compressed_array *restrict M = PyCapsule_GetPointer(obj_M, "compressed_array");
   PyObject *restrict Mu = NULL;
@@ -3473,8 +3542,11 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
   PyObject *ret;
 
   if (s == -1) {
-    s = propose_new_partition(r, neighbors, neighbor_weights, partition,
-			      M, Mu, d, n_neighbors, N, num_blocks, 1);
+    s = propose_new_partition(r,
+			      in_neighbors, in_neighbor_weights, n_in_neighbors,
+			      out_neighbors, out_neighbor_weights, n_out_neighbors,
+			      partition,
+			      M, Mu, d, N, num_blocks, 1);
   }
 
   if (s < 0) {
@@ -3487,9 +3559,12 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
   
   double delta_entropy = 0.0;
 
-  const long d_out_new_r = d_out[r] - num_out_block_edges;
+  num_out_block_edges = d_out[r];
+  num_in_block_edges = d_in[r];
+  
+  const long d_out_new_r = 0;
   const long d_out_new_s = d_out[s] + num_out_block_edges;
-  const long d_in_new_r = d_in[r] - num_in_block_edges;
+  const long d_in_new_r = 0;
   const long d_in_new_s = d_in[s] + num_in_block_edges;
 
   long Nrr, Nrs, Nsr, Nss;
@@ -3518,8 +3593,10 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
   free(b_in);
   free(count_in);
   
-  Py_DECREF(ar_neighbors);
-  Py_DECREF(ar_neighbor_weights);
+  Py_DECREF(ar_in_neighbors);
+  Py_DECREF(ar_in_neighbor_weights);
+  Py_DECREF(ar_out_neighbors);
+  Py_DECREF(ar_out_neighbor_weights);  
   Py_DECREF(ar_partition);
   Py_DECREF(ar_d_out);
   Py_DECREF(ar_d_in);
@@ -3573,8 +3650,11 @@ int propose_node_movement(
   const long r = partition[ni];
 
   if (s == -1) {
-    s = propose_new_partition(r, neighbors, neighbor_weights, partition,
-			      Mc, Mu, d, n_neighbors, N, num_blocks, 0);
+    s = propose_new_partition(r,
+			      in_neighbors, in_neighbor_weights, n_in_neighbors,
+			      out_neighbors, out_neighbor_weights, n_out_neighbors,
+			      partition,
+			      Mc, Mu, d, N, num_blocks, 1);    
   }
 
   if (s < 0) {

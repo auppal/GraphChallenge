@@ -132,38 +132,23 @@ def compute_best_block_merge(blocks, num_blocks, M, best_merge_for_each_block, d
         in_idx, in_weight = take_nonzero(M, r, 1, sort = False)
         out_idx, out_weight = take_nonzero(M, r, 0, sort = False)
 
-        block_neighbors,block_neighbor_weights = \
-            np.array(compressed_array.combine_key_value_pairs(
-                in_idx, in_weight,
-                out_idx, out_weight))
-        num_out_block_edges = block_degrees_out[r]
-        num_in_block_edges = block_degrees_in[r]
-        num_block_edges = num_out_block_edges + num_in_block_edges            
-
-        if num_block_edges == 0:
+        if block_degrees[r] == 0:
             # Nothing to do
             continue
         
         delta_entropy = np.empty(n_proposal)
         proposals = np.empty(n_proposal, dtype=int)
 
-        if not is_compressed(M):
-            self_count = np.ndarray.__getitem__(M, (r, r))
-        else:
-            self_count = compressed_array.getitem(M, r, r)
-
         # propose new blocks to merge with
         for proposal_idx in range(n_proposal):
             s,dS = compressed_array.propose_block_merge(M, r, -1,
                                                         out_idx, out_weight,
                                                         in_idx, in_weight,
-                                                        block_neighbors,
-                                                        block_neighbor_weights,
-                                                        block_partition, num_blocks,
-                                                        block_degrees, block_degrees_out,
-                                                        block_degrees_in,
-                                                        num_out_block_edges,
-                                                        num_in_block_edges)
+                                                        block_partition,
+                                                        num_blocks,
+                                                        block_degrees,
+                                                        block_degrees_out,
+                                                        block_degrees_in)
             proposals[proposal_idx] = s   
             delta_entropy[proposal_idx] = dS
 
