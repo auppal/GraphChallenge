@@ -3492,12 +3492,84 @@ static void compute_delta_entropy(PyObject *restrict Mu,
   *p_Nss = Nss;
 }
 
-static PyObject *propose_block_merge(PyObject *self, PyObject *args)
+static int propose_block_merge(
+  const long r,
+  long s,  
+  const long *restrict partition,
+  const long *restrict out_neighbors,
+  const long *restrict out_neighbor_weights,
+  const long n_out_neighbors,
+  const long *restrict in_neighbors,
+  const long *restrict in_neighbor_weights,
+  const long n_in_neighbors,
+  const long N,
+  const long *restrict d,
+  const long *restrict d_out,
+  const long *restrict d_in,
+  const long num_blocks,
+  struct compressed_array *restrict M,
+  PyObject *restrict Mu,
+  long *p_s, double *p_delta_entropy)
+{
+  if (s == -1) {
+    s = propose_new_partition(r,
+			      in_neighbors, in_neighbor_weights, n_in_neighbors,
+			      out_neighbors, out_neighbor_weights, n_out_neighbors,
+			      partition,
+			      M, Mu, d, N, num_blocks, 1);
+  }
+
+  if (s < 0) {
+    return -1;
+  }
+
+  long *b_out = NULL, *b_in = NULL;
+  long *count_out = NULL, *count_in = NULL, n_out, n_in;
+  
+  double delta_entropy = 0.0;
+
+  long num_out_block_edges = d_out[r];
+  long num_in_block_edges = d_in[r];
+  
+  const long d_out_new_r = 0;
+  const long d_out_new_s = d_out[s] + num_out_block_edges;
+  const long d_in_new_r = 0;
+  const long d_in_new_s = d_in[s] + num_in_block_edges;
+
+  long Nrr, Nrs, Nsr, Nss;
+
+  if (!Mu) {
+    compressed_take_keys_values(M, r, 0, (unsigned long **) &b_out, &count_out, &n_out);
+    compressed_take_keys_values(M, r, 1, (unsigned long **) &b_in, &count_in, &n_in);
+  }
+  else {
+    if (blocks_and_counts(partition, out_neighbors, out_neighbor_weights, n_out_neighbors, &b_out, &count_out, &n_out, NULL) < 0) {
+      return -1;
+    }
+    if (blocks_and_counts(partition, in_neighbors, in_neighbor_weights, n_in_neighbors, &b_in, &count_in, &n_in, NULL) < 0) {
+      return -1;
+    }
+  }
+
+  compute_delta_entropy(Mu, M, r, s, b_out, count_out, n_out, b_in, count_in, n_in, d_out, d_in, d, d_out_new_r, d_out_new_s, d_in_new_r, d_in_new_s, 1, &delta_entropy, &Nrr, &Nrs, &Nsr, &Nss);  
+
+  free(b_out);
+  free(count_out);  
+  free(b_in);
+  free(count_in);
+
+  *p_s = s;
+  *p_delta_entropy = delta_entropy;
+  return 0;
+}
+
+
+static PyObject *propose_block_merge_py(PyObject *self, PyObject *args)
 {
   PyObject *obj_out_neighbors, *obj_out_neighbor_weights, *obj_in_neighbors, *obj_in_neighbor_weights,    
     *obj_partition, *obj_M,
     *obj_block_degrees, *obj_block_degrees_out, *obj_block_degrees_in;
-  long r, s, num_blocks, num_out_block_edges, num_in_block_edges;
+  long r, s, num_blocks;
 
   if (!PyArg_ParseTuple(args, "OllOOOOOlOOO", &obj_M, &r, &s,
 			&obj_out_neighbors, &obj_out_neighbor_weights,
@@ -3527,6 +3599,10 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
   const long n_in_neighbors= (long) PyArray_DIM(ar_in_neighbors, 0);
   const long n_out_neighbors= (long) PyArray_DIM(ar_out_neighbors, 0);  
 
+  const long *restrict d = (const long *) PyArray_DATA(ar_d);
+  const long *restrict d_out = (const long *) PyArray_DATA(ar_d_out);
+  const long *restrict d_in = (const long *) PyArray_DATA(ar_d_in);
+
   struct compressed_array *restrict M = PyCapsule_GetPointer(obj_M, "compressed_array");
   PyObject *restrict Mu = NULL;
   
@@ -3535,64 +3611,28 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
     Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
   }
 
-  const long *restrict d = (const long *) PyArray_DATA(ar_d);
-  const long *restrict d_out = (const long *) PyArray_DATA(ar_d_out);
-  const long *restrict d_in = (const long *) PyArray_DATA(ar_d_in);
+  double delta_entropy;
   
-  PyObject *ret;
+  int rc = propose_block_merge(
+    r,
+    s,  
+    partition,
+    out_neighbors,
+    out_neighbor_weights,
+    n_out_neighbors,
+    in_neighbors,
+    in_neighbor_weights,
+    n_in_neighbors,
+    N,
+    d,
+    d_out,
+    d_in,
+    num_blocks,
+    M,
+    Mu,
+    &s,
+    &delta_entropy);
 
-  if (s == -1) {
-    s = propose_new_partition(r,
-			      in_neighbors, in_neighbor_weights, n_in_neighbors,
-			      out_neighbors, out_neighbor_weights, n_out_neighbors,
-			      partition,
-			      M, Mu, d, N, num_blocks, 1);
-  }
-
-  if (s < 0) {
-    PyErr_SetString(PyExc_RuntimeError, "propose_new_partition failed");
-    return NULL;
-  }
-
-  long *b_out = NULL, *b_in = NULL;
-  long *count_out = NULL, *count_in = NULL, n_out, n_in;
-  
-  double delta_entropy = 0.0;
-
-  num_out_block_edges = d_out[r];
-  num_in_block_edges = d_in[r];
-  
-  const long d_out_new_r = 0;
-  const long d_out_new_s = d_out[s] + num_out_block_edges;
-  const long d_in_new_r = 0;
-  const long d_in_new_s = d_in[s] + num_in_block_edges;
-
-  long Nrr, Nrs, Nsr, Nss;
-
-  if (!Mu) {
-    compressed_take_keys_values(M, r, 0, (unsigned long **) &b_out, &count_out, &n_out);
-    compressed_take_keys_values(M, r, 1, (unsigned long **) &b_in, &count_in, &n_in);
-  }
-  else {
-    const long n_out_neighbors= (long) PyArray_DIM(ar_out_neighbors, 0);
-    if (blocks_and_counts(partition, out_neighbors, out_neighbor_weights, n_out_neighbors, &b_out, &count_out, &n_out, NULL) < 0) {
-      PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts_failed");
-      return NULL;
-    }
-    const long n_in_neighbors= (long) PyArray_DIM(ar_in_neighbors, 0);
-    if (blocks_and_counts(partition, in_neighbors, in_neighbor_weights, n_in_neighbors, &b_in, &count_in, &n_in, NULL) < 0) {
-      PyErr_SetString(PyExc_RuntimeError, "blocks_and_counts_failed");
-      return NULL;
-    }
-  }  
-
-  compute_delta_entropy(Mu, M, r, s, b_out, count_out, n_out, b_in, count_in, n_in, d_out, d_in, d, d_out_new_r, d_out_new_s, d_in_new_r, d_in_new_s, 1, &delta_entropy, &Nrr, &Nrs, &Nsr, &Nss);  
-
-  free(b_out);
-  free(count_out);  
-  free(b_in);
-  free(count_in);
-  
   Py_DECREF(ar_in_neighbors);
   Py_DECREF(ar_in_neighbor_weights);
   Py_DECREF(ar_out_neighbors);
@@ -3602,8 +3642,15 @@ static PyObject *propose_block_merge(PyObject *self, PyObject *args)
   Py_DECREF(ar_d_in);
   Py_DECREF(ar_d);  
 
-  ret = Py_BuildValue("kd", s, delta_entropy);
-  return ret;
+  if (rc < 0) {
+    PyErr_SetString(PyExc_RuntimeError, "propose_block_merge failed");
+    return NULL;
+  }
+  else {
+    PyObject *ret;
+    ret = Py_BuildValue("kd", s, delta_entropy);
+    return ret;
+  }
 }
 
 int propose_node_movement(
@@ -4422,7 +4469,7 @@ static PyMethodDef compressed_array_methods[] =
    { "hastings_correction", hastings_correction_py, METH_VARARGS, "" },
    { "propose_new_partition", propose_new_partition_py, METH_VARARGS, "" },
    { "propose_nodal_movement", propose_nodal_movement_py, METH_VARARGS, "" },
-   { "propose_block_merge", propose_block_merge, METH_VARARGS, "" },
+   { "propose_block_merge", propose_block_merge_py, METH_VARARGS, "" },
    { "nodal_moves_sequential", nodal_moves_sequential, METH_VARARGS, "" },   
    { "rebuild_M", rebuild_M, METH_VARARGS, "" },
    { "rebuild_M_compressed", rebuild_M_compressed, METH_VARARGS, "" },
