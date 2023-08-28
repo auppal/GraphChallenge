@@ -2112,7 +2112,6 @@ if __name__ == '__main__':
     parser.add_argument("--diet", type=int, required=False, default=0, help="Do not store old state, regenerate as needed.")      
 
     # Arguments for thread control
-    parser.add_argument("--preallocate", type=int, required=False, default=0, help="Whether to preallocate memory.")
     parser.add_argument("--blocking", type=int, required=False, default=1, help="Whether to use blocking waits during nodal moves.")
     parser.add_argument("--finegrain", type=int, required=False, default=0, help="Try to use finegrain locks instead of a single lock.")
     parser.add_argument("--critical", type=int, required=False, default=2, help="Which critical section to use. 0 is the widest, 2 is the narrowest.")
