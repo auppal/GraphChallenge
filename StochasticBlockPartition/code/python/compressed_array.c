@@ -3652,53 +3652,21 @@ static PyObject *propose_block_merge_py(PyObject *self, PyObject *args)
   }
 }
 
-static PyObject *compute_block_merges_py(PyObject *self, PyObject *args)
+static int compute_block_merges(
+  long start_block,
+  long stop_block,
+  long num_blocks,
+  long n_merge_proposals,
+  long *best_merge_per_block,
+  double *delta_entropy_per_block,
+  const long *restrict partition,
+  const long N,
+  const long *restrict d,
+  const long *restrict d_out,
+  const long *restrict d_in,
+  struct compressed_array *restrict M,
+  PyObject *restrict Mu)
 {
-  long start_block, stop_block, num_blocks, n_merge_proposals;
-  
-  PyObject *obj_M, *obj_best_merge_per_block, *obj_delta_entropy_per_block,
-    *obj_partition,
-    *obj_block_degrees, *obj_block_degrees_out, *obj_block_degrees_in;
-
-  if (!PyArg_ParseTuple(args, "lllOOOOOOOl",
-			&start_block, &stop_block, &num_blocks,
-			&obj_M,
-			&obj_best_merge_per_block,
-			&obj_delta_entropy_per_block,
-			&obj_partition,
-			&obj_block_degrees, &obj_block_degrees_out, &obj_block_degrees_in,
-			&n_merge_proposals))
-  {
-    PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
-    return NULL;
-  }
-
-  const PyObject *ar_best_merge_per_block = PyArray_FROM_OTF(obj_best_merge_per_block, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_delta_entropy_per_block = PyArray_FROM_OTF(obj_delta_entropy_per_block, NPY_DOUBLE, NPY_IN_ARRAY);  
-  
-  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_d = PyArray_FROM_OTF(obj_block_degrees, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_d_out = PyArray_FROM_OTF(obj_block_degrees_out, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_d_in = PyArray_FROM_OTF(obj_block_degrees_in, NPY_LONG, NPY_IN_ARRAY);
-
-  long *best_merge_per_block = (long *) PyArray_DATA(ar_best_merge_per_block);
-  double *delta_entropy_per_block = (double *) PyArray_DATA(ar_delta_entropy_per_block);
-
-  const long *restrict partition = (const long  *) PyArray_DATA(ar_partition);
-  const long N = (long) PyArray_DIM(ar_partition, 0);
-
-  const long *restrict d = (const long *) PyArray_DATA(ar_d);
-  const long *restrict d_out = (const long *) PyArray_DATA(ar_d_out);
-  const long *restrict d_in = (const long *) PyArray_DATA(ar_d_in);
-
-  struct compressed_array *restrict M = PyCapsule_GetPointer(obj_M, "compressed_array");
-  PyObject *restrict Mu = NULL;
-  
-  if (!M) {
-    PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
-    Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
-  }
-
   int rc;
   long i, r;
   for (r=start_block; r<stop_block; r++) {
@@ -3723,8 +3691,7 @@ static PyObject *compute_block_merges_py(PyObject *self, PyObject *args)
 				  (long **) &in_neighbor_weights, &n_in_neighbors);      
     }
     else {
-      PyErr_SetString(PyExc_RuntimeError, "Uncompressed not implemented.");      
-      return NULL;
+      return -1;
     }
 
     long s_best, s;
@@ -3777,6 +3744,75 @@ static PyObject *compute_block_merges_py(PyObject *self, PyObject *args)
   rc = 0;
 
 done:
+  return rc;
+}
+
+static PyObject *compute_block_merges_py(PyObject *self, PyObject *args)
+{
+  long start_block, stop_block, num_blocks, n_merge_proposals;
+  
+  PyObject *obj_M, *obj_best_merge_per_block, *obj_delta_entropy_per_block,
+    *obj_partition,
+    *obj_block_degrees, *obj_block_degrees_out, *obj_block_degrees_in;
+
+  if (!PyArg_ParseTuple(args, "lllOOOOOOOl",
+			&start_block, &stop_block, &num_blocks,
+			&obj_M,
+			&obj_best_merge_per_block,
+			&obj_delta_entropy_per_block,
+			&obj_partition,
+			&obj_block_degrees, &obj_block_degrees_out, &obj_block_degrees_in,
+			&n_merge_proposals))
+  {
+    PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
+    return NULL;
+  }
+
+  const PyObject *ar_best_merge_per_block = PyArray_FROM_OTF(obj_best_merge_per_block, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_delta_entropy_per_block = PyArray_FROM_OTF(obj_delta_entropy_per_block, NPY_DOUBLE, NPY_IN_ARRAY);  
+  
+  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d = PyArray_FROM_OTF(obj_block_degrees, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d_out = PyArray_FROM_OTF(obj_block_degrees_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d_in = PyArray_FROM_OTF(obj_block_degrees_in, NPY_LONG, NPY_IN_ARRAY);
+
+  long *best_merge_per_block = (long *) PyArray_DATA(ar_best_merge_per_block);
+  double *delta_entropy_per_block = (double *) PyArray_DATA(ar_delta_entropy_per_block);
+
+  const long *restrict partition = (const long  *) PyArray_DATA(ar_partition);
+  const long N = (long) PyArray_DIM(ar_partition, 0);
+
+  const long *restrict d = (const long *) PyArray_DATA(ar_d);
+  const long *restrict d_out = (const long *) PyArray_DATA(ar_d_out);
+  const long *restrict d_in = (const long *) PyArray_DATA(ar_d_in);
+
+  struct compressed_array *restrict M = PyCapsule_GetPointer(obj_M, "compressed_array");
+  PyObject *restrict Mu = NULL;
+
+  if (!M) {
+    PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
+    Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
+  }
+
+  if (Mu) {
+    PyErr_SetString(PyExc_RuntimeError, "Uncompressed not supported.");
+    return NULL;    
+  }
+
+  int rc = compute_block_merges(start_block,
+				stop_block,
+				num_blocks,
+				n_merge_proposals,
+				best_merge_per_block,
+				delta_entropy_per_block,
+				partition,
+				N,
+				d,
+				d_out,
+				d_in,
+				M,
+				Mu);
+
   Py_DECREF(ar_best_merge_per_block);
   Py_DECREF(ar_delta_entropy_per_block);
   Py_DECREF(ar_partition);
@@ -3785,6 +3821,157 @@ done:
   Py_DECREF(ar_d);  
 
   if (rc) {
+    return NULL;
+  }
+
+  Py_RETURN_NONE;
+}
+
+#include <pthread.h>
+struct block_merge_worker_args
+{
+  long start_block;
+  long stop_block;
+  long num_blocks;
+  long n_merge_proposals;
+  long *best_merge_per_block;
+  double *delta_entropy_per_block;
+  const long *restrict partition;
+  long N;
+  const long *restrict d;
+  const long *restrict d_out;
+  const long *restrict d_in;
+  struct compressed_array *restrict M;
+  PyObject *restrict Mu;
+};
+
+static void *block_merge_worker(void *args)
+{
+  struct block_merge_worker_args *a = args;
+
+  int rc = compute_block_merges(a->start_block,
+				a->stop_block,
+				a->num_blocks,
+				a->n_merge_proposals,
+				a->best_merge_per_block,
+				a->delta_entropy_per_block,
+				a->partition,
+				a->N,
+				a->d,
+				a->d_out,
+				a->d_in,
+				a->M,
+				a->Mu);
+  if (rc < 0) {
+    pthread_exit((void *) -1);
+  }
+  else {
+    pthread_exit(NULL);
+  }
+}
+
+
+static PyObject *block_merge_parallel(PyObject *self, PyObject *args)
+{
+  long n_threads, start_block, stop_block, num_blocks, n_merge_proposals;
+  
+  PyObject *obj_M, *obj_best_merge_per_block, *obj_delta_entropy_per_block,
+    *obj_partition,
+    *obj_block_degrees, *obj_block_degrees_out, *obj_block_degrees_in;
+
+  if (!PyArg_ParseTuple(args, "llllOOOOOOOl",
+			&n_threads,
+			&start_block, &stop_block, &num_blocks,
+			&obj_M,
+			&obj_best_merge_per_block,
+			&obj_delta_entropy_per_block,
+			&obj_partition,
+			&obj_block_degrees, &obj_block_degrees_out, &obj_block_degrees_in,
+			&n_merge_proposals))
+  {
+    PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
+    return NULL;
+  }
+
+  const PyObject *ar_best_merge_per_block = PyArray_FROM_OTF(obj_best_merge_per_block, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_delta_entropy_per_block = PyArray_FROM_OTF(obj_delta_entropy_per_block, NPY_DOUBLE, NPY_IN_ARRAY);  
+  
+  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d = PyArray_FROM_OTF(obj_block_degrees, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d_out = PyArray_FROM_OTF(obj_block_degrees_out, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_d_in = PyArray_FROM_OTF(obj_block_degrees_in, NPY_LONG, NPY_IN_ARRAY);
+
+  long *best_merge_per_block = (long *) PyArray_DATA(ar_best_merge_per_block);
+  double *delta_entropy_per_block = (double *) PyArray_DATA(ar_delta_entropy_per_block);
+
+  const long *restrict partition = (const long  *) PyArray_DATA(ar_partition);
+  const long N = (long) PyArray_DIM(ar_partition, 0);
+
+  const long *restrict d = (const long *) PyArray_DATA(ar_d);
+  const long *restrict d_out = (const long *) PyArray_DATA(ar_d_out);
+  const long *restrict d_in = (const long *) PyArray_DATA(ar_d_in);
+
+  struct compressed_array *restrict M = PyCapsule_GetPointer(obj_M, "compressed_array");
+  PyObject *restrict Mu = NULL;
+
+  if (!M) {
+    PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
+    Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
+  }
+
+  if (Mu) {
+    PyErr_SetString(PyExc_RuntimeError, "Uncompressed not supported.");
+    return NULL;
+  }
+
+  pthread_t *thread = calloc(n_threads, sizeof(pthread_t));
+  struct block_merge_worker_args *worker_args = calloc(n_threads, sizeof(struct block_merge_worker_args));
+
+  int rc = 0;
+  long i, gs = (num_blocks + n_threads - 1) / n_threads;
+
+  for (i=0; i<n_threads; i++) {
+    worker_args[i].start_block = i * gs;
+    worker_args[i].stop_block = (i + 1) * gs;
+
+    if (worker_args[i].stop_block > num_blocks)
+      worker_args[i].stop_block = num_blocks;
+    
+    worker_args[i].num_blocks = num_blocks;
+    worker_args[i].n_merge_proposals = n_merge_proposals;
+    worker_args[i].best_merge_per_block = best_merge_per_block;
+    worker_args[i].delta_entropy_per_block = delta_entropy_per_block;
+    worker_args[i].partition = partition;
+    worker_args[i].N = N;
+    worker_args[i].d = d;
+    worker_args[i].d_out = d_out;
+    worker_args[i].d_in = d_in;
+    worker_args[i].M = M;
+    worker_args[i].Mu = Mu;
+
+    pthread_create(&thread[i], NULL, block_merge_worker, &worker_args[i]);
+  }
+
+  for (i=0; i<n_threads; i++) {
+    void *retval;
+    pthread_join(thread[i], &retval);
+    if (retval) {
+      rc = -1;
+    }
+  }
+
+  free(thread);
+  free(worker_args);
+
+  Py_DECREF(ar_best_merge_per_block);
+  Py_DECREF(ar_delta_entropy_per_block);
+  Py_DECREF(ar_partition);
+  Py_DECREF(ar_d_out);
+  Py_DECREF(ar_d_in);
+  Py_DECREF(ar_d);  
+
+  if (rc) {
+    PyErr_SetString(PyExc_RuntimeError, "block_merge_worker error occurred.");
     return NULL;
   }
   
@@ -4608,7 +4795,8 @@ static PyMethodDef compressed_array_methods[] =
    { "propose_new_partition", propose_new_partition_py, METH_VARARGS, "" },
    { "propose_nodal_movement", propose_nodal_movement_py, METH_VARARGS, "" },
    { "propose_block_merge", propose_block_merge_py, METH_VARARGS, "" },
-   { "compute_block_merges", compute_block_merges_py, METH_VARARGS, "" },   
+   { "compute_block_merges", compute_block_merges_py, METH_VARARGS, "" },
+   { "block_merge_parallel", block_merge_parallel, METH_VARARGS, "" },   
    { "nodal_moves_sequential", nodal_moves_sequential, METH_VARARGS, "" },   
    { "rebuild_M", rebuild_M, METH_VARARGS, "" },
    { "rebuild_M_compressed", rebuild_M_compressed, METH_VARARGS, "" },

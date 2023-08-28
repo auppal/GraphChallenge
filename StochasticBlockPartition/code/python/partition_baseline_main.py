@@ -1134,25 +1134,18 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         merge_block_iterator = range(comm.rank, num_blocks, comm.size)
 
     if n_thread_merge > 0:
-        syms = {}
-        syms['interblock_edge_count'] = M
-        syms['block_partition'] = block_partition
-        syms['block_degrees'] = block_degrees
-        syms['block_degrees_out'] = block_degrees_out
-        syms['block_degrees_in'] = block_degrees_in
-        syms['best_merge_for_each_block'] = best_merge_for_each_block
-        syms['delta_entropy_for_each_block'] = delta_entropy_for_each_block
-        syms['args'] = args
-
-        pool_size = min(n_thread_merge, num_blocks)
-
-        gs = (num_blocks + pool_size - 1) // pool_size
-        chunks = [(i*gs, min((i+1)*gs,num_blocks), num_blocks) for i in range(pool_size)]
-
-        pool = Pool(n_thread_merge)
-        for j in pool.imap_unordered(compute_best_block_merge_wrapper, chunks):
-            pass
-        pool.close()
+        compressed_array.block_merge_parallel(n_thread_merge,
+                                              0,
+                                              num_blocks,
+                                              num_blocks,
+                                              M,
+                                              best_merge_for_each_block,
+                                              delta_entropy_for_each_block,
+                                              block_partition,
+                                              block_degrees,
+                                              block_degrees_out,
+                                              block_degrees_in,
+                                              args.merge_proposals_per_block)
         n_proposals_evaluated += num_blocks
     else:
         compressed_array.compute_block_merges(0,
