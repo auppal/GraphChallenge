@@ -3849,25 +3849,20 @@ static void *block_merge_worker(void *args)
 {
   struct block_merge_worker_args *a = args;
 
-  int rc = compute_block_merges(a->start_block,
-				a->stop_block,
-				a->num_blocks,
-				a->n_merge_proposals,
-				a->best_merge_per_block,
-				a->delta_entropy_per_block,
-				a->partition,
-				a->N,
-				a->d,
-				a->d_out,
-				a->d_in,
-				a->M,
-				a->Mu);
-  if (rc < 0) {
-    pthread_exit((void *) -1);
-  }
-  else {
-    pthread_exit(NULL);
-  }
+  uintptr_t rc = compute_block_merges(a->start_block,
+				      a->stop_block,
+				      a->num_blocks,
+				      a->n_merge_proposals,
+				      a->best_merge_per_block,
+				      a->delta_entropy_per_block,
+				      a->partition,
+				      a->N,
+				      a->d,
+				      a->d_out,
+				      a->d_in,
+				      a->M,
+				      a->Mu);
+  pthread_exit((void *) rc);
 }
 
 
