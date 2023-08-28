@@ -120,11 +120,24 @@ def compute_best_block_merge_wrapper(tup):
     delta_entropy_for_each_block = syms['delta_entropy_for_each_block']
     args = syms['args']
     compressed_array.seed()
-    compute_best_block_merge(start_block, stop_block, num_blocks, interblock_edge_count, best_merge_for_each_block, delta_entropy_for_each_block, block_partition, block_degrees, block_degrees_out, block_degrees_in, args)
+    compressed_array.compute_block_merges(start_block,
+                                          stop_block,
+                                          num_blocks,
+                                          interblock_edge_count,
+                                          best_merge_for_each_block,
+                                          delta_entropy_for_each_block,
+                                          block_partition,
+                                          block_degrees,
+                                          block_degrees_out,
+                                          block_degrees_in,
+                                          args.merge_proposals_per_block)
     return
 
 
+# Old Python version. Kept only for debugging.
 def compute_best_block_merge(start_block, stop_block, num_blocks, M, best_merge_for_each_block, delta_entropy_for_each_block, block_partition, block_degrees, block_degrees_out, block_degrees_in, args):
+    best_merge_for_each_block[start_block:stop_block] = -1
+    delta_entropy_for_each_block[start_block:stop_block] = np.Inf
     n_proposal = args.merge_proposals_per_block
 
     for r in range(start_block, stop_block):
@@ -1114,12 +1127,8 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
 
     best_merge_for_each_block = shared_memory_empty((num_blocks,), dtype='int64')
     delta_entropy_for_each_block = shared_memory_empty((num_blocks,), dtype='float64')
-    best_merge_for_each_block[:] = -1
-    delta_entropy_for_each_block[:] = np.Inf
     block_partition = np.arange(num_blocks)
     n_merges += 1
-
-    merge_block_iterator = range(num_blocks)
 
     if args.mpi == 1:
         merge_block_iterator = range(comm.rank, num_blocks, comm.size)
@@ -1144,12 +1153,20 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         for j in pool.imap_unordered(compute_best_block_merge_wrapper, chunks):
             pass
         pool.close()
-        n_proposals_evaluated += len(merge_block_iterator)        
+        n_proposals_evaluated += num_blocks
     else:
-        compute_best_block_merge(start_block, stop_block, num_blocks, M,
-                                 best_merge_for_each_block, delta_entropy_for_each_block,
-                                 block_partition, block_degrees, block_degrees_out, block_degrees_in, args)
-        n_proposals_evaluated += len(merge_block_iterator)
+        compressed_array.compute_block_merges(0,
+                                              num_blocks,
+                                              num_blocks,
+                                              M,
+                                              best_merge_for_each_block,
+                                              delta_entropy_for_each_block,
+                                              block_partition,
+                                              block_degrees,
+                                              block_degrees_out,
+                                              block_degrees_in,
+                                              args.merge_proposals_per_block)
+        n_proposals_evaluated += num_blocks
 
     # During MPI operation, not every entry in best_merge_for_each_block
     # and delta_entropy_for_each_block will have been filled in.
