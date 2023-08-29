@@ -975,7 +975,7 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
         syms['reorder'] = reorder
 
     update_id_cnt = 0
-    wrapper_fn = propose_node_movement_wrapper if args.profile == 0 else propose_node_movement_profile_wrapper
+    wrapper_fn = propose_node_movement_wrapper if (args.profile == 0 or args.profile == 1) else propose_node_movement_profile_wrapper
 
     if args.node_propose_batch_size == 0:
         group_size = (N + n_thread_move - 1) // n_thread_move
@@ -1161,6 +1161,8 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
                                               args.merge_proposals_per_block)
         n_proposals_evaluated += num_blocks
 
+    compute_merge_end_time = timeit.default_timer()
+        
     # During MPI operation, not every entry in best_merge_for_each_block
     # and delta_entropy_for_each_block will have been filled in.
     if args.mpi == 1:
@@ -1192,8 +1194,11 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
                                                         best_merges,
                                                         best_merge_for_each_block, partition,
                                                         num_blocks, num_blocks_to_merge)
+
     # force the next partition to be shared
     partition_t = shared_memory_copy(partition_t)
+
+    carry_out_merges_end_time = timeit.default_timer()
 
     # re-initialize edge counts and block degrees
     M_t, block_degrees_out_t, block_degrees_in_t, block_degrees_t = \
@@ -1202,6 +1207,8 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
                                    partition_t,
                                    args)
 
+    initialize_edge_counts_end_time = timeit.default_timer()
+    
     # compute the global entropy for MCMC convergence criterion
     overall_entropy = compute_overall_entropy(M_t, block_degrees_out_t, block_degrees_in_t, num_blocks_t, N,
                                               E)
@@ -1241,8 +1248,16 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
 
     if verbose:
         move_end_time = timeit.default_timer()
+        compute_overall_entropy_time = merge_end_time - initialize_edge_counts_end_time
+        initialize_edge_counts_time = initialize_edge_counts_end_time - carry_out_merges_end_time
+        carry_out_merges_time = carry_out_merges_end_time - compute_merge_end_time
+        compute_merge_time = compute_merge_end_time - merge_start_time
         merge_time = merge_end_time - merge_start_time
         move_time = move_end_time - move_start_time
+        timing_stats['compute_overall_entropy_time'] += compute_overall_entropy_time
+        timing_stats['initialize_edge_counts_time'] += initialize_edge_counts_time
+        timing_stats['carry_out_merges_time'] += carry_out_merges_time
+        timing_stats['compute_merge_time'] += compute_merge_time
         timing_stats['time_in_merge'] += merge_time
         timing_stats['time_in_move'] += move_time
         move_rate = total_num_nodal_moves_itr / move_time
