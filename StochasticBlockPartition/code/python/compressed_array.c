@@ -4628,47 +4628,62 @@ static PyObject* rebuild_M(PyObject *self, PyObject *args)
  */
 static PyObject* rebuild_M_compressed(PyObject *self, PyObject *args)
 {
-  PyObject *obj_partition, *obj_neighbors, *obj_weights, *obj_M, *obj_d_out, *obj_d_in;
-  uint64_t vid_start, vid_end;
+  PyObject *obj_partition, *obj_out_neighbors,*obj_M, *obj_d_out, *obj_d_in, *obj_d;
+  long vid_start, vid_end;
 
-  if (!PyArg_ParseTuple(args, "OllOOOOO", &obj_partition, &vid_start, &vid_end, &obj_neighbors, &obj_weights, &obj_M, &obj_d_out, &obj_d_in)) {
+  if (!PyArg_ParseTuple(args, "OllOOOOO",
+			&obj_partition, &vid_start, &vid_end, &obj_out_neighbors, &obj_M, &obj_d_out, &obj_d_in, &obj_d)) {
     return NULL;
   }
 
-  struct compressed_array *x = PyCapsule_GetPointer(obj_M, "compressed_array");
+  struct compressed_array *restrict x = PyCapsule_GetPointer(obj_M, "compressed_array");
   const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_weights = PyArray_FROM_OTF(obj_weights, NPY_LONG, NPY_IN_ARRAY);
   PyObject *ar_d_in = PyArray_FROM_OTF(obj_d_in, NPY_LONG, NPY_IN_ARRAY);
   PyObject *ar_d_out = PyArray_FROM_OTF(obj_d_out, NPY_LONG, NPY_IN_ARRAY);
+  PyObject *ar_d = PyArray_FROM_OTF(obj_d, NPY_LONG, NPY_IN_ARRAY);  
 
-  const uint64_t *partition = (const uint64_t *) PyArray_DATA(ar_partition);
-  const uint64_t *neighbors = (const uint64_t *) PyArray_DATA(ar_neighbors);
-  const uint64_t *weights = (const uint64_t *) PyArray_DATA(ar_weights);
+  const long *restrict partition = (const long *) PyArray_DATA(ar_partition);
+  long *restrict d = (long *) PyArray_DATA(ar_d);
+  long *restrict d_in = (long *) PyArray_DATA(ar_d_in);
+  long *restrict d_out = (long *) PyArray_DATA(ar_d_out);
 
-  int64_t *d_in = (int64_t *) PyArray_DATA(ar_d_in);
-  int64_t *d_out = (int64_t *) PyArray_DATA(ar_d_out);
+  const long B = (long) PyArray_DIM(ar_d_out, 0);
+  
+  long nz_count = 0;
+  long v, i;
+  for (v=vid_start; v<vid_end; v++)
+  {
+    const PyObject *ar_out_neighbor_elm = PyList_GetItem(obj_out_neighbors, v);
+    const long n_neighbors = (long) PyArray_DIM(ar_out_neighbor_elm, 1);
+    const long *restrict neighbors = PyArray_GETPTR2(ar_out_neighbor_elm, 0, 0);
+    const long *restrict weights = PyArray_GETPTR2(ar_out_neighbor_elm, 1, 0);
 
-  long i;
-  long n = (long) PyArray_DIM(ar_neighbors, 0);
+    uint64_t k1 = partition[v];
+    for (i=0; i<n_neighbors; i++) {
+      uint64_t k2 = partition[neighbors[i]];
+      uint64_t w = weights[i];
 
-  uint64_t k1 = partition[vid_start];
-  for (i=0; i<n; i++) {
-    uint64_t k2 = partition[neighbors[i]];
-    uint64_t w = weights[i];
+      compressed_accum_single(x, k1, k2, w);
 
-    compressed_accum_single(x, k1, k2, w);
+      d_in[k2] += w;
+      d_out[k1] += w;
+    }
 
-    d_in[k2] +=w;
-    d_out[k1] += w;
+    nz_count += n_neighbors;
+  }
+
+  for (i=0; i<B; i++) {
+    d[i] = d_in[i] + d_out[i];
   }
 
   Py_DECREF(ar_partition);
-  Py_DECREF(ar_neighbors);
-  Py_DECREF(ar_weights);
   Py_DECREF(ar_d_in);
   Py_DECREF(ar_d_out);
-  Py_RETURN_NONE;
+  Py_DECREF(ar_d);  
+
+  PyObject *ret;
+  ret = Py_BuildValue("k", nz_count);
+  return ret;  
 }
 
 static PyObject* shared_memory_report(PyObject *self, PyObject *args)

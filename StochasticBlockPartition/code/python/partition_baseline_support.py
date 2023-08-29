@@ -354,10 +354,11 @@ def initialize_edge_counts(out_neighbors, B, b, args):
         # Emperically a small initial hash table size seems to be best to reduce both initial build time and nodal move time.
         width=12
         M = compressed_array.create(B, width)
-        for v in range(len(out_neighbors)):
-            compressed_array.rebuild_M_compressed(b, v, v, out_neighbors[v][0, :], out_neighbors[v][1, :], M, d_out, d_in)
-        nz_count = compressed_array.nonzero_count(M)
-        np.add(d_out, d_in, out=d)
+        nz_count = compressed_array.rebuild_M_compressed(b,
+                                                         0,
+                                                         len(out_neighbors),
+                                                         out_neighbors,
+                                                         M, d_out, d_in, d)
         density = nz_count / (B ** 2.)
 
         if args.debug_memory > 0:
