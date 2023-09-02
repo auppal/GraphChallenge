@@ -610,7 +610,6 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
         start_vert = 0
         stop_vert = N
 
-
     if 1:
         for itr in range(max_num_nodal_itr):
             num_nodal_moves,delta_entropy = compressed_array.nodal_moves_sequential(start_vert, stop_vert, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args.beta, args.min_nodal_moves_ratio)
@@ -621,7 +620,7 @@ def nodal_moves_sequential(delta_entropy_threshold, overall_entropy_cur, partiti
                 print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}"
                       .format(itr, num_nodal_moves,
                               itr_delta_entropy[itr] / float(
-                                  overall_entropy_cur)))
+                                  overall_entropy_cur)), flush=True)
 
             if num_nodal_moves <= (N * args.min_nodal_moves_ratio):
                 break
@@ -940,7 +939,7 @@ def nodal_moves_parallel_defunct(n_thread_move, delta_entropy_threshold, overall
     return total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees
     
         
-def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args):
+def nodal_moves_parallel_old(n_thread_move, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args):
     global syms
 
     max_num_nodal_itr = args.max_num_nodal_itr
@@ -1102,6 +1101,59 @@ def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy
 
     if args.debug_memory > 0:        
         compressed_array.shared_memory_report()
+
+    return total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees
+
+def nodal_moves_parallel(n_thread_move, delta_entropy_threshold, overall_entropy_cur, partition, M, block_degrees_out, block_degrees_in, block_degrees, num_blocks, out_neighbors, in_neighbors, N, vertex_num_out_neighbor_edges, vertex_num_in_neighbor_edges, vertex_num_neighbor_edges, vertex_neighbors, self_edge_weights, args):
+    max_num_nodal_itr = args.max_num_nodal_itr
+    delta_entropy_moving_avg_window = args.delta_entropy_moving_avg_window
+    
+
+    total_num_nodal_moves_itr = 0
+    itr_delta_entropy = np.zeros(max_num_nodal_itr)
+
+    for itr in range(max_num_nodal_itr):
+        num_nodal_moves,delta_entropy \
+            = compressed_array.nodal_moves_parallel(n_thread_move,
+                                                    0,
+                                                    N,
+                                                    delta_entropy_threshold,
+                                                    overall_entropy_cur,
+                                                    partition,
+                                                    M,
+                                                    block_degrees_out,
+                                                    block_degrees_in,
+                                                    block_degrees,
+                                                    num_blocks,
+                                                    out_neighbors,
+                                                    in_neighbors,
+                                                    vertex_num_out_neighbor_edges,
+                                                    vertex_num_in_neighbor_edges,
+                                                    vertex_num_neighbor_edges,
+                                                    vertex_neighbors,
+                                                    self_edge_weights,
+                                                    args.beta,
+                                                    args.min_nodal_moves_ratio,
+                                                    args.node_propose_batch_size)
+        
+        if args.sanity_check:
+            sanity_check_state(partition, out_neighbors, M, block_degrees_out, block_degrees_in, block_degrees)
+
+        itr_delta_entropy[itr] = delta_entropy
+        total_num_nodal_moves_itr += num_nodal_moves
+        
+        if args.verbose > 0:
+            sys.stdout.flush()
+            print("Itr: {:3d}, number of nodal moves: {:3d}, delta S: {:0.9f}".format(itr, num_nodal_moves,
+                                                                                      itr_delta_entropy[itr] / float(overall_entropy_cur)), flush=True)
+        if num_nodal_moves <= (N * args.min_nodal_moves_ratio):
+            break
+
+        # exit MCMC if the recent change in entropy falls below a small fraction of the overall entropy
+        if itr >= (delta_entropy_moving_avg_window - 1):
+            if (-np.mean(itr_delta_entropy[(itr - delta_entropy_moving_avg_window + 1):itr]) < (
+                    delta_entropy_threshold * overall_entropy_cur)):
+                    break
 
     return total_num_nodal_moves_itr,partition,M,block_degrees_out,block_degrees_in,block_degrees
 
