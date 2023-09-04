@@ -4008,9 +4008,13 @@ static PyObject *carry_out_best_merges_py(PyObject *self, PyObject *args)
   const long *restrict best_merges_src = (const long  *) PyArray_DATA(ar_best_merges_src_block);
   const long *restrict best_merges_dst = (const long  *) PyArray_DATA(ar_best_merges_dst_block);  
 
-  long *partition_next = malloc(N * sizeof(partition_next[0]));
   long i, j, n_merged = 0, n_blocks_next = n_blocks - n_blocks_to_merge;
   long *block_map = malloc(n_blocks * sizeof(block_map[0]));
+
+  if (!block_map) {
+    PyErr_SetString(PyExc_RuntimeError, "Failed to allocate memory.");    
+    return NULL;
+  }
 
   /* First merge all blocks into new destinations, using the current
    * block ids.
@@ -4022,7 +4026,7 @@ static PyObject *carry_out_best_merges_py(PyObject *self, PyObject *args)
   i = 0;
   while (n_merged < n_blocks_to_merge) {
     if (i == n_blocks) {
-      PyErr_SetString(PyExc_RuntimeError, "No more merges possible.");
+      PyErr_SetString(PyExc_RuntimeError, "Insufficient merges available.");
       return NULL;
     }
 
@@ -4044,6 +4048,13 @@ static PyObject *carry_out_best_merges_py(PyObject *self, PyObject *args)
 
   /* Now re-number the remaining blocks. */
   long *renum = calloc(n_blocks, sizeof(long));
+
+  if (!renum) {
+    PyErr_SetString(PyExc_RuntimeError, "Failed to allocate memory.");
+    free(block_map);
+    return NULL;
+  }
+  
   long count = 0;
   for (i=0; i<n_blocks; i++) {
     renum[block_map[i]] = 1;
@@ -4053,7 +4064,7 @@ static PyObject *carry_out_best_merges_py(PyObject *self, PyObject *args)
       renum[i] = count++;
   }
   for (i=0; i<N; i++) {
-    partition_next[i] = renum[block_map[partition[i]]];
+    partition[i] = renum[block_map[partition[i]]];
   }
   free(renum);
   free(block_map);
@@ -4061,12 +4072,8 @@ static PyObject *carry_out_best_merges_py(PyObject *self, PyObject *args)
   Py_DECREF(ar_best_merges_src_block);
   Py_DECREF(ar_best_merges_dst_block);
   Py_DECREF(ar_partition);
-
-  npy_intp dims[] = {N};
-  PyObject *obj_partition_next = PyArray_SimpleNewFromData(1, dims, NPY_LONG, partition_next);
-  PyArray_ENABLEFLAGS((PyArrayObject*) obj_partition_next, NPY_ARRAY_OWNDATA);
   
-  PyObject *ret = Py_BuildValue("Nk", obj_partition_next, n_blocks_next);
+  PyObject *ret = Py_BuildValue("k", n_blocks_next);
   return ret;
 }
 

@@ -1242,13 +1242,10 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     best_merges = delta_entropy_for_each_block.argsort()
 
     num_blocks_to_merge = num_blocks - num_target_blocks
-    (partition_t, num_blocks_t) = carry_out_best_merges(delta_entropy_for_each_block,
-                                                        best_merges,
-                                                        best_merge_for_each_block, partition,
-                                                        num_blocks, num_blocks_to_merge)
-
-    # force the next partition to be shared
-    partition_t = shared_memory_copy(partition_t)
+    num_blocks_t = compressed_array.carry_out_best_merges(partition,
+                                                          best_merges,
+                                                          best_merge_for_each_block,
+                                                          num_blocks, num_blocks_to_merge)
 
     carry_out_merges_end_time = timeit.default_timer()
 
@@ -1256,7 +1253,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     M_t, block_degrees_out_t, block_degrees_in_t, block_degrees_t = \
             initialize_edge_counts(out_neighbors,
                                    num_blocks_t,
-                                   partition_t,
+                                   partition,
                                    args)
 
     initialize_edge_counts_end_time = timeit.default_timer()
@@ -1265,7 +1262,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
     overall_entropy = compute_overall_entropy(M_t, block_degrees_out_t, block_degrees_in_t, num_blocks_t, N,
                                               E)
 
-    next_state = (overall_entropy, partition_t, num_blocks_t, M_t, block_degrees_out_t, block_degrees_in_t, block_degrees_t)
+    next_state = (overall_entropy, partition, num_blocks_t, M_t, block_degrees_out_t, block_degrees_in_t, block_degrees_t)
     (overall_entropy, partition, num_blocks_t, M, block_degrees_out, block_degrees_in, block_degrees) = next_state
 
     num_blocks_merged = num_blocks - num_blocks_t
