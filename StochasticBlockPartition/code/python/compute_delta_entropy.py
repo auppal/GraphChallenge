@@ -32,7 +32,7 @@ def entropy_dense_row_ignore_numpy(x, y, c, r, s):
     mask[s] = 0
     xm = x[mask]
     ym = y[mask]
-    log_c = np.log(c)    
+    log_c = np.log(c)
     return np.sum(xm * (np.log(xm) - np.log(ym) - log_c))
 
 
@@ -57,7 +57,7 @@ def compute_delta_entropy_sparse(r, s, cur_M_r_row, cur_M_s_row, cur_M_r_col, cu
 
     if isinstance(cur_M_r_row, np.ndarray):
         return compute_delta_entropy_dense(r, s, cur_M_r_row, cur_M_s_row, cur_M_r_col, cur_M_s_col, M_r_row, M_s_row, M_r_col, M_s_col, d_out, d_in, d_out_new, d_in_new)
-    
+
     d0 = compressed_array.dict_entropy_row(M_r_row, d_in_new, d_out_new[r])
     d1 = compressed_array.dict_entropy_row(M_s_row, d_in_new, d_out_new[s])
     d2 = compressed_array.dict_entropy_row_excl(M_r_col, d_out_new, d_in_new[r], r, s)
@@ -110,11 +110,11 @@ def compute_delta_entropy_orig(r, s, M, M_r_row, M_s_row, M_r_col, M_s_col, d_ou
         - d^-_{t, out}: current out degree of block t
         - d^+_{t, in}: new in degree of block t under the proposal
         - d^+_{t, out}: new out degree of block t under the proposal
-        
+
         The difference in entropy is computed as:
-        
+
         \dot{S} = \sum_{t_1, t_2} {\left[ -M_{t_1 t_2}^+ \text{ln}\left(\frac{M_{t_1 t_2}^+}{d_{t_1, out}^+ d_{t_2, in}^+}\right) + M_{t_1 t_2}^- \text{ln}\left(\frac{M_{t_1 t_2}^-}{d_{t_1, out}^- d_{t_2, in}^-}\right)\right]}
-        
+
         where the sum runs over all entries $(t_1, t_2)$ in rows and cols $r$ and $s$ of the edge count matrix"""
 
     M_r_t1 = M[r, :]

@@ -215,7 +215,7 @@ def load_graph(input_filename, load_true_partition, strm_piece_num=None, out_nei
         t1 = timeit.default_timer()
         t_compute = t1 - t0
         return out_neighbors, in_neighbors, N, E, alg_state, t_compute
-        
+
 
     if load_true_partition:
         return out_neighbors, in_neighbors, N, E, true_b
@@ -453,7 +453,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
         if agg_move:
             # the r row and column are simply empty after a merge move
             new_M_r_row = np.zeros(B, dtype=M.dtype)
-            new_M_r_col = np.zeros(B, dtype=M.dtype)            
+            new_M_r_col = np.zeros(B, dtype=M.dtype)
 
         cur_M_r_row = M[r, :]
         cur_M_r_col = M[:, r]
@@ -462,7 +462,7 @@ def compute_new_rows_cols_interblock_edge_count_matrix(M, r, s, b_out, count_out
     else:
         if agg_move:
             new_M_r_row = compressed_array.empty_dict(M.width)
-            new_M_r_col = compressed_array.empty_dict(M.width)            
+            new_M_r_col = compressed_array.empty_dict(M.width)
 
         cur_M_r_row = compressed_array.take_dict_ref(M, r, 0)
         cur_M_r_col = compressed_array.take_dict_ref(M, r, 1)
@@ -706,7 +706,7 @@ def carry_out_best_merges(delta_entropy_for_each_block, best_merges, best_merge_
 
     if 1:
         return compressed_array.carry_out_best_merges(b, best_merges, best_merge_for_each_block, B, B_to_merge)
-    
+
     block_map = np.arange(B)
     num_merge = 0
     counter = 0
@@ -726,7 +726,7 @@ def carry_out_best_merges(delta_entropy_for_each_block, best_merges, best_merge_
             block_map[np.where(block_map == mergeFrom)] = mergeTo
             b[np.where(b == mergeFrom)] = mergeTo
             num_merge += 1
-            
+
     remaining_blocks = np.unique(b)
     mapping = -np.ones(B, dtype=int)
     mapping[remaining_blocks] = np.arange(len(remaining_blocks))
@@ -816,11 +816,11 @@ def compute_overall_entropy(M, d_out, d_in, B, N, E):
         - d_{t, in}: current in degree of block t
         - B: number of blocks
         - C: some constant invariant to the partition
-        
+
         The overall entropy of the partition is computed as:
-        
+
         S = E\;h\left(\frac{B^2}{E}\right) + N \ln(B) - \sum_{t_1, t_2} {M_{t_1 t_2} \ln\left(\frac{M_{t_1 t_2}}{d_{t_1, out} d_{t_2, in}}\right)} + C
-        
+
         where the function h(x)=(1+x)\ln(1+x) - x\ln(x) and the sum runs over all entries (t_1, t_2) in the edge count matrix"""
 
     if not is_compressed(M):
@@ -962,12 +962,12 @@ def prepare_for_partition_on_next_num_blocks(S, b, M, d, d_out, d_in, B, hist, B
 
         b = old_b[1].copy()
         if args.diet == 1:
-            M,d_out,d_in,d = initialize_edge_counts(out_neighbors, B, b, args)            
+            M,d_out,d_in,d = initialize_edge_counts(out_neighbors, B, b, args)
         else:
             if not is_compressed(old_M[1]):
                 M = old_M[1].copy()
             else:
-                M = compressed_array.copy(old_M[1])            
+                M = compressed_array.copy(old_M[1])
             d = old_d[1].copy()
             d_out = old_d_out[1].copy()
             d_in = old_d_in[1].copy()

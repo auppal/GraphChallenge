@@ -34,4 +34,3 @@ setup(name = 'PackageName',
       version = '1.0',
       description = 'These are the helper modules.',
       ext_modules = [module1, module2])
- 

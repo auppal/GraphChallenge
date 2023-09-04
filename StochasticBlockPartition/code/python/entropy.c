@@ -39,7 +39,7 @@ double entropy_row_nz_ignore(const int64_t* restrict x, const int64_t* restrict 
       sum += x[i] * (log(x[i]) - log(y[i]) - log_c);
     }
   }
-  return sum;  
+  return sum;
 }
 
 double entropy_dense_row_ignore(const int64_t* restrict x, const int64_t* restrict y, long n, int64_t c, long r, long s)
@@ -58,7 +58,7 @@ double entropy_dense_row_ignore(const int64_t* restrict x, const int64_t* restri
       sum += x[i] * (log(x[i]) - log(y[i]) - log_c);
     }
   }
-  return sum;  
+  return sum;
 }
 
 static PyObject* module_entropy_row_nz_ignore(PyObject *self, PyObject *args)
@@ -177,7 +177,7 @@ static PyMethodDef entropy_module_methods[] =
     module_entropy_dense_row_ignore,
     METH_VARARGS,
     "Return an entropy row computation, ignoring two indices."
-   },   
+   },
    {NULL, NULL, 0, NULL}
   };
 
@@ -197,5 +197,3 @@ PyMODINIT_FUNC PyInit_entropy_module(void)
   import_array();
   return PyModule_Create(&entropy_module_definition);
 }
-
-

@@ -50,7 +50,7 @@ static inline int circ_init(circ_buf_t *b, size_t len, size_t size)
 		fprintf(stderr, "circ_init: Invalid value b = %p\n", b);
 		return -1;
 	}
-	
+
 	size_t alloc_pages;
 
 	if (shared_memory_use_mmap) {
@@ -66,13 +66,13 @@ static inline int circ_init(circ_buf_t *b, size_t len, size_t size)
 	if (!b->buf) {
 		return -1;
 	}
-	
+
 	b->buf_len = (len + 1);
 	b->size = size;
 	b->tail = 0;
 	b->head = 0;
 	b->count = 0;
-	
+
 	return 0;
 }
 
@@ -90,7 +90,7 @@ static inline int circ_clear(circ_buf_t *b)
 
 static inline int circ_enq(circ_buf_t *b, const void *elm)
 {
-	size_t tail = b->tail;	
+	size_t tail = b->tail;
 
 	for (;;) {
 		size_t head = b->head;
@@ -105,7 +105,7 @@ static inline int circ_enq(circ_buf_t *b, const void *elm)
 
 		if (rc) {
 			b->count++;
-			memcpy(b->buf + tail * b->size, elm, b->size);			
+			memcpy(b->buf + tail * b->size, elm, b->size);
 			break;
 		}
 	}
@@ -125,7 +125,7 @@ static inline int circ_deq(circ_buf_t *b, void *elm)
 	for (;;) {
 		size_t tail = b->tail;
 		size_t next = (head + 1) % b->buf_len;
-		
+
 		if (tail == head) {
 			errno = EAGAIN;
 			return -1;
@@ -172,10 +172,10 @@ static inline void circ_free(circ_buf_t *b)
 #if 0
 static inline int circ_resize(circ_buf_t *b, size_t new_len)
 {
-	
+
 	fprintf(stderr, "Enter circ_resize: old_len %ld new_len %ld\n", b->buf_len - 1, new_len);
 	circ_buf_t q;
-	
+
 	if (circ_init(&q, new_len, sizeof(void *)) < 0) {
 		perror("circ_init failed");
 		return -1;
@@ -257,14 +257,14 @@ static void *shared_memory_mmap(size_t size_bytes)
 static void *shared_memory_get(size_t size_bytes)
 {
 #if DEBUG_PRINTF
-	if (getpid() != parent_pid) {	
+	if (getpid() != parent_pid) {
 		fprintf(stderr, "shared_memory_get: Allocate %ld bytes in child %d!\n", size_bytes, getpid());
 	}
 	else {
-		fprintf(stderr, "shared_memory_get: Allocate %ld bytes in parent %d!\n", size_bytes, getpid());		
+		fprintf(stderr, "shared_memory_get: Allocate %ld bytes in parent %d!\n", size_bytes, getpid());
 	}
 #endif
-	
+
 	if (size_bytes & 0xfff) {
 		fprintf(stderr, "shared_memory_get: allocation %ld is not divisible by page size!\n", size_bytes);
 		errno = EINVAL;
@@ -287,8 +287,8 @@ static void *shared_memory_get(size_t size_bytes)
 
 #if DEBUG_PRINTF
 	fprintf(stderr, "shared_memory_get: huge_offset %ld huge_size %ld return %p\n", huge->huge_offset, huge->huge_size, p);
-#endif	
-	
+#endif
+
 	return p;
 }
 
@@ -297,7 +297,7 @@ void shared_init()
 	if (shared_mem_initialized) {
 		return;
 	}
-	
+
 	shared_mem_initialized = 1;
 	parent_pid = getpid();
 	p_pools = shared_memory_mmap(SHARED_MAX_POOLS * sizeof(struct pool_info *));
@@ -328,7 +328,7 @@ void shared_init()
 
 #if DEBUG_PRINTF
 	fprintf(stderr, "Initialized p_pools to %p\n", p_pools);
-#endif	
+#endif
 
 	if (getenv("USE_MMAP") && !strcmp(getenv("USE_MMAP"), "0")) {
 		shared_memory_use_mmap = 0;
@@ -336,7 +336,7 @@ void shared_init()
 	}
 
 	huge = shared_memory_mmap(sizeof(struct huge_info));
-	
+
 	huge->huge_size = 1024 * mem_available;
 	huge->huge_base = shared_memory_mmap(huge->huge_size);
 	huge->huge_offset = 0;
@@ -352,7 +352,7 @@ void *shared_malloc(size_t nbytes)
 	size_t page_size = 4096;
 	size_t initial_items = page_size / sizeof(void *) - 1;
 
-#if DEBUG_PRINTF	
+#if DEBUG_PRINTF
 	fprintf(stderr, "shared_malloc nbytes %ld np2 %ld lg2 %ld\n", nbytes, np2, lg2);
 #endif
 	shared_init();
@@ -364,23 +364,23 @@ void *shared_malloc(size_t nbytes)
 		size_t alloc_items = initial_items, current_capacity = 0, fill_items = initial_items;
 
 		if (p) {
-			current_capacity = (p->q.buf_len - 1);			
+			current_capacity = (p->q.buf_len - 1);
 			alloc_items = 2 * current_capacity;
-#if DEBUG_PRINTF			
+#if DEBUG_PRINTF
 			fprintf(stderr, "XXX current capacity is %ld\n", current_capacity);
-#endif			
+#endif
 			fill_items = alloc_items - current_capacity;
 		}
-			
+
 		struct pool_info *next = shared_memory_get(((sizeof(struct pool_info) + 4095) / 4096) * 4096);
 
 #if DEBUG_PRINTF
 		fprintf(stderr, "shared_malloc: allocated pool %p\n", next);
-			
+
 		fprintf(stderr,
 			"PID %d: circ initialize next %p pool %ld with %ld entries of size %ld\n",
 			getpid(), next, lg2, alloc_items, np2);
-#endif	
+#endif
 		if (circ_init(&next->q, alloc_items, sizeof(void *)) < 0) {
 			perror("circ_init");
 			return NULL;
@@ -389,7 +389,7 @@ void *shared_malloc(size_t nbytes)
 #if DEBUG_PRINTF
 		fprintf(stderr, "XXX next capacity is %ld\n", next->q.buf_len - 1);
 		fprintf(stderr, "     pool %ld mmap %ld bytes\n", lg2, np2 * fill_items);
-#endif		
+#endif
 		void *base = shared_memory_get(np2 * fill_items);
 
 		if (base == 0) {
@@ -399,8 +399,8 @@ void *shared_malloc(size_t nbytes)
 
 #if DEBUG_PRINTF
 		fprintf(stderr, "PID %d: shared_malloc: fill %ld items into next pool %ld\n", getpid(), fill_items, lg2);
-#endif		
-		
+#endif
+
 		for (i=0; i<fill_items; i++) {
 			void *x = (void * ) ((uintptr_t) base + (i * np2));
 			// fprintf(stderr, "circ enq %ld %p\n", i, x);
@@ -414,9 +414,9 @@ void *shared_malloc(size_t nbytes)
 		p_pools[lg2] = next;
 	}
 
-#if DEBUG_PRINTF	
+#if DEBUG_PRINTF
 	fprintf(stderr, "shared_malloc pid %d from pool %ld return %p\n", getpid(), lg2, addr);
-#endif	
+#endif
 	return addr;
 }
 
@@ -471,7 +471,7 @@ int shared_reserve(size_t lg2, size_t n_items)
 {
 	struct pool_info *p = p_pools[lg2];
 	size_t capacity = (p->q.buf_len - 1);
-	
+
 	if (lg2 > SHARED_MAX_POOLS) {
 		return -1;
 	}
@@ -479,9 +479,9 @@ int shared_reserve(size_t lg2, size_t n_items)
 	if (n_items <= capacity) {
 		return 0;
 	}
-#if DEBUG_PRINTF	
+#if DEBUG_PRINTF
 	fprintf(stderr, "shared_reserve: resize pool queue %ld from %ld to %ld items\n", lg2, capacity, n_items);
-#endif	
+#endif
 	return -1;
 #if 0
 	/* XXX TODO Remove */
@@ -521,7 +521,7 @@ void shared_print_report()
 	shared_init();
 
 	fprintf(stdout, "Huge base %p offset %ld\n", huge->huge_base, huge->huge_offset);
-	
+
 	for (i=SHARED_MAX_POOLS; i>0; i--) {
 		if (p_pools[i - 1] != NULL) {
 			max_nonempty = i;
@@ -534,7 +534,7 @@ void shared_print_report()
 	size_t huge_used = huge->huge_offset;
 	size_t other_mmap = bytes_cnt - huge_used;
 	double huge_pct = 100.0 * huge_used / (double) (huge->huge_size);
-	
+
 	fprintf(stdout, "Bytes allocated: mmap-huge %ld (%3.3lf %%) mmap %ld total %ld\n", huge_used, huge_pct, other_mmap, huge_used + other_mmap);
 
 	for (i=12; i<max_nonempty; i++) {

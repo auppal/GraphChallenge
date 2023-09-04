@@ -11,7 +11,7 @@ except:
     import pickle
 
 import contextlib
-@contextlib.contextmanager        
+@contextlib.contextmanager
 def redirect_streams(target):
     os.dup2(target.fileno(), sys.stdout.fileno())
     os.dup2(target.fileno(), sys.stderr.fileno())
@@ -139,7 +139,7 @@ def run_test(out_dir, base_args, input_files, iterations, threads, max_jobs = 1)
             print("Took %3.4f seconds and used %d k maxrss. Function result is %s" % (t_elp, mem_rss, str(func_result)))
             print("")
         else:
-            print(args)            
+            print(args)
             print("Exception occured. Continuing.")
             print("")
 
@@ -455,7 +455,7 @@ if __name__ == '__main__':
                     ('critical', (2,)),
                     ('sanity_check', (0,1,)),
                     ('sparse',(1,)),
-                    ('preallocate',(0,1,)),                    
+                    ('preallocate',(0,1,)),
                     ('threads',(24,)))
         result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
         print_results(result)
@@ -470,12 +470,12 @@ if __name__ == '__main__':
                     ('critical', (2,)),
                     ('sanity_check', (1,)),
                     ('sparse',(1,)),
-                    ('preallocate',(0,)),                    
+                    ('preallocate',(0,)),
                     ('threads',(12,)))
         result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
         print_results(result)
         results.update(result)
-        
+
     if args['threading-performance']:
         files = [N[20000]]
         var_args = (('input_filename', files),
@@ -484,7 +484,7 @@ if __name__ == '__main__':
                     ('finegrain', (0,)),
                     ('critical', (2,)),
                     ('sparse',(0,1)),
-                    ('node_propose_batch_size', (4,8,16,32,64,128,256,512)),                    
+                    ('node_propose_batch_size', (4,8,16,32,64,128,256,512)),
                     ('threads',(12,24)))
         result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
         print_results(result)
