@@ -3983,6 +3983,93 @@ static PyObject *block_merge_parallel(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+static PyObject *carry_out_best_merges_py(PyObject *self, PyObject *args)
+{
+  long n_blocks, n_blocks_to_merge;
+  PyObject *obj_partition, *obj_best_merges_src_block, *obj_best_merges_dst_block;
+
+  if (!PyArg_ParseTuple(args, "OOOll",
+			&obj_partition,
+			&obj_best_merges_src_block,
+			&obj_best_merges_dst_block,
+			&n_blocks,
+			&n_blocks_to_merge))
+  {
+    PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
+    return NULL;
+  }
+
+  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_best_merges_src_block = PyArray_FROM_OTF(obj_best_merges_src_block, NPY_LONG, NPY_IN_ARRAY);
+  const PyObject *ar_best_merges_dst_block = PyArray_FROM_OTF(obj_best_merges_dst_block, NPY_LONG, NPY_IN_ARRAY);  
+
+  long *restrict partition = (long  *) PyArray_DATA(ar_partition);
+  const long N = (long) PyArray_DIM(ar_partition, 0);  
+  const long *restrict best_merges_src = (const long  *) PyArray_DATA(ar_best_merges_src_block);
+  const long *restrict best_merges_dst = (const long  *) PyArray_DATA(ar_best_merges_dst_block);  
+
+  long *partition_next = malloc(N * sizeof(partition_next[0]));
+  long i, j, n_merged = 0, n_blocks_next = n_blocks - n_blocks_to_merge;
+  long *block_map = malloc(n_blocks * sizeof(block_map[0]));
+
+  /* First merge all blocks into new destinations, using the current
+   * block ids.
+   */
+  for (i=0; i<n_blocks; i++) {
+    block_map[i] = i;
+  }
+
+  i = 0;
+  while (n_merged < n_blocks_to_merge) {
+    if (i == n_blocks) {
+      PyErr_SetString(PyExc_RuntimeError, "No more merges possible.");
+      return NULL;
+    }
+
+    long src = best_merges_src[i];
+    long dst = block_map[best_merges_dst[src]];
+
+    i++;
+
+    if (src == dst)
+      continue;
+    
+    for (j=0; j<n_blocks; j++) {
+      if (block_map[j] == src) {
+	block_map[j] = dst;
+      }
+    }
+    n_merged++;
+  }
+
+  /* Now re-number the remaining blocks. */
+  long *renum = calloc(n_blocks, sizeof(long));
+  long count = 0;
+  for (i=0; i<n_blocks; i++) {
+    renum[block_map[i]] = 1;
+  }
+  for (i=0; i<n_blocks; i++) {
+    if (renum[i])
+      renum[i] = count++;
+  }
+  for (i=0; i<N; i++) {
+    partition_next[i] = renum[block_map[partition[i]]];
+  }
+  free(renum);
+  free(block_map);
+
+  Py_DECREF(ar_best_merges_src_block);
+  Py_DECREF(ar_best_merges_dst_block);
+  Py_DECREF(ar_partition);
+
+  npy_intp dims[] = {N};
+  PyObject *obj_partition_next = PyArray_SimpleNewFromData(1, dims, NPY_LONG, partition_next);
+  PyArray_ENABLEFLAGS((PyArrayObject*) obj_partition_next, NPY_ARRAY_OWNDATA);
+  
+  PyObject *ret = Py_BuildValue("Nk", obj_partition_next, n_blocks_next);
+  return ret;
+}
+
 int propose_node_movement(
   long ni,
   long s,
@@ -5424,6 +5511,7 @@ static PyMethodDef compressed_array_methods[] =
    { "propose_nodal_movement", propose_nodal_movement_py, METH_VARARGS, "" },
    { "propose_block_merge", propose_block_merge_py, METH_VARARGS, "" },
    { "compute_block_merges", compute_block_merges_py, METH_VARARGS, "" },
+   { "carry_out_best_merges", carry_out_best_merges_py, METH_VARARGS, "" },   
    { "block_merge_parallel", block_merge_parallel, METH_VARARGS, "" },   
    { "nodal_moves_sequential", nodal_moves_sequential, METH_VARARGS, "" },
    { "nodal_moves_parallel", nodal_moves_parallel, METH_VARARGS, "" },   

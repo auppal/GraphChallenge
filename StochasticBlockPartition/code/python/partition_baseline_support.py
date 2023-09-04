@@ -723,6 +723,9 @@ def carry_out_best_merges(delta_entropy_for_each_block, best_merges, best_merge_
         B : int
                     total number of blocks after the merge"""
 
+    if 1:
+        return compressed_array.carry_out_best_merges(b, best_merges, best_merge_for_each_block, B, B_to_merge)
+    
     block_map = np.arange(B)
     num_merge = 0
     counter = 0
@@ -734,7 +737,7 @@ def carry_out_best_merges(delta_entropy_for_each_block, best_merges, best_merge_
             break
 
         mergeFrom = best_merges[counter]
-        mergeTo = block_map[best_merge_for_each_block[best_merges[counter]]]
+        mergeTo = block_map[best_merge_for_each_block[mergeFrom]]
         counter += 1
         if mergeTo != mergeFrom:
             if verbose:
@@ -742,7 +745,7 @@ def carry_out_best_merges(delta_entropy_for_each_block, best_merges, best_merge_
             block_map[np.where(block_map == mergeFrom)] = mergeTo
             b[np.where(b == mergeFrom)] = mergeTo
             num_merge += 1
-
+            
     remaining_blocks = np.unique(b)
     mapping = -np.ones(B, dtype=int)
     mapping[remaining_blocks] = np.arange(len(remaining_blocks))
