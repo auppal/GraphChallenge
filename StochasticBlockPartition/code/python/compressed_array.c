@@ -5049,7 +5049,7 @@ static void *nodal_move_worker(void *args)
   while (i < n_chunks) {
 
     // fprintf(stdout, "tid %ld i %ld start %ld stop %ld N %ld\n", a->tid, i, start_vert, stop_vert, N);
-    // sem_wait(a->mutex);
+
     if (nodal_moves_parallel_inner(a->tid,
 				   a->in_neighbors,
 				   a->in_neighbor_weights,
@@ -5083,7 +5083,7 @@ static void *nodal_move_worker(void *args)
       {
 	rc = -1;
       }
-    // sem_post(a->mutex);
+
     i++;
     start_vert += chunk_size;
     stop_vert += chunk_size;
@@ -5293,13 +5293,98 @@ static PyObject *nodal_moves_parallel(PyObject *self, PyObject *args)
   return ret; 
 }
 
+struct initialize_edge_counts_worker_args {
+  const long *restrict partition;
+  long start_vert;
+  long stop_vert;
+  PyObject *obj_out_neighbors;
+  struct compressed_array *restrict Mc;
+  PyObject *restrict Mu;
+  atomic_long *restrict d_out;
+  atomic_long *restrict d_in;
+  atomic_long *restrict d;
+  sem_t *mutex;
+  long nz_count;
+};
+
+static int initialize_edge_counts_inner(const long *restrict partition,
+					long start_vert,
+					long stop_vert,
+					PyObject *obj_out_neighbors,					      
+					struct compressed_array *restrict Mc,
+					PyObject *restrict Mu,
+					atomic_long *restrict d_out,
+					atomic_long *restrict d_in,
+					atomic_long *restrict d,
+					sem_t *mutex,
+					long *p_nz_count)
+{
+  long nz_count = 0;
+  long v, i;
+  for (v=start_vert; v<stop_vert; v++)
+  {
+    /* The Python API calls may not be thread-safe.
+     * Should re-structure to use flat C arrays.
+     */
+    if (mutex) { sem_wait(mutex); }    
+
+    const PyObject *ar_out_neighbor_elm = PyList_GetItem(obj_out_neighbors, v);
+    const long n_neighbors = (long) PyArray_DIM(ar_out_neighbor_elm, 1);
+    const long *restrict neighbors = PyArray_GETPTR2(ar_out_neighbor_elm, 0, 0);
+    const long *restrict weights = PyArray_GETPTR2(ar_out_neighbor_elm, 1, 0);
+
+    if (mutex) { sem_post(mutex); }
+
+    long k1 = partition[v];
+    for (i=0; i<n_neighbors; i++) {
+      long k2 = partition[neighbors[i]];
+      long w = weights[i];
+
+      if (Mc) {
+	compressed_accum_single(Mc, k1, k2, w);
+      }
+      else {
+	atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(Mu, k1, k2), w, memory_order_relaxed);	
+      }
+
+      atomic_fetch_add_explicit(&d_in[k2], w, memory_order_relaxed);
+      atomic_fetch_add_explicit(&d_out[k1], w, memory_order_relaxed);
+    }
+
+    nz_count += n_neighbors;
+  }
+
+  *p_nz_count = nz_count;
+  return 0;
+}
+
+static void *initialize_edge_counts_worker(void *args)
+{
+  uintptr_t rc = 0;
+  struct initialize_edge_counts_worker_args *a = args;
+
+  rc = initialize_edge_counts_inner(a->partition,
+				    a->start_vert,
+				    a->stop_vert,
+				    a->obj_out_neighbors,
+				    a->Mc,
+				    a->Mu,
+				    a->d_out,
+				    a->d_in,
+				    a->d,
+				    a->mutex,
+				    &a->nz_count);
+  pthread_exit((void *) rc);
+}
+
 static PyObject* initialize_edge_counts(PyObject *self, PyObject *args)
 {
-  PyObject *obj_partition, *obj_out_neighbors,*obj_M, *obj_d_out, *obj_d_in, *obj_d;
-  long vid_start, vid_end;
+  PyObject *obj_partition, *obj_out_neighbors, *obj_M, *obj_d_out, *obj_d_in, *obj_d;
+  long start_vert, stop_vert, n_threads;
 
-  if (!PyArg_ParseTuple(args, "OllOOOOO",
-			&obj_partition, &vid_start, &vid_end, &obj_out_neighbors, &obj_M, &obj_d_out, &obj_d_in, &obj_d)) {
+  if (!PyArg_ParseTuple(args, "OllOOOOOl",
+			&obj_partition, &start_vert, &stop_vert, &obj_out_neighbors,
+			&obj_M, &obj_d_out, &obj_d_in, &obj_d, &n_threads)) {
     return NULL;
   }
 
@@ -5312,44 +5397,82 @@ static PyObject* initialize_edge_counts(PyObject *self, PyObject *args)
   }
   
   const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
+  const long N = (long) PyArray_DIM(ar_partition, 0);  
   PyObject *ar_d_in = PyArray_FROM_OTF(obj_d_in, NPY_LONG, NPY_IN_ARRAY);
   PyObject *ar_d_out = PyArray_FROM_OTF(obj_d_out, NPY_LONG, NPY_IN_ARRAY);
   PyObject *ar_d = PyArray_FROM_OTF(obj_d, NPY_LONG, NPY_IN_ARRAY);  
 
   const long *restrict partition = (const long *) PyArray_DATA(ar_partition);
-  long *restrict d = (long *) PyArray_DATA(ar_d);
-  long *restrict d_in = (long *) PyArray_DATA(ar_d_in);
-  long *restrict d_out = (long *) PyArray_DATA(ar_d_out);
+  atomic_long *restrict d = (atomic_long *) PyArray_DATA(ar_d);
+  atomic_long *restrict d_in = (atomic_long *) PyArray_DATA(ar_d_in);
+  atomic_long *restrict d_out = (atomic_long *) PyArray_DATA(ar_d_out);
+
+  if (n_threads == 0) {
+    long nz_count = 0;
+    int rc = initialize_edge_counts_inner(partition,
+					  0,
+					  N,
+					  obj_out_neighbors,
+					  Mc,
+					  Mu,
+					  d_out,
+					  d_in,
+					  d,
+					  NULL,
+					  &nz_count);
+    if (rc < 0) {
+      PyErr_SetString(PyExc_RuntimeError, "initialize_edge_counts failed");      
+      return NULL;
+    }
+    PyObject *ret = Py_BuildValue("k", nz_count);
+    return ret;
+  }
+
+  long i;
+  pthread_t *thread = calloc(n_threads, sizeof(pthread_t));
+  struct initialize_edge_counts_worker_args *worker_args = calloc(n_threads, sizeof(worker_args[0]));
+  
+  sem_t mutex;
+  sem_init(&mutex, 0, 1);
 
   const long B = (long) PyArray_DIM(ar_d_out, 0);
-  
-  long nz_count = 0;
-  long v, i;
-  for (v=vid_start; v<vid_end; v++)
-  {
-    const PyObject *ar_out_neighbor_elm = PyList_GetItem(obj_out_neighbors, v);
-    const long n_neighbors = (long) PyArray_DIM(ar_out_neighbor_elm, 1);
-    const long *restrict neighbors = PyArray_GETPTR2(ar_out_neighbor_elm, 0, 0);
-    const long *restrict weights = PyArray_GETPTR2(ar_out_neighbor_elm, 1, 0);
 
-    uint64_t k1 = partition[v];
-    for (i=0; i<n_neighbors; i++) {
-      uint64_t k2 = partition[neighbors[i]];
-      uint64_t w = weights[i];
+  long group_size = (N + n_threads - 1) / n_threads;
 
-      if (Mc) {
-	compressed_accum_single(Mc, k1, k2, w);
-      }
-      else {
-	atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(Mu, k1, k2), w, memory_order_relaxed);	
-      }
+  for (i=0; i<n_threads; i++) {
+    worker_args[i].start_vert = i * group_size;
+    worker_args[i].stop_vert = (i + 1) * group_size;
 
-      d_in[k2] += w;
-      d_out[k1] += w;
+    if (worker_args[i].stop_vert > N) {
+      worker_args[i].stop_vert = N;
     }
 
-    nz_count += n_neighbors;
+    worker_args[i].partition = partition;
+    worker_args[i].obj_out_neighbors = obj_out_neighbors;
+    worker_args[i].Mc = Mc;
+    worker_args[i].Mu = Mu;    
+    worker_args[i].d = d;
+    worker_args[i].d_out = d_out;
+    worker_args[i].d_in = d_in;
+    worker_args[i].mutex = &mutex;
+    pthread_create(&thread[i], NULL, initialize_edge_counts_worker, &worker_args[i]);
   }
+
+  long nz_count = 0;
+  int rc = 0;
+  for (i=0; i<n_threads; i++) {
+    void *retval;
+    pthread_join(thread[i], &retval);
+    if (retval) {
+      rc = -1;
+    }
+    else {
+      nz_count += worker_args[i].nz_count;
+    }
+  }
+
+  free(thread);
+  free(worker_args);
 
   for (i=0; i<B; i++) {
     d[i] = d_in[i] + d_out[i];
@@ -5360,9 +5483,14 @@ static PyObject* initialize_edge_counts(PyObject *self, PyObject *args)
   Py_DECREF(ar_d_out);
   Py_DECREF(ar_d);  
 
+  if (rc) {
+    PyErr_SetString(PyExc_RuntimeError, "initialize_edge_counts parallel failed");
+    return NULL;
+  }
+  
   PyObject *ret;
   ret = Py_BuildValue("k", nz_count);
-  return ret;  
+  return ret;
 }
 
 static PyObject* shared_memory_report(PyObject *self, PyObject *args)

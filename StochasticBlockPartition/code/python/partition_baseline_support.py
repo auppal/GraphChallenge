@@ -338,7 +338,8 @@ def initialize_edge_counts(out_neighbors, B, b, args):
                                                        0,
                                                        len(out_neighbors),
                                                        out_neighbors,
-                                                       M, d_out, d_in, d)
+                                                       M, d_out, d_in, d,
+                                                       args.t_merge)
     density = nz_count / (B ** 2.)
 
     if args.debug_memory > 0:
