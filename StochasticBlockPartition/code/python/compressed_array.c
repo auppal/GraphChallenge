@@ -930,13 +930,13 @@ static void destroy(PyObject *obj)
 static PyObject* create(PyObject *self, PyObject *args)
 {
   PyObject *ret;
-  long n_nodes, max_degree;
+  long n_nodes, initial_width;
 
-  if (!PyArg_ParseTuple(args, "ll", &n_nodes, &max_degree)) {
+  if (!PyArg_ParseTuple(args, "ll", &n_nodes, &initial_width)) {
     return NULL;
   }
 
-  struct compressed_array *x = compressed_array_create(n_nodes, max_degree);
+  struct compressed_array *x = compressed_array_create(n_nodes, initial_width);
   ret = PyCapsule_New(x, "compressed_array", destroy);
   return ret;
 }
@@ -5293,52 +5293,7 @@ static PyObject *nodal_moves_parallel(PyObject *self, PyObject *args)
   return ret; 
 }
 
-/*
- * Args: partition, vertex_id_start, vertex_id_end, neighbors[vid], weights[vid]
- * Version for an uncompressed array, using atomic operations.
- */
-static PyObject* rebuild_M(PyObject *self, PyObject *args)
-{
-
-  PyObject *obj_partition, *obj_neighbors, *obj_weights, *obj_M;
-  uint64_t vid_start, vid_end;
-
-  if (!PyArg_ParseTuple(args, "OllOOO", &obj_partition, &vid_start, &vid_end, &obj_neighbors, &obj_weights, &obj_M)) {
-    return NULL;
-  }
-
-  const PyObject *M = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_neighbors = PyArray_FROM_OTF(obj_neighbors, NPY_LONG, NPY_IN_ARRAY);
-  const PyObject *ar_weights = PyArray_FROM_OTF(obj_weights, NPY_LONG, NPY_IN_ARRAY);
-
-  const uint64_t *restrict partition = (const uint64_t *) PyArray_DATA(ar_partition);
-  const uint64_t *restrict neighbors = (const uint64_t *) PyArray_DATA(ar_neighbors);
-  const uint64_t *restrict weights = (const uint64_t *) PyArray_DATA(ar_weights);
-
-  long i;
-  const long n = (long) PyArray_DIM(ar_neighbors, 0);
-
-  uint64_t k1 = partition[vid_start];
-
-  for (i=0; i<n; i++) {
-    uint64_t k2 = partition[neighbors[i]];
-    uint64_t w = weights[i];
-    atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(M, k1, k2), w, memory_order_relaxed);
-  }
-
-  Py_DECREF(M);
-  Py_DECREF(ar_partition);
-  Py_DECREF(ar_neighbors);
-  Py_DECREF(ar_weights);
-  Py_RETURN_NONE;
-}
-
-/*
- * Args: partition, vertex_id_start, vertex_id_end, neighbors[vid], weights[vid]
- * Version for a compressed array.
- */
-static PyObject* rebuild_M_compressed(PyObject *self, PyObject *args)
+static PyObject* initialize_edge_counts(PyObject *self, PyObject *args)
 {
   PyObject *obj_partition, *obj_out_neighbors,*obj_M, *obj_d_out, *obj_d_in, *obj_d;
   long vid_start, vid_end;
@@ -5348,7 +5303,14 @@ static PyObject* rebuild_M_compressed(PyObject *self, PyObject *args)
     return NULL;
   }
 
-  struct compressed_array *restrict x = PyCapsule_GetPointer(obj_M, "compressed_array");
+  struct compressed_array *restrict Mc = PyCapsule_GetPointer(obj_M, "compressed_array");
+  PyObject *restrict Mu = NULL;
+  
+  if (!Mc) {
+    PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
+    Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
+  }
+  
   const PyObject *ar_partition = PyArray_FROM_OTF(obj_partition, NPY_LONG, NPY_IN_ARRAY);
   PyObject *ar_d_in = PyArray_FROM_OTF(obj_d_in, NPY_LONG, NPY_IN_ARRAY);
   PyObject *ar_d_out = PyArray_FROM_OTF(obj_d_out, NPY_LONG, NPY_IN_ARRAY);
@@ -5375,7 +5337,12 @@ static PyObject* rebuild_M_compressed(PyObject *self, PyObject *args)
       uint64_t k2 = partition[neighbors[i]];
       uint64_t w = weights[i];
 
-      compressed_accum_single(x, k1, k2, w);
+      if (Mc) {
+	compressed_accum_single(Mc, k1, k2, w);
+      }
+      else {
+	atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(Mu, k1, k2), w, memory_order_relaxed);	
+      }
 
       d_in[k2] += w;
       d_out[k1] += w;
@@ -5522,8 +5489,7 @@ static PyMethodDef compressed_array_methods[] =
    { "block_merge_parallel", block_merge_parallel, METH_VARARGS, "" },   
    { "nodal_moves_sequential", nodal_moves_sequential, METH_VARARGS, "" },
    { "nodal_moves_parallel", nodal_moves_parallel, METH_VARARGS, "" },   
-   { "rebuild_M", rebuild_M, METH_VARARGS, "" },
-   { "rebuild_M_compressed", rebuild_M_compressed, METH_VARARGS, "" },
+   { "initialize_edge_counts", initialize_edge_counts, METH_VARARGS, "" },
    { "nonzero_count", nonzero_count, METH_VARARGS, "" },
    { "shared_memory_report", shared_memory_report, METH_VARARGS, "" },
    { "shared_memory_query", shared_memory_query, METH_VARARGS, "" },

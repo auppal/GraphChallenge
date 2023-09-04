@@ -327,42 +327,22 @@ def initialize_edge_counts(out_neighbors, B, b, args):
     d = shared_memory_empty((B,))
 
 
-    
     if not use_compressed:
         M = shared_memory_empty((B,B), dtype=mydtype)
-        for v in range(len(out_neighbors)):
-            compressed_array.rebuild_M(b, v, v, out_neighbors[v][0, :], out_neighbors[v][1, :], M)
-
-        np.sum(M, axis=1, out=d_out)
-        np.sum(M, axis=0, out=d_in)
-        np.add(d_out, d_in, out=d)
-
-        if args.verbose > 2:
-            density = len(M.nonzero()[0]) / (B ** 2.)
-            in_cnt = np.sum(M != 0, axis=0)
-            out_cnt = np.sum(M != 0, axis=1)
-            max_in_cnt = np.max(in_cnt)
-            max_out_cnt = np.max(out_cnt)
-            print("density(M) = %s" % (density,))
-            print("max_in_cnt = %d" % max_in_cnt)
-            print("max_out_cnt = %d" % max_out_cnt)
-            print("avg_in_cnt = %f" % np.mean(in_cnt))
-            print("avg_out_cnt = %f" % np.mean(out_cnt))
-        else:
-            density = 0.0
     else:
         # Emperically a small initial hash table size seems to be best to reduce both initial build time and nodal move time.
         width=12
         M = compressed_array.create(B, width)
-        nz_count = compressed_array.rebuild_M_compressed(b,
-                                                         0,
-                                                         len(out_neighbors),
-                                                         out_neighbors,
-                                                         M, d_out, d_in, d)
-        density = nz_count / (B ** 2.)
 
-        if args.debug_memory > 0:
-            compressed_array.shared_memory_report()
+    nz_count = compressed_array.initialize_edge_counts(b,
+                                                       0,
+                                                       len(out_neighbors),
+                                                       out_neighbors,
+                                                       M, d_out, d_in, d)
+    density = nz_count / (B ** 2.)
+
+    if args.debug_memory > 0:
+        compressed_array.shared_memory_report()
 
     if args.verbose > 0:
         t1 = timeit.default_timer()
