@@ -1240,6 +1240,7 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
 
     best_overall_entropy = np.Inf
     best_merges = delta_entropy_for_each_block.argsort()
+    argsort_end_time = timeit.default_timer()
 
     num_blocks_to_merge = num_blocks - num_target_blocks
     num_blocks_t = compressed_array.carry_out_best_merges(partition,
@@ -1299,12 +1300,14 @@ def entropy_for_block_count(num_blocks, num_target_blocks, delta_entropy_thresho
         move_end_time = timeit.default_timer()
         compute_overall_entropy_time = merge_end_time - initialize_edge_counts_end_time
         initialize_edge_counts_time = initialize_edge_counts_end_time - carry_out_merges_end_time
-        carry_out_merges_time = carry_out_merges_end_time - compute_merge_end_time
+        carry_out_merges_time = carry_out_merges_end_time - argsort_end_time
+        argsort_time = argsort_end_time - compute_merge_end_time
         compute_merge_time = compute_merge_end_time - merge_start_time
         merge_time = merge_end_time - merge_start_time
         move_time = move_end_time - move_start_time
         timing_stats['compute_overall_entropy_time'] += compute_overall_entropy_time
         timing_stats['initialize_edge_counts_time'] += initialize_edge_counts_time
+        timing_stats['argsort_time'] += argsort_time
         timing_stats['carry_out_merges_time'] += carry_out_merges_time
         timing_stats['compute_merge_time'] += compute_merge_time
         timing_stats['time_in_merge'] += merge_time
