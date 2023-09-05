@@ -1885,6 +1885,9 @@ static PyObject* compute_data_entropy_py(PyObject *self, PyObject *args)
     Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
   }
 
+  Py_DECREF(ar_d_out);
+  Py_DECREF(ar_d_in);  
+
   double data_entropy = compute_data_entropy(Mc, Mu, d_out, d_in);  
   PyObject *ret = Py_BuildValue("d", data_entropy);
   return ret;
