@@ -822,26 +822,11 @@ def compute_overall_entropy(M, d_out, d_in, B, N, E):
         S = E\;h\left(\frac{B^2}{E}\right) + N \ln(B) - \sum_{t_1, t_2} {M_{t_1 t_2} \ln\left(\frac{M_{t_1 t_2}}{d_{t_1, out} d_{t_2, in}}\right)} + C
 
         where the function h(x)=(1+x)\ln(1+x) - x\ln(x) and the sum runs over all entries (t_1, t_2) in the edge count matrix"""
-
-    if not is_compressed(M):
-        nonzeros = M.nonzero()
-        edge_count_entries = M[nonzeros]
-        entries = edge_count_entries * np.log(edge_count_entries / (d_out[nonzeros[0]] * d_in[nonzeros[1]]).astype(float))
-        data_S = -np.sum(entries)
-    else:
-        data_S = 0.0
-        for i in range(B):
-            M_row_i, M_row_v = take_nonzero(M, i, 0, sort=False)
-            mask = (M_row_v != 0)
-            M_row_i = M_row_i[mask]
-            M_row_v = M_row_v[mask]
-            entries = M_row_v * np.log(M_row_v / (d_out[i] * d_in[M_row_i]).astype(float))
-            data_S += -np.sum(entries)
-
+    data_S = compressed_array.compute_data_entropy(M, d_out, d_in)
     model_S_term = B**2 / float(E)
     model_S = E * (1 + model_S_term) * np.log(1 + model_S_term) - model_S_term * np.log(model_S_term) + N*np.log(B)
     S = model_S + data_S
-
+    
     return S
 
 prepare_for_partition_on_next_num_blocks_cache = {}

@@ -744,7 +744,7 @@ static inline void compressed_set_single(struct compressed_array *x, uint64_t i,
   }
 }
 
-int hash_accum_resize(struct hash_outer *ho, hash_key_t k, hash_val_t C)
+static int hash_accum_resize(struct hash_outer *ho, hash_key_t k, hash_val_t C)
 {
   struct hash *restrict oldh, *restrict newh;
 
@@ -1695,6 +1695,24 @@ static PyObject* sanity_check(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+static inline double entropy_row_dense(const int64_t* restrict x, const int64_t* restrict y, long n, int64_t c)
+{
+  double sum = 0, log_c;
+  long i;
+
+  if (c == 0) {
+    return 0.0;
+  }
+
+  log_c = log(c);
+
+  for (i=0; i<n; i++) {
+    if (x[i] > 0 && y[i] > 0) {
+      sum += x[i] * (log(x[i]) - log(y[i]) - log_c);
+    }
+  }
+  return sum;
+}
 
 /*
  * Compute the delta entropy for a row using a compressed hash only.
@@ -1702,7 +1720,7 @@ static PyObject* sanity_check(PyObject *self, PyObject *args)
  d0 = entropy_row_nz(M_r_row_v, d_in_new[M_r_row_i], d_out_new[r])
 */
 
-static inline double entropy_row(struct hash *h, const int64_t *restrict deg, long N, int64_t c)
+static inline double entropy_row(struct hash *restrict h, const int64_t *restrict deg, long N, int64_t c)
 {
   double sum = 0.0;
   float log_c;
@@ -1761,7 +1779,7 @@ static PyObject* dict_entropy_row(PyObject *self, PyObject *args)
 }
 
 
-static inline double entropy_row_excl(struct hash *h, const int64_t *restrict deg, long N, int64_t c, uint64_t r, uint64_t s)
+static inline double entropy_row_excl(struct hash *restrict h, const int64_t *restrict deg, long N, int64_t c, uint64_t r, uint64_t s)
 {
   double sum = 0.0;
   float log_c;
@@ -1818,6 +1836,57 @@ static PyObject* dict_entropy_row_excl(PyObject *self, PyObject *args)
   Py_DECREF(deg_array);
 
   PyObject *ret = Py_BuildValue("d", val);
+  return ret;
+}
+
+static double compute_data_entropy(const struct compressed_array *restrict Mc,
+				   PyObject *restrict Mu,
+				   const long *restrict d_out,
+				   const long *restrict d_in)
+{
+  double data_entropy = 0.0;
+  long i, B = Mc->n_row;
+
+  if (Mc) {
+    for (i=0; i<B; i++) {
+      data_entropy += entropy_row(Mc->rows[i].h, d_in, B, d_out[i]);
+    }
+  }
+  else {
+    for (i=0; i<B; i++) {
+      const long *restrict row = PyArray_GETPTR2(Mu, i, 0);
+      data_entropy += entropy_row_dense(row, d_in, B, d_out[i]);
+    }
+  }
+
+  return -data_entropy;
+}
+
+static PyObject* compute_data_entropy_py(PyObject *self, PyObject *args)
+{
+  PyObject *obj_M, *obj_d_out, *obj_d_in;
+  
+  if (!PyArg_ParseTuple(args, "OOO", &obj_M, &obj_d_out, &obj_d_in)) {
+      PyErr_SetString(PyExc_RuntimeError, "Failed to parse tuple.");
+      return NULL;
+  }
+
+  PyObject *ar_d_out = PyArray_FROM_OTF(obj_d_out, NPY_LONG, NPY_IN_ARRAY);
+  PyObject *ar_d_in = PyArray_FROM_OTF(obj_d_in, NPY_LONG, NPY_IN_ARRAY);
+
+  const long *restrict d_out = (long *) PyArray_DATA(ar_d_out);
+  const long *restrict d_in = (long *) PyArray_DATA(ar_d_in);
+  
+  struct compressed_array *restrict Mc = PyCapsule_GetPointer(obj_M, "compressed_array");
+  PyObject *restrict Mu = NULL;
+
+  if (!Mc) {
+    PyErr_Restore(NULL, NULL, NULL); /* clear the exception */
+    Mu = PyArray_FROM_OTF(obj_M, NPY_LONG, NPY_IN_ARRAY);
+  }
+
+  double data_entropy = compute_data_entropy(Mc, Mu, d_out, d_in);  
+  PyObject *ret = Py_BuildValue("d", data_entropy);
   return ret;
 }
 
@@ -5341,7 +5410,7 @@ static int initialize_edge_counts_inner(const long *restrict partition,
       long w = weights[i];
 
       if (Mc) {
-	compressed_accum_single(Mc, k1, k2, w);
+	if (compressed_accum_single(Mc, k1, k2, w) < 0) { return -1; }
       }
       else {
 	atomic_fetch_add_explicit((atomic_long *) PyArray_GETPTR2(Mu, k1, k2), w, memory_order_relaxed);
@@ -5603,6 +5672,7 @@ static PyMethodDef compressed_array_methods[] =
    { "sanity_check", sanity_check, METH_VARARGS, "Run a sanity check." },
    { "dict_entropy_row", dict_entropy_row, METH_VARARGS, "Compute part of delta entropy for a row entry." },
    { "dict_entropy_row_excl", dict_entropy_row_excl, METH_VARARGS, "Compute part of delta entropy for a row entry." },
+   { "compute_data_entropy", compute_data_entropy_py, METH_VARARGS, "Compute full entropy over the interblock edge count matrix." },
    { "inplace_apply_movement_compressed_interblock_matrix", inplace_apply_movement_compressed_interblock_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
    { "inplace_apply_movement_uncompressed_interblock_matrix", inplace_apply_movement_uncompressed_interblock_matrix, METH_VARARGS, "Move node from block r to block s and apply changes to interblock edge count matrix, and other algorithm state." },
    { "compute_new_rows_cols_interblock", compute_new_rows_cols_interblock, METH_VARARGS, "" },
