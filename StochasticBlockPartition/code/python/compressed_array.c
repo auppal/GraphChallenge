@@ -15,7 +15,6 @@
 #include <stdbool.h>
 #include <pthread.h>
 #include <semaphore.h>
-#include "shared_mem.h"
 
 #define DEBUG_SANITY_COUNTS (0)
 #define DEBUG_RESIZE_RACE (0)
@@ -79,11 +78,6 @@ struct hash_outer {
 	struct hash *h;
 };
 
-static void private_free(void *p, size_t len)
-{
-  free(p);
-}
-
 int hash_sanity_count(const char *msg, const struct hash *h)
 {
   size_t i, sanity_cnt = 0;
@@ -106,16 +100,8 @@ int hash_sanity_count(const char *msg, const struct hash *h)
 struct hash *hash_create(size_t initial_size, int shared_mem)
 {
   size_t buf_size = sizeof(struct hash) + initial_size * sizeof(hash_key_t) + initial_size * sizeof(hash_val_t);
-  void *(*fn_malloc)(size_t);
 
-  if (shared_mem) {
-    fn_malloc = shared_malloc;
-  }
-  else {
-    fn_malloc = malloc;
-  }
-
-  char *buf = fn_malloc(buf_size);
+  char *buf = malloc(buf_size);
   if (!buf) {
     fprintf(stderr, "hash_create(%ld): return NULL\n", initial_size);
     return NULL;
@@ -155,15 +141,7 @@ int hash_outer_init(struct hash_outer *ho, size_t initial_size)
 
 void hash_destroy(struct hash *h)
 {
-  if (h) {
-    size_t alloc_size = hash_get_alloc_size(h);
-    if (h->flags & HASH_FLAG_SHARED_MEM) {
-      shared_free(h, alloc_size);
-    }
-    else {
-      private_free(h, alloc_size);
-    }
-  }
+  free(h);
 }
 
 void hash_outer_destroy(struct hash_outer *ho)
@@ -174,14 +152,7 @@ void hash_outer_destroy(struct hash_outer *ho)
 
 struct hash *hash_copy(const struct hash *y, int shared_mem)
 {
-  void *(*fn_malloc)(size_t);
-
-  if (shared_mem) {
-    fn_malloc = shared_malloc;
-  }
-  else {
-    fn_malloc = malloc;
-  }
+  void *(*fn_malloc)(size_t) = malloc;
 
   size_t buf_size = hash_get_alloc_size(y);
   char *buf = fn_malloc(buf_size);
@@ -595,13 +566,13 @@ struct compressed_array *compressed_array_create(size_t n_nodes, size_t initial_
   x->n_row = n_nodes;
   x->n_col = n_nodes;
 
-  x->rows = shared_calloc(x->n_row, sizeof(x->rows[0]));
+  x->rows = calloc(x->n_row, sizeof(x->rows[0]));
 
   if (!x->rows) {
     goto bad;
   }
 
-  x->cols = shared_calloc(x->n_col, sizeof(x->cols[0]));
+  x->cols = calloc(x->n_col, sizeof(x->cols[0]));
 
   if (!x->cols) {
     goto bad;
@@ -629,8 +600,8 @@ struct compressed_array *compressed_array_create(size_t n_nodes, size_t initial_
 
 bad:
   if (x) {
-    shared_free(x->rows, x->n_row * sizeof(x->rows[0]));
-    shared_free(x->cols, x->n_col * sizeof(x->cols[0]));
+    free(x->rows);
+    free(x->cols);
     free(x);
   }
   fprintf(stderr, "compressed_array_create return NULL\n");
@@ -652,8 +623,8 @@ void compressed_array_destroy(struct compressed_array *x)
     hash_outer_destroy(&x->rows[i]);
   }
 
-  shared_free(x->rows, x->n_row * sizeof(x->rows[0]));
-  shared_free(x->cols, x->n_col * sizeof(x->cols[0]));
+  free(x->rows);
+  free(x->cols);
   free(x);
 }
 
@@ -671,7 +642,7 @@ struct compressed_array *compressed_copy(const struct compressed_array *y)
 
   size_t i;
 
-  x->rows = shared_calloc(x->n_row, sizeof(x->rows[0]));
+  x->rows = calloc(x->n_row, sizeof(x->rows[0]));
 
   if (!x->rows) {
     free(x);
@@ -683,12 +654,12 @@ struct compressed_array *compressed_copy(const struct compressed_array *y)
 
     if (rc < 0) {
       do { hash_outer_destroy(&x->rows[i]); } while (i-- != 0);
-      shared_free(x->rows, x->n_row * sizeof(x->rows[0]));
+      free(x->rows);
       return NULL;
     }
   }
 
-  x->cols = shared_calloc(x->n_col, sizeof(x->cols[0]));
+  x->cols = calloc(x->n_col, sizeof(x->cols[0]));
 
   if (!x->cols) {
     for (i=0; i<x->n_row; i++) {
@@ -706,8 +677,8 @@ struct compressed_array *compressed_copy(const struct compressed_array *y)
       for (i=0; i<x->n_row; i++) {
 	hash_outer_destroy(&x->rows[i]);
       }
-      shared_free(x->rows, x->n_row * sizeof(x->rows[0]));
-      shared_free(x->cols, x->n_col * sizeof(x->cols[0]));
+      free(x->rows);
+      free(x->cols);
       return NULL;
     }
   }
@@ -5565,45 +5536,6 @@ static PyObject* initialize_edge_counts(PyObject *self, PyObject *args)
   return ret;
 }
 
-static PyObject* shared_memory_report(PyObject *self, PyObject *args)
-{
-  shared_print_report();
-  Py_RETURN_NONE;
-}
-
-static PyObject* shared_memory_query(PyObject *self, PyObject *args)
-{
-  long i;
-  size_t *used = calloc(SHARED_MAX_POOLS, sizeof(size_t));
-  size_t *avail = calloc(SHARED_MAX_POOLS, sizeof(size_t));
-
-  for (i=0; i<SHARED_MAX_POOLS; i++) {
-    shared_query(i, &used[i], &avail[i]);
-  }
-
-  npy_intp dims[] = {SHARED_MAX_POOLS};
-  PyObject *used_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, used);
-  PyObject *avail_obj = PyArray_SimpleNewFromData(1, dims, NPY_LONG, avail);
-
-  PyArray_ENABLEFLAGS((PyArrayObject*) used_obj, NPY_ARRAY_OWNDATA);
-  PyArray_ENABLEFLAGS((PyArrayObject*) avail_obj, NPY_ARRAY_OWNDATA);
-
-  PyObject *ret = Py_BuildValue("NN", used_obj, avail_obj);
-  return ret;
-}
-
-static PyObject* shared_memory_reserve(PyObject *self, PyObject *args)
-{
-  long pool_id, n_items;
-
-  if (!PyArg_ParseTuple(args, "ll", &pool_id, &n_items)) {
-    return NULL;
-  }
-
-  shared_reserve(pool_id, n_items);
-  Py_RETURN_NONE;
-}
-
 static PyObject* hash_pointer(PyObject *self, PyObject *args)
 {
   PyObject *obj, *obj_i, *obj_j;
@@ -5692,9 +5624,6 @@ static PyMethodDef compressed_array_methods[] =
    { "nodal_moves_parallel", nodal_moves_parallel, METH_VARARGS, "" },
    { "initialize_edge_counts", initialize_edge_counts, METH_VARARGS, "" },
    { "nonzero_count", nonzero_count, METH_VARARGS, "" },
-   { "shared_memory_report", shared_memory_report, METH_VARARGS, "" },
-   { "shared_memory_query", shared_memory_query, METH_VARARGS, "" },
-   { "shared_memory_reserve", shared_memory_reserve, METH_VARARGS, "" },
    { "hash_pointer", hash_pointer, METH_VARARGS, "" },
    { "info", info, METH_NOARGS, "Get implementation info." },
    { "seed", seed, METH_VARARGS, "Set random number seed from system urandom." },

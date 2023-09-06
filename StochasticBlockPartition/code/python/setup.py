@@ -6,11 +6,6 @@ import os
 # To build with clang: CC="clang" python setup.py build
 #
 
-module1 = Extension('entropy_module',
-                    include_dirs=[np.get_include()],
-                    sources=['entropy.c'],
-                    extra_compile_args=['-O3', '-march=native', '-ffast-math'])
-
 # To debug: undef_macros = [ "NDEBUG" ]
 
 compressed_array_libs = ['rt']
@@ -19,18 +14,14 @@ if os.getenv("CC") != "clang":
 
 module2 = Extension('compressed_array',
                     include_dirs=[np.get_include()],
-                    sources=['compressed_array.c', 'shared_mem.c'],
+                    sources=['compressed_array.c'],
                     extra_compile_args=['-Wall', '-g', '-Og', '-march=native', '-ffast-math'],
                     libraries = compressed_array_libs,
                     library_dirs=['.'],
                     undef_macros = [ "NDEBUG" ]
 )
 
-module3 = Extension('shared_mem',
-                    sources=['shared_mem.c'],
-                    extra_compile_args=['-O3', '-march=native'])
-
 setup(name = 'PackageName',
       version = '1.0',
       description = 'These are the helper modules.',
-      ext_modules = [module1, module2])
+      ext_modules = [module2])

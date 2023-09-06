@@ -8,7 +8,6 @@ import os, sys, argparse
 import time, struct
 import traceback
 import numpy.random
-from compute_delta_entropy import compute_delta_entropy
 import random
 import shutil
 from interblock_edge_count import is_compressed

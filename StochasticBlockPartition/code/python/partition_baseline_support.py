@@ -14,7 +14,6 @@ from munkres import Munkres # for correctness evaluation
 import sys
 from multiprocessing import sharedctypes
 import ctypes
-from compute_delta_entropy import compute_delta_entropy
 from collections import defaultdict
 try:
     from collections import Iterable
