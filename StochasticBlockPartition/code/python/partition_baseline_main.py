@@ -2168,7 +2168,7 @@ if __name__ == '__main__':
     parser.add_argument("--sanity-check", type=int, required=False, default=0, help="Full recompute interblock edge counts and block counts, and compare against differentially computed version.")
     parser.add_argument("--debug-memory", type=int, required=False, default=0, help="Level of shared memory debug memory reporting.")
     parser.add_argument("--debug-mpi", type=int, required=False, default=0, help="Level of MPI debug reporting.")
-    parser.add_argument("--diet", type=int, required=False, default=0, help="Do not store old state, regenerate as needed.")
+    parser.add_argument("--diet", type=int, required=False, default=1, help="Do not store old state, regenerate as needed.")
 
     # Arguments for thread control
     parser.add_argument("--blocking", type=int, required=False, default=1, help="Whether to use blocking waits during nodal moves.")
