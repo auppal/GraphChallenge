@@ -279,7 +279,7 @@ static inline int hash_set_single(struct hash *h, hash_key_t k, hash_val_t v)
 }
 
 
-static inline int hash_accum_single(struct hash *h, hash_key_t k, hash_val_t c)
+static inline int hash_accum_single(struct hash *restrict h, hash_key_t k, hash_val_t c)
 {
   /* To avoid a subtle logic bug, first check for existance.
    * Beacuse not every insertion will cause an increase in cnt.
@@ -287,8 +287,8 @@ static inline int hash_accum_single(struct hash *h, hash_key_t k, hash_val_t c)
   size_t i, width = h->width;
   hash_key_t kh = hash(k);
 
-  hash_key_t *keys = hash_get_keys(h);
-  hash_val_t *vals = hash_get_vals(h);
+  hash_key_t *restrict keys = hash_get_keys(h);
+  hash_val_t *restrict vals = hash_get_vals(h);
 
   for (i=0; i<width; i++) {
     size_t idx = (kh + i) % width;
@@ -330,13 +330,13 @@ static inline int hash_accum_single(struct hash *h, hash_key_t k, hash_val_t c)
 }
 
 
-static inline int hash_search(const struct hash *h, hash_key_t k, hash_val_t *v)
+static inline int hash_search(const struct hash *restrict h, hash_key_t k, hash_val_t *v)
 {
   size_t i, width = h->width;
   hash_key_t kh = hash(k);
 
-  const hash_key_t *keys = hash_get_keys(h);
-  const hash_val_t *vals = hash_get_vals(h);
+  const hash_key_t *restrict keys = hash_get_keys(h);
+  const hash_val_t *restrict vals = hash_get_vals(h);
 
   for (i=0; i<width; i++) {
     size_t idx = (kh + i) % width;
@@ -715,12 +715,12 @@ static inline void compressed_set_single(struct compressed_array *x, uint64_t i,
   }
 }
 
-static int hash_accum_resize(struct hash_outer *ho, hash_key_t k, hash_val_t C)
+static int hash_accum_resize(struct hash_outer *restrict ho, hash_key_t k, hash_val_t C)
 {
   struct hash *restrict oldh, *restrict newh;
 
   struct hash_outer hoa_cur;
-  struct hash_outer hoa_new, cur;
+  struct hash_outer hoa_new;
 
   /* Atomically both grab the pointer and increment the counter. */
   do {
@@ -729,8 +729,7 @@ static int hash_accum_resize(struct hash_outer *ho, hash_key_t k, hash_val_t C)
     hoa_new.external_refcnt++;
   } while(!atomic_compare_exchange_strong((_Atomic(struct hash_outer) *) ho, &hoa_cur, hoa_new));
 
-  cur = hoa_cur;
-  oldh = cur.h;
+  oldh = hoa_cur.h;
 
 #if DEBUG_RESIZE_RACE
   if (debug_resize_race_enabled) {
@@ -748,19 +747,16 @@ static int hash_accum_resize(struct hash_outer *ho, hash_key_t k, hash_val_t C)
 
     _Bool rc = false;
     hoa_cur = *ho; /* Re-read because external_refcnt may have changed. */
-    cur = hoa_cur;
-    if (cur.h == oldh) {
+    if (hoa_cur.h == oldh) {
       hoa_new.h = newh;
       hoa_new.external_refcnt = 0;
 
 #if DEBUG_RESIZE_RACE
       if (debug_resize_race_enabled) {
-	fprintf(stderr, "Pid %d before CAS outer %p inner %p external_refcnt %ld (oldh %p)\n", getpid(), ho, cur.h, cur.external_refcnt, oldh);
+	fprintf(stderr, "Pid %d before CAS outer %p inner %p external_refcnt %ld (oldh %p)\n", getpid(), ho, hoa_cur.h, hoa_cur.external_refcnt, oldh);
       }
 #endif
       rc = atomic_compare_exchange_strong((_Atomic(struct hash_outer) *) ho, &hoa_cur, hoa_new);
-
-      cur = hoa_cur;
 
 #if DEBUG_RESIZE_RACE
       if (debug_resize_race_enabled) {
@@ -782,7 +778,7 @@ static int hash_accum_resize(struct hash_outer *ho, hash_key_t k, hash_val_t C)
       /* We won the race. */
 
       atomic_fetch_sub_explicit(&oldh->internal_refcnt,
-				cur.external_refcnt - 1,
+				hoa_cur.external_refcnt - 1,
 				memory_order_seq_cst);
 #if DEBUG_RESIZE_RACE
       if (debug_resize_race_enabled) {
@@ -803,30 +799,39 @@ static int hash_accum_resize(struct hash_outer *ho, hash_key_t k, hash_val_t C)
 #endif
       } while (oldh->internal_refcnt < 0);
 
-      atomic_thread_fence(memory_order_acquire);
-
 #if DEBUG_RESIZE_RACE
       if (debug_resize_race_enabled) {
 	fprintf(stderr, "Pid %d Outer %p Done waiting for %p ! Merge %ld items into hash %p\n", getpid(), ho, oldh, oldh->cnt, newh);
       }
 #endif
-      // long ins = 0;
       size_t ii;
 
 
-      hash_key_t *keys = hash_get_keys(oldh);
-      hash_val_t *vals = hash_get_vals(oldh);
+      const hash_key_t *restrict keys = hash_get_keys(oldh);
+      const hash_val_t *restrict vals = hash_get_vals(oldh);
 
       for (ii=0; ii<oldh->width; ii++) {
-	hash_key_t k = keys[ii];
-	hash_val_t v = vals[ii];
-	if (k != EMPTY_KEY) {
-	  if (1 == hash_accum_single(newh, k, v)) {
-	    fprintf(stderr, "Pid %d Error: Needed ANOTHER resize while resizing!\n", getpid());
-	    return -1;
-	  }
-	  // ins++;
+	const hash_key_t k = keys[ii];
+	const hash_val_t v = vals[ii];
+
+	if (k == EMPTY_KEY)
+	  continue;
+
+	do {
+	  hoa_cur = *ho;
+	  hoa_new = hoa_cur;
+	  hoa_new.external_refcnt++;
+	} while(!atomic_compare_exchange_strong((_Atomic(struct hash_outer) *) ho, &hoa_cur, hoa_new));
+	newh = hoa_cur.h;
+
+	if (1 == hash_accum_single(newh, k, v)) {
+	  fprintf(stderr, "Pid %d Info: Needed ANOTHER resize while resizing!\n", getpid());
+	  /* Redirect remaining migrations to the latest.
+	   * The migrations that have already been completed will be
+	   * re-migrated by whoever won the latest race.
+	   */
 	}
+	newh->internal_refcnt++;
       }
 
       hash_destroy(oldh);
@@ -840,9 +845,7 @@ static int hash_accum_resize(struct hash_outer *ho, hash_key_t k, hash_val_t C)
   }
 #endif
 
-  atomic_thread_fence(memory_order_release);
   oldh->internal_refcnt++;
-
   return 0;
 }
 
