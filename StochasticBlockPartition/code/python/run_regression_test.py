@@ -5,6 +5,9 @@ import sys, itertools, os, time, traceback
 from collections import defaultdict
 from partition_baseline_main import do_main
 import time
+import argparse
+import re
+
 try:
     import cPickle as pickle
 except:
@@ -225,6 +228,10 @@ def print_results(results):
         print("%s %s" % (v[0],v[1:]))
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command", nargs="+", type=str, default=[])
+    args = parser.parse_args()
+    
     yyyymmdd = time.strftime("%Y-%m-%d")
     out_dir = 'out-' + yyyymmdd
     try: os.mkdir(out_dir)
@@ -245,7 +252,8 @@ if __name__ == '__main__':
          5000: '../../data/static/simulated_blockmodel_graph_5000_nodes',
          20000: '../../data/static/simulated_blockmodel_graph_20000_nodes',
          50000: '../../data/static/simulated_blockmodel_graph_50000_nodes',
-         100000: '../../data/static/simulated_blockmodel_graph_100000_nodes'
+         100000: '../../data/static/simulated_blockmodel_graph_100000_nodes',
+         1000000: '../../data/static/simulated_blockmodel_graph_1000000_nodes'
     }
 
     small_files = input_files[:3]
@@ -253,31 +261,27 @@ if __name__ == '__main__':
 
     iterations = range(1)
 
-    args = defaultdict(int)
-    args.update({
-        'single-tiny' : 0,
-        'single-small' : 0,
-        'multi-small'  : 0,
-        'single-sparse' : 0,
-        'single-big' : 0,
-        'reduction-sweep' : 0,
-        'reduction-sweep-small' : 0,
-        'sparse-sweep' : 0,
-        'big' : 0,
-        'regression' : 0,
-        'thread-sweep' : 0,
-        'threading' : 0,
-        'threading-performance' : 0
-        })
-
-    for i in sys.argv[1:]:
-        args[i] = 1
-
     results = {}
 
     results_f = open(out_dir + time.strftime("/results-%Y-%m-%d-%H%M%SZ.pickle", time.gmtime()), 'wb')
 
-    if args['regression']:
+    if 'compare' in args.command:
+        fa = args.command[args.command.index("compare") + 1]
+        fb = args.command[args.command.index("compare") + 2]
+        print("Comparison",fa,fb)
+        a = pickle.load(open(fa, "rb"))
+        b = pickle.load(open(fb, "rb"))
+        for i in a.items():
+            k = i[0]
+            for j in k:
+                if j[0] == 'input_filename':
+                    nodes = int(re.match('.*_graph_(\d+)_nodes', j[1]).group(1))
+            outname,runtime_a,maxrss,(parttime,prec,recall) = a[k]
+            outname,runtime_b,maxrss,(parttime,prec,recall) = b[k]            
+            print("At   {:4.0f}k: {:10.5f}   / {:10.5f} {:10.5f}".format(nodes/1e3, runtime_a, runtime_b, runtime_a / runtime_b))
+        sys.exit(0)
+
+    if 'regression' in args.command:
         print("Run sanity checks.")
 
         for i in [100,500,1000]:
@@ -304,7 +308,7 @@ if __name__ == '__main__':
         results.update(result)
 
     # On a new system, it is best to first do a thread swep to find the optimal number of threads on a reasonably-sized graph.
-    if args['thread-sweep']:
+    if 'thread-sweep' in args.command:
         base_args['verbose'] = 0
         base_args['initial_block_reduction_rate'] = 0.50
         base_args['input_filename'] = N[5000]
@@ -313,13 +317,13 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
-    if args['single-tiny']:
+    if 'single-tiny' in args.command:
         print("Tiny Single process tests.")
         result = run_test(out_dir, base_args, [N[100]], range(3), threads = (4,), max_jobs = 4)
         print_results(result)
         results.update(result)
 
-    if args['single-small']:
+    if 'single-small' in args.command:
         result = run_test(out_dir, base_args, small_files, iterations, threads = (0,), max_jobs = 6)
         print_results(result)
         results.update(result)
@@ -327,20 +331,20 @@ if __name__ == '__main__':
         avg_time = sum([i[1] for i in results.values()]) / len(results)
         print("Mean time is %s" % (avg_time))
 
-    if args['multi-small']:
+    if 'multi-small' in args.command:
         result = run_test(out_dir, base_args, small_files, iterations, threads = (2,4,8,16,27,32))
         print("Multi process tests.")
         print_results(result)
         results.update(result)
 
-    if args['single-sparse']:
+    if 'single-sparse' in args.command:
         print("Sparse tests.")
         base_args['sparse'] = 1
         result = run_test(out_dir, base_args, input_files, iterations, threads = (0,), max_jobs = 6)
         print_results(result)
         results.update(result)
 
-    if args['sparse-sweep']:
+    if 'sparse-sweep' in args.command:
         med_files = [N[50000]]
 
         var_args = (('input_filename', med_files),
@@ -352,7 +356,7 @@ if __name__ == '__main__':
         print_results(result)
 
 
-    if args['big']:
+    if 'big' in args.command:
         med_files = [N[100000]]
 
         var_args = (('input_filename', med_files),
@@ -365,7 +369,7 @@ if __name__ == '__main__':
 
 
 
-    if args['reduction-sweep-small']:
+    if 'reduction-sweep-small' in args.command:
         med_files = [N[20000]]
 
         var_args = (('input_filename', med_files),
@@ -377,7 +381,7 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
-    if args['reduction-sweep']:
+    if 'reduction-sweep' in args.command:
         print("Single var tests.")
         # var_args = { 'initial_block_reduction_rate' : (0.50,0.75,0.90,0.95,0.99), 'threads' : (0, 55) }
         # var_args = (('input_filename', small_files), ('iteration', range(3)))
@@ -391,7 +395,7 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
-    if args['threading']:
+    if 'threading' in args.command:
         files = [N[500]]
         var_args = (('input_filename', files),
                     ('iteration', range(500)),
@@ -404,7 +408,7 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
-    if args['threading-sanity1']:
+    if 'threading-sanity1' in args.command:
         files = [N[500]]
         var_args = (('input_filename', files),
                     ('iteration', range(1000)),
@@ -418,7 +422,7 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
-    if args['threading-sanity1.1']:
+    if 'threading-sanity1.1' in args.command:
         files = [N[5000]]
         var_args = (('input_filename', files),
                     ('iteration', range(200)),
@@ -432,7 +436,7 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
-    if args['threading-sanity2']:
+    if 'threading-sanity2' in args.command:
         files = [N[5000]]
         var_args = (('input_filename', files),
                     ('iteration', range(1000)),
@@ -446,7 +450,7 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
-    if args['memory-sanity']:
+    if 'memory-sanity' in args.command:
         files = [N[500]]
         var_args = (('input_filename', files),
                     ('iteration', range(100)),
@@ -461,7 +465,7 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
-    if args['child-alloc']:
+    if 'child-alloc' in args.command:
         files = [N[5000]]
         var_args = (('input_filename', files),
                     ('iteration', range(50)),
@@ -476,7 +480,7 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
-    if args['threading-performance']:
+    if 'threading-performance' in args.command:
         files = [N[20000]]
         var_args = (('input_filename', files),
                     ('iteration', range(1)),
@@ -490,7 +494,7 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
-    if args['group-size']:
+    if 'group-size' in args.command:
         files = [N[20000]]
         var_args = (('input_filename', files),
                     ('iteration', range(1)),
@@ -504,8 +508,8 @@ if __name__ == '__main__':
         print_results(result)
         results.update(result)
 
-    if args['paces']:
-        files = [N[5000], N[20000], N[50000], N[100000], N[1000000]]
+    if 'paces' in args.command:
+        files = [N[5000], N[20000], N[50000], N[100000]]
         var_args = (('input_filename', files),
                     ('iteration', range(1)),
                     ('blocking', (0,)),
