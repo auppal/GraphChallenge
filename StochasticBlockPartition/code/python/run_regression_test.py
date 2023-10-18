@@ -22,8 +22,8 @@ base_args = {'debug' : 0, 'decimation' : 0,
              'input_filename' : '../../data/static/simulated_blockmodel_graph_100_nodes',
              'initial_block_reduction_rate' : 0.50,
              'merge_method' : 0, 'mpi' : 0, 'node_move_update_batch_size' : 1, 'node_propose_batch_size' : 4,
-             'parts' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0,
-             'sparse' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0, 't_merge' : 0, 't_move' : 0, 'skip_eval' : 0, 'max_num_nodal_itr' : 100, 'critical' : 0, 'blocking' : 1, 'finegrain' : 0, 'sanity_check' : 0, 'debug_memory' : 0, 'debug_mpi' : 0}
+             'parts' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0, 'diet': 1, 'defunct' : 0,
+             'sparse' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'merge_proposals_per_block' : 10, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0, 't_merge' : 0, 't_move' : 0, 'skip_eval' : 0, 'max_num_nodal_itr' : 100, 'critical' : 0, 'blocking' : 1, 'finegrain' : 0, 'sanity_check' : 0, 'debug_memory' : 0, 'debug_mpi' : 0}
 
 class Bunch(object):
     def __init__(self, adict):
@@ -500,6 +500,20 @@ if __name__ == '__main__':
                     ('sparse',(1,)),
                     ('node_propose_batch_size', (0,4,8,16,32,64,128,256,512)),
                     ('threads',(12,24,48,96)))
+        result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
+        print_results(result)
+        results.update(result)
+
+    if args['paces']:
+        files = [N[5000], N[20000], N[50000], N[100000], N[1000000]]
+        var_args = (('input_filename', files),
+                    ('iteration', range(1)),
+                    ('blocking', (0,)),
+                    ('finegrain', (0,)),
+                    ('critical', (2,)),
+                    ('sparse',(1,)),
+                    ('node_propose_batch_size', (64,)),
+                    ('threads',(24,)))
         result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
         print_results(result)
         results.update(result)
