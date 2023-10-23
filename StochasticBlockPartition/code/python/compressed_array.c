@@ -4029,6 +4029,28 @@ static PyObject *block_merge_parallel(PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+static inline int set_block_map(long *block_map, long src, long dst, long **cluster, long *cluster_n, long *cluster_max)
+{
+    block_map[src] = dst;
+
+    if (cluster_n[dst] == cluster_max[dst]) {
+      size_t n_max_next = (2 * cluster_max[dst] + 1);
+      void *p = realloc(cluster[dst], n_max_next * sizeof(long));
+      if (!p) {
+	PyErr_SetString(PyExc_RuntimeError, "Failed to realloc memory.");	
+	return -1;
+      }
+      cluster[dst] = p;
+      cluster_max[dst] = n_max_next;
+    }
+
+    cluster[dst][cluster_n[dst]] = src;
+    cluster_n[dst]++;
+
+    return 0;
+}
+
+
 static PyObject *carry_out_best_merges_py(PyObject *self, PyObject *args)
 {
   long n_blocks, n_blocks_to_merge;
@@ -4057,6 +4079,10 @@ static PyObject *carry_out_best_merges_py(PyObject *self, PyObject *args)
   long i, j, n_merged = 0, n_blocks_next = n_blocks - n_blocks_to_merge;
   long *block_map = malloc(n_blocks * sizeof(block_map[0]));
 
+  long **cluster = calloc(n_blocks, sizeof(cluster[0]));
+  long *cluster_n = calloc(n_blocks, sizeof(cluster_n[0]));
+  long *cluster_max = calloc(n_blocks, sizeof(cluster_max[0]));
+
   if (!block_map) {
     PyErr_SetString(PyExc_RuntimeError, "Failed to allocate memory.");
     return NULL;
@@ -4084,13 +4110,22 @@ static PyObject *carry_out_best_merges_py(PyObject *self, PyObject *args)
     if (src == dst)
       continue;
 
-    for (j=0; j<n_blocks; j++) {
-      if (block_map[j] == src) {
-	block_map[j] = dst;
-      }
+    if (set_block_map(block_map, src, dst, cluster, cluster_n, cluster_max))
+      return NULL;
+
+    for (j=0; j<cluster_n[src]; j++) {
+      if (set_block_map(block_map, cluster[src][j], dst, cluster, cluster_n, cluster_max))
+	return NULL;
     }
     n_merged++;
   }
+
+  free(cluster_n);
+  free(cluster_max);
+  for (i=0; i<n_blocks; i++) {
+    free(cluster[i]);
+  }
+  free(cluster);
 
   /* Now re-number the remaining blocks. */
   long *renum = calloc(n_blocks, sizeof(long));
