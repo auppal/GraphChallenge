@@ -268,9 +268,11 @@ if __name__ == '__main__':
     if 'compare' in args.command:
         fa = args.command[args.command.index("compare") + 1]
         fb = args.command[args.command.index("compare") + 2]
-        print("Comparison",fa,fb)
         a = pickle.load(open(fa, "rb"))
         b = pickle.load(open(fb, "rb"))
+        print("Comparison",fa,fb)
+        print("    Compute:")
+        print("                         Before:         After:       Speedup:")
         for i in a.items():
             k = i[0]
             for j in k:
@@ -278,7 +280,19 @@ if __name__ == '__main__':
                     nodes = int(re.match('.*_graph_(\d+)_nodes', j[1]).group(1))
             outname,runtime_a,maxrss,(parttime,prec,recall) = a[k]
             outname,runtime_b,maxrss,(parttime,prec,recall) = b[k]            
-            print("At   {:4.0f}k: {:10.5f}   / {:10.5f} {:10.5f}".format(nodes/1e3, runtime_a, runtime_b, runtime_a / runtime_b))
+            print("           At   {:4.0f}k: {:11.5f}   / {:11.5f} {:10.5f}".format(nodes/1e3, runtime_a, runtime_b, runtime_a / runtime_b))
+
+        print("")
+        print("    Memory:")
+        print("                         Before:         After:       Ratio:")
+        for i in a.items():
+            k = i[0]
+            for j in k:
+                if j[0] == 'input_filename':
+                    nodes = int(re.match('.*_graph_(\d+)_nodes', j[1]).group(1))
+            outname,runtime_a,maxrss_a,(parttime,prec,recall) = a[k]
+            outname,runtime_b,maxrss_b,(parttime,prec,recall) = b[k]            
+            print("           At   {:4.0f}k: {:11.0f}   / {:11.0f} {:10.5f}".format(nodes/1e3, maxrss_a, maxrss_b, maxrss_a / maxrss_b))            
         sys.exit(0)
 
     if 'regression' in args.command:
@@ -509,7 +523,7 @@ if __name__ == '__main__':
         results.update(result)
 
     if 'paces' in args.command:
-        files = [N[5000], N[20000], N[50000], N[100000]]
+        files = [N[5000], N[20000], N[50000], N[100000], N[1000000]]
         var_args = (('input_filename', files),
                     ('iteration', range(1)),
                     ('blocking', (0,)),
