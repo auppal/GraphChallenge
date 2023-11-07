@@ -7,6 +7,7 @@ from partition_baseline_main import do_main
 import time
 import argparse
 import re
+import numpy as np
 
 try:
     import cPickle as pickle
@@ -270,9 +271,10 @@ if __name__ == '__main__':
         fb = args.command[args.command.index("compare") + 2]
         a = pickle.load(open(fa, "rb"))
         b = pickle.load(open(fb, "rb"))
-        print("Comparison",fa,fb)
-        print("    Compute:")
-        print("                         Before:         After:       Speedup:")
+
+        parttimes_a = defaultdict(list)
+        parttimes_b = defaultdict(list)
+
         for i in a.items():
             k = i[0]
             for j in k:
@@ -280,11 +282,26 @@ if __name__ == '__main__':
                     nodes = int(re.match('.*_graph_(\d+)_nodes', j[1]).group(1))
             outname_a,runtime_a,maxrss_a,(parttime_a,prec_a,recall_a) = a[k]
             outname_b,runtime_b,maxrss_b,(parttime_b,prec_b,recall_b) = b[k]
-            print("           At   {:4.0f}k: {:11.5f}   / {:11.5f} {:10.5f}".format(nodes/1e3, parttime_a, parttime_b, parttime_a / parttime_b))
+            parttimes_a[nodes].append(parttime_a)
+            parttimes_b[nodes].append(parttime_b)
+
+        print("Comparison",fa,fb)
+        print("    Compute:")
+        print("                         Before:                   After:                Speedup:")
+        for nodes in sorted(parttimes_a.keys()):
+            mean_parttime_a = np.mean(parttimes_a[nodes])
+            mean_parttime_b = np.mean(parttimes_b[nodes])
+            std_parttime_a = np.std(parttimes_a[nodes])
+            std_parttime_b = np.std(parttimes_b[nodes])
+            print("At  {:4.0f}k ({:3} runs): {:11.5f} +- {:3.5f}  / {:11.5f} +- {:3.5f} {:10.5f}".format(nodes/1e3, len(parttimes_a[nodes]), mean_parttime_a, std_parttime_a, mean_parttime_b, std_parttime_b, mean_parttime_a / mean_parttime_b))
+
+
+        mem_a = defaultdict(list)
+        mem_b = defaultdict(list)
 
         print("")
         print("    Memory:")
-        print("                         Before:         After:       Ratio:")
+        print("                         Before:                   After:                Ratio:")
         for i in a.items():
             k = i[0]
             for j in k:
@@ -292,7 +309,15 @@ if __name__ == '__main__':
                     nodes = int(re.match('.*_graph_(\d+)_nodes', j[1]).group(1))
             outname_a,runtime_a,maxrss_a,(parttime_a,prec_a,recall_a) = a[k]
             outname_b,runtime_b,maxrss_b,(parttime_b,prec_b,recall_b) = b[k]
-            print("           At   {:4.0f}k: {:11.0f}   / {:11.0f} {:10.5f}".format(nodes/1e3, maxrss_a, maxrss_b, maxrss_a / maxrss_b))            
+            mem_a[nodes].append(maxrss_a)
+            mem_b[nodes].append(maxrss_b)
+
+        for nodes in sorted(mem_a.keys()):
+            mean_maxrss_a = np.mean(mem_a[nodes])
+            mean_maxrss_b = np.mean(mem_b[nodes])
+            std_maxrss_a = np.std(mem_a[nodes])
+            std_maxrss_b = np.std(mem_b[nodes])
+            print("At  {:4.0f}k ({:3} runs): {:11.0f} +- {:5.0f}    / {:11.0f} +- {:5.0f} {:10.5f}".format(nodes/1e3, len(mem_a[nodes]), mean_maxrss_a, std_maxrss_a, mean_maxrss_b, std_maxrss_b, mean_maxrss_a / mean_maxrss_b))            
         sys.exit(0)
 
     if 'regression' in args.command:
@@ -523,9 +548,9 @@ if __name__ == '__main__':
         results.update(result)
 
     if 'paces' in args.command:
-        files = [N[100000]] #[N[5000], N[20000], N[50000], N[100000], N[1000000]]
+        files = [N[5000], N[20000], N[50000]] #, N[100000], N[1000000]]
         var_args = (('input_filename', files),
-                    ('iteration', range(1)),
+                    ('iteration', range(20)),
                     ('blocking', (0,)),
                     ('finegrain', (0,)),
                     ('critical', (2,)),
