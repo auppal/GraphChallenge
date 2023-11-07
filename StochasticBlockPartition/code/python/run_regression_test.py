@@ -188,7 +188,7 @@ def update_dict(x, y):
     x.update(y)
     return x
 
-def run_var_test(out_dir, base_args, var_args, max_jobs = 1):
+def run_var_test(out_dir, base_args, var_args, max_jobs = 1, override_args={}):
     """
     Run a test suite sweeping across a series of parameter values stored in the var_args dict which override the defaults in base_args.
     """
@@ -200,8 +200,12 @@ def run_var_test(out_dir, base_args, var_args, max_jobs = 1):
     # Create dicts which will override the default argument dict.
     # The keys are (j[0] for j in var_args), but not used in a generator to avoid exhausting it prematurely.
 
-    var_args_d = ({k : v for k,v in zip((j[0] for j in var_args), i)} for i in work_list)
+    var_args_d = [{k : v for k,v in zip((j[0] for j in var_args), i)} for i in work_list]
     arg_list = [update_dict(base_args.copy(), d) for d in var_args_d]
+    arg_list = [update_dict(d, override_args) for d in arg_list]
+    for i in arg_list:
+        print(i)
+    sys.exit(0)
 
     # Convert to tuples (for later indexing).
     arg_list = [tuple(sorted((j for j in i.items()))) for i in arg_list]
@@ -231,7 +235,9 @@ def print_results(results):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("command", nargs="+", type=str, default=[])
+    parser.add_argument("-a", "--arg", type=str, default=[], action="append", help="Test case argument overrides in key:value form.")
     args = parser.parse_args()
+    override_args = dict((i.split(":")[0],int(i.split(":")[1])) for i in args.arg)
     
     yyyymmdd = time.strftime("%Y-%m-%d")
     out_dir = 'out-' + yyyymmdd
@@ -557,7 +563,7 @@ if __name__ == '__main__':
                     ('sparse',(1,)),
                     ('node_propose_batch_size', (64,)),
                     ('threads',(24,)))
-        result = run_var_test(out_dir, base_args, var_args, max_jobs=1)
+        result = run_var_test(out_dir, base_args, var_args, max_jobs=1, override_args=override_args)
         print_results(result)
         results.update(result)
 
