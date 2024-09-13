@@ -18,9 +18,13 @@ http://graphchallenge.org
 	CC="clang" python setup.py build
 
 # Running:
-    # Partition a 5k node input using 24 threads.
+    # Partition a 5k node input using 8 threads.
 	export PYTHONPATH=$PWD/build/lib.linux-x86_64-cpython-310
-	python partition_baseline_main.py ../../data/static/simulated_blockmodel_graph_5000_nodes -t 24
+	python partition_baseline_main.py ../../data/static/simulated_blockmodel_graph_5000_nodes -t 8
+
+# Write parition to output file:
+	export PYTHONPATH=$PWD/build/lib.linux-x86_64-cpython-310
+	python partition_baseline_main.py ../../data/static/simulated_blockmodel_graph_5000_nodes -t 8 -o partition.txt
 
 # Additional Options:
 	python partition_baseline_main.py --help
