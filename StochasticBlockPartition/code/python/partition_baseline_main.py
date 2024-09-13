@@ -1944,8 +1944,9 @@ def do_main(args):
             precision,recall = evaluate_partition(true_partition, partition)
 
         if args.output_file:
-            assert("Not implemented")
-            
+            with open(args.output_file, 'w') as fout:
+                np.savetxt(fout, partition, "%d")
+    
         return t_elapsed_partition,precision,recall
     else:
         if args.naive_streaming:
