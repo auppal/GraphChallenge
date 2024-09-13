@@ -25,9 +25,9 @@ def redirect_streams(target):
 base_args = {'debug' : 0, 'decimation' : 0,
              'input_filename' : '../../data/static/simulated_blockmodel_graph_100_nodes',
              'initial_block_reduction_rate' : 0.50,
-             'merge_method' : 0, 'mpi' : 0, 'node_move_update_batch_size' : 1, 'node_propose_batch_size' : 4,
+             'merge_method' : 0, 'mpi' : 0, 'node_move_update_batch_size' : 1, 'node_propose_batch_size' : 64,
              'parts' : 0, 'predecimation' : 0, 'profile' : 0, 'seed' : 0, 'sort' : 0, 'diet': 1, 'defunct' : 0,
-             'sparse' : 0, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'merge_proposals_per_block' : 10, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0, 't_merge' : 0, 't_move' : 0, 'skip_eval' : 0, 'max_num_nodal_itr' : 100, 'critical' : 0, 'blocking' : 1, 'finegrain' : 0, 'sanity_check' : 0, 'debug_memory' : 0, 'debug_mpi' : 0}
+             'sparse' : 1, 'test_decimation' : 0, 'threads' : 0, 'verbose' : 2, 'test_resume' : 0, 'merge_proposals_per_block' : 10, 'min_nodal_moves_ratio' : 0.0, 'min_number_blocks' : 0, 't_merge' : 0, 't_move' : 0, 'skip_eval' : 0, 'max_num_nodal_itr' : 100, 'critical' : 0, 'blocking' : 1, 'finegrain' : 0, 'sanity_check' : 0, 'debug_memory' : 0, 'debug_mpi' : 0, 'output_file' : ""}
 
 class Bunch(object):
     def __init__(self, adict):
