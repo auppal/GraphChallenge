@@ -2145,7 +2145,7 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--decimation", type=int, required=False, default=0)
     parser.add_argument("-v", "--verbose", type=int, required=False, default=0, help="Verbosity level.")
     parser.add_argument("-g", "--node-propose-batch-size", type=int, required=False, default=4)
-    parser.add_argument("--sparse", type=int, required=False, default=0)
+    parser.add_argument("--sparse", type=int, required=False, default=1)
     parser.add_argument("-s", "--sort", type=int, required=False, default=0)
     parser.add_argument("-S", "--seed", type=int, required=False, default=-1)
     parser.add_argument("--mpi", type=int, required=False, default=0)
