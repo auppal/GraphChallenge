@@ -1943,6 +1943,9 @@ def do_main(args):
         else:
             precision,recall = evaluate_partition(true_partition, partition)
 
+        if args.output_file:
+            assert("Not implemented")
+            
         return t_elapsed_partition,precision,recall
     else:
         if args.naive_streaming:
@@ -2141,7 +2144,7 @@ def info(type, value, tb):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("-t", "--threads", type=int, required=False, default=0, help="Configure number of threads for both agglomerative merge and nodal movements.")
+    parser.add_argument("-t", "--threads", type=int, required=False, default=1, help="Configure number of threads for both agglomerative merge and nodal movements.")
     parser.add_argument("--t-merge", type=int, required=False, default=0, help="Configure number of threads for both agglomerative merge phase (overrides --threads).")
     parser.add_argument("--t-move", type=int, required=False, default=0, help="Configure number of threads for nodal movement phase (overrides --threads)")
 
@@ -2152,6 +2155,7 @@ if __name__ == '__main__':
     parser.add_argument("--sparse", type=int, required=False, default=1)
     parser.add_argument("-s", "--sort", type=int, required=False, default=0)
     parser.add_argument("-S", "--seed", type=int, required=False, default=-1)
+    parser.add_argument("-o", "--output-file", type=str, required=False, default="", help="Write partition to output file.")
     parser.add_argument("--mpi", type=int, required=False, default=0)
     parser.add_argument("--merge-proposals-per-block", type=int, required=False, default=10)
     parser.add_argument("input_filename", nargs="?", type=str, default="../../data/static/simulated_blockmodel_graph_500_nodes")
