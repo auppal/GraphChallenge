@@ -1332,17 +1332,17 @@ def load_graph_parts(input_filename, args):
     if args.parts >= 1:
         true_partition_available = False
         print('\nLoading partition 1 of {} ({}) ...'.format(args.parts, input_filename + "_1.tsv"))
-        out_neighbors, in_neighbors, N, E, true_partition = load_graph(input_filename, load_true_partition=true_partition_available, strm_piece_num=1)
+        out_neighbors, in_neighbors, N, E, true_partition = load_graph(input_filename, load_true_partition=true_partition_available, strm_piece_num=1, start_idx=args.start_idx)
         for part in range(2, args.parts + 1):
                 print('Loading partition {} of {} ({}) ...'.format(part, args.parts, input_filename + "_" + str(part) + ".tsv"))
-                out_neighbors, in_neighbors, N, E = load_graph(input_filename, load_true_partition=False, strm_piece_num=part, out_neighbors=out_neighbors, in_neighbors=in_neighbors)
+                out_neighbors, in_neighbors, N, E = load_graph(input_filename, load_true_partition=False, strm_piece_num=part, out_neighbors=out_neighbors, in_neighbors=in_neighbors, start_idx=args.start_idx)
     else:
         true_partition_available = os.path.isfile(input_filename + "_truePartition.tsv")
 
         if true_partition_available:
-            out_neighbors, in_neighbors, N, E, true_partition = load_graph(input_filename, load_true_partition=true_partition_available)
+            out_neighbors, in_neighbors, N, E, true_partition = load_graph(input_filename, load_true_partition=true_partition_available, start_idx=args.start_idx)
         else:
-            out_neighbors, in_neighbors, N, E = load_graph(input_filename, load_true_partition=true_partition_available)
+            out_neighbors, in_neighbors, N, E = load_graph(input_filename, load_true_partition=true_partition_available, start_idx=args.start_idx)
             true_partition = None
 
     return out_neighbors, in_neighbors, N, E, true_partition
@@ -1690,14 +1690,16 @@ def naive_streaming(args):
                                load_true_partition=1,
                                strm_piece_num=part,
                                out_neighbors=None,
-                               in_neighbors=None)
+                               in_neighbors=None,
+                               start_idx=args.start_idx)
         else:
             out_neighbors, in_neighbors, N, E = \
                     load_graph(input_filename,
                                load_true_partition=0,
                                strm_piece_num=part,
                                out_neighbors=out_neighbors,
-                               in_neighbors=in_neighbors)
+                               in_neighbors=in_neighbors,
+                               start_idx=args.start_idx)
 
         # Run to ground.
         print('Running partition for part %d N %d E %d' % (part,N,E))
@@ -1771,7 +1773,8 @@ def incremental_streaming(args):
                                load_true_partition=1,
                                strm_piece_num=part,
                                out_neighbors=None,
-                               in_neighbors=None)
+                               in_neighbors=None,
+                               start_idx=args.start_idx)
             min_number_blocks = N / 2
         else:
             # Load true_partition here so the sizes of the arrays all equal N.
@@ -1784,7 +1787,8 @@ def incremental_streaming(args):
                                                            strm_piece_num=part,
                                                            out_neighbors=out_neighbors,
                                                            in_neighbors=in_neighbors,
-                                                           alg_state = alg_state)
+                                                           alg_state = alg_state,
+                                                           start_idx=args.start_idx)
                 t_part += t_compute
                 print("Intermediate load_graph compute time for part %d is %f" % (part,t_compute))
                 t0 = timeit.default_timer()
@@ -1844,7 +1848,8 @@ def incremental_streaming(args):
                                                            strm_piece_num=part,
                                                            out_neighbors=out_neighbors,
                                                            in_neighbors=in_neighbors,
-                                                           alg_state = None)
+                                                           alg_state = None,
+                                                           start_idx=args.start_idx)
 
             print("Loaded piece %d N %d E %d" % (part,N,E))
             min_number_blocks = int(min_number_blocks / 2)
@@ -2160,6 +2165,7 @@ if __name__ == '__main__':
     parser.add_argument("--mpi", type=int, required=False, default=0)
     parser.add_argument("--merge-proposals-per-block", type=int, required=False, default=10)
     parser.add_argument("input_filename", nargs="?", type=str, default="../../data/static/simulated_blockmodel_graph_500_nodes")
+    parser.add_argument("--start-idx", type=int, help="Index number of first vertex in the data file (default 1).", required=False, default=1)    
 
     # Debugging options
     parser.add_argument("--compressed-threshold", type=int, required=False, default=5000, help="")

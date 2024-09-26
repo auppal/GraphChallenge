@@ -19,6 +19,7 @@ http://graphchallenge.org
 
 # Running:
     # Partition a 5k node input using 8 threads.
+	# The input file should index vertex ids from 1, unless the --start-idx 0 option is used.
 	export PYTHONPATH=$PWD/build/lib.linux-x86_64-cpython-310
 	python partition_baseline_main.py ../../data/static/simulated_blockmodel_graph_5000_nodes -t 8
 

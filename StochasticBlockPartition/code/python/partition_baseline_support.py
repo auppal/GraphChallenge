@@ -71,7 +71,7 @@ def shared_memory_to_private(z):
     x[:] = z
     return x
 
-def load_graph(input_filename, load_true_partition, strm_piece_num=None, out_neighbors=None, in_neighbors=None,alg_state=None):
+def load_graph(input_filename, load_true_partition, strm_piece_num=None, out_neighbors=None, in_neighbors=None,alg_state=None,start_idx=1):
     """Load the graph from a TSV file with standard format, and the truth partition if available
 
         Parameters
@@ -101,6 +101,7 @@ def load_graph(input_filename, load_true_partition, strm_piece_num=None, out_nei
         true_b : ndarray (int) optional
                 array of truth block assignment for each node
 
+        start_idx: Numeric id of the first vertex in the data. Default is 1.
         Notes
         -----
         The standard tsv file has the form for each row: "from to [weight]" (tab delimited). Nodes are indexed from 0
@@ -111,8 +112,8 @@ def load_graph(input_filename, load_true_partition, strm_piece_num=None, out_nei
         true_b_rows = np.loadtxt('{}_truePartition.tsv'.format(input_filename), delimiter='\t', dtype=np.int64)
         true_b = np.ones(true_b_rows.shape[0], dtype=int) * -1  # initialize truth assignment to -1 for 'unknown'
         for i in range(true_b_rows.shape[0]):
-            true_b[true_b_rows[i, 0] - 1] = int(
-                true_b_rows[i, 1] - 1)  # -1 since Python is 0-indexed and the TSV is 1-indexed
+            true_b[true_b_rows[i, 0] - start_idx] = int(
+                true_b_rows[i, 1] - start_idx)
         true_partition_N = len(true_b)
     else:
         true_partition_N = 0
@@ -124,11 +125,13 @@ def load_graph(input_filename, load_true_partition, strm_piece_num=None, out_nei
         edge_rows = np.loadtxt('{}_{}.tsv'.format(input_filename, strm_piece_num), delimiter='\t', dtype=np.int64)
 
     if (out_neighbors == None):  # no previously loaded streaming pieces
-        N = max(edge_rows[:, 0:2].max(), true_partition_N)  # number of nodes
+        N = max(edge_rows[:, 0:2].max(), true_partition_N)  + 1 - start_idx # number of nodes
+
         out_neighbors = [[] for i in range(N)]
         in_neighbors = [[] for i in range(N)]
     else:  # add to previously loaded streaming pieces
-        N = max(edge_rows[:, 0:2].max(), len(out_neighbors))  # number of nodes
+        N = max(edge_rows[:, 0:2].max(), len(out_neighbors)) + 1 - start_idx # number of nodes
+
         out_neighbors = [list(out_neighbors[i]) for i in range(len(out_neighbors))]
         out_neighbors.extend([[] for i in range(N - len(out_neighbors))])
         in_neighbors = [list(in_neighbors[i]) for i in range(len(in_neighbors))]
@@ -141,9 +144,9 @@ def load_graph(input_filename, load_true_partition, strm_piece_num=None, out_nei
             edge_weight = edge_rows[i, 2]
         else:
             edge_weight = 1
-        # -1 on the node index since Python is 0-indexed and the standard graph TSV is 1-indexed
-        from_idx = edge_rows[i, 0] - 1
-        to_idx = edge_rows[i, 1] - 1
+
+        from_idx = edge_rows[i, 0] - start_idx
+        to_idx = edge_rows[i, 1] - start_idx
 
         out_neighbors[from_idx].append([to_idx, edge_weight])
         in_neighbors [to_idx].append([from_idx, edge_weight])
